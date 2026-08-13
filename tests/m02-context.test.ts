@@ -6,8 +6,8 @@ import {
   DEFAULT_PROJECTION,
   describeRequest,
 } from "../src/context.js";
-import { createIncidentTools, type SubmissionState } from "../src/incident.js";
 import { createMarsAuditReplies, ScriptedLlm } from "../src/llm-fake.js";
+import { composeM03Runtime } from "../src/plugins.js";
 
 describe("M02 context projection", () => {
   it("clips model-visible telemetry while preserving an explicit omission marker", () => {
@@ -22,10 +22,10 @@ describe("M02 context projection", () => {
 
   it("places stable prompt and tool schemas before append-only history and variable context", async () => {
     const llm = new ScriptedLlm(createMarsAuditReplies());
-    const state: SubmissionState = { acceptedPlan: null };
+    const { context } = await composeM03Runtime(llm);
     const result = await new Agent({
       llm,
-      tools: createIncidentTools(state),
+      context,
       systemPrompt: "Stable system prompt.",
       dynamicContext: (step) => `step=${step}`,
     }).runTurn("Recover the relay.");

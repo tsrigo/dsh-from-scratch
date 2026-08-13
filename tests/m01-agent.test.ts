@@ -3,14 +3,15 @@ import { Agent } from "../src/agent.js";
 import { createIncidentTools, type SubmissionState } from "../src/incident.js";
 import { DeepSeekLlm } from "../src/llm-deepseek.js";
 import { createMarsAuditReplies, ScriptedLlm } from "../src/llm-fake.js";
+import { composeM03Runtime } from "../src/plugins.js";
 
 describe("M01 ordinary tool Agent Loop", () => {
   it("completes the deterministic relay audit over three steps", async () => {
     const llm = new ScriptedLlm(createMarsAuditReplies());
-    const state: SubmissionState = { acceptedPlan: null };
+    const { context, state } = await composeM03Runtime(llm);
     const agent = new Agent({
       llm,
-      tools: createIncidentTools(state),
+      context,
       systemPrompt: "Audit the relay incident.",
     });
 
@@ -42,9 +43,10 @@ describe("M01 ordinary tool Agent Loop", () => {
       },
     ]);
     const state: SubmissionState = { acceptedPlan: null };
+    const { context } = await composeM03Runtime(llm);
     const result = await new Agent({
       llm,
-      tools: createIncidentTools(state),
+      context,
       systemPrompt: "Audit.",
     }).runTurn("Try invalid calls.");
     expect(result.steps).toBe(2);

@@ -13,6 +13,7 @@ import type {
   ToolDefinition,
   UnifiedRequest,
 } from "./protocol.js";
+import type { Context } from "./runtime.js";
 
 export interface AgentTraceEntry {
   kind: "turn" | "step" | "request" | "assistant" | "tool";
@@ -29,7 +30,7 @@ export interface RunTurnResult {
 
 export interface AgentOptions {
   llm: Llm;
-  tools: ToolDefinition[];
+  context: Context;
   systemPrompt: string;
   dynamicContext?: (step: number) => string;
   projection?: ProjectionSettings;
@@ -38,8 +39,9 @@ export interface AgentOptions {
 
 export class Agent {
   readonly #llm: Llm;
-  readonly #tools: Map<string, ToolDefinition>;
-  readonly #validators: Map<string, ValidateFunction>;
+  readonly #context: Context;
+  readonly #validators = new Map<string, { schema: string; validate: ValidateFunction }>();
+  readonly #ajv = new Ajv({ allErrors: true, strict: false });
   readonly #systemPrompt: string;
   readonly #dynamicContext: (step: number) => string;
   readonly #maxSteps: number;
@@ -48,11 +50,7 @@ export class Agent {
 
   constructor(options: AgentOptions) {
     this.#llm = options.llm;
-    this.#tools = new Map(options.tools.map((tool) => [tool.name, tool]));
-    const ajv = new Ajv({ allErrors: true, strict: false });
-    this.#validators = new Map(
-      options.tools.map((tool) => [tool.name, ajv.compile(tool.inputSchema)]),
-    );
+    this.#context = options.context;
     this.#systemPrompt = options.systemPrompt;
     this.#dynamicContext = options.dynamicContext ?? ((step) => `Current step: ${step}`);
     this.#maxSteps = options.maxSteps ?? 8;
@@ -67,8 +65,8 @@ export class Agent {
     for (let step = 1; step <= this.#maxSteps; step += 1) {
       trace.push({ kind: "step", label: `step/${step}/start` });
       const request: UnifiedRequest = {
-        system: this.#systemPrompt,
-        tools: toolSchemas([...this.#tools.values()]),
+        system: this.#context.compilePrompt(this.#systemPrompt),
+        tools: toolSchemas(this.#context.listTools()),
         messages: projectMessages(this.#messages, this.#projection),
         dynamicContext: this.#dynamicContext(step),
       };
@@ -101,9 +99,12 @@ export class Agent {
   }
 
   async #executeTool(name: string, input: JsonValue): Promise<JsonValue> {
-    const tool = this.#tools.get(name);
+    const tool = this.#context.getTool(name);
     if (!tool) return { ok: false, error: `Unknown tool: ${name}` };
-    const validate = this.#validators.get(name);
+    const schema = JSON.stringify(tool.inputSchema);
+    const cached = this.#validators.get(name);
+    const validate = cached?.schema === schema ? cached.validate : this.#ajv.compile(tool.inputSchema);
+    this.#validators.set(name, { schema, validate });
     if (!validate?.(input)) {
       return {
         ok: false,
@@ -112,7 +113,9 @@ export class Agent {
       };
     }
     try {
-      return await tool.execute(input);
+      const result = await tool.execute(input);
+      this.#context.emit("tool/executed", { name, input, result });
+      return result;
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

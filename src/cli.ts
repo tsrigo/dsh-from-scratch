@@ -1,12 +1,11 @@
 import { Agent } from "./agent.js";
-import { createIncidentTools, type SubmissionState } from "./incident.js";
 import { DeepSeekLlm } from "./llm-deepseek.js";
 import { createMarsAuditReplies, ScriptedLlm } from "./llm-fake.js";
+import { composeM03Runtime } from "./plugins.js";
 import type { Llm } from "./protocol.js";
 
 const args = new Set(process.argv.slice(2));
 const provider = valueAfter("--provider") ?? "fake";
-const state: SubmissionState = { acceptedPlan: null };
 
 let llm: Llm;
 if (provider === "deepseek") {
@@ -25,13 +24,14 @@ if (provider === "deepseek") {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-const agent = new Agent({
+const runtime = await composeM03Runtime(llm);
+const runtimeAgent = new Agent({
   llm,
-  tools: createIncidentTools(state),
+  context: runtime.context,
   systemPrompt:
     "You are a careful relay recovery auditor. Use only the incident tools and submit a constraint-valid plan.",
 });
-const result = await agent.runTurn(
+const result = await runtimeAgent.runTurn(
   "Audit incident MARS-RELAY-204 and submit the uniquely valid recovery plan.",
 );
 
@@ -39,7 +39,7 @@ console.log("Mars relay audit");
 for (const entry of result.trace) {
   console.log(`${entry.label}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : ""}`);
 }
-console.log(`result=${state.acceptedPlan ? "accepted" : "rejected"} steps=${result.steps} provider=${llm.provider}`);
+console.log(`result=${runtime.state.acceptedPlan ? "accepted" : "rejected"} steps=${result.steps} provider=${llm.provider}`);
 
 function valueAfter(flag: string): string | undefined {
   const values = [...args];
