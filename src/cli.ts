@@ -1,8 +1,7 @@
-import { Agent } from "./agent.js";
 import { DeepSeekLlm } from "./llm-deepseek.js";
-import { createCapabilityAuditReplies, ScriptedLlm } from "./llm-fake.js";
-import { composeRuntime } from "./plugins.js";
+import { createLongTaskAuditReplies, ScriptedLlm } from "./llm-fake.js";
 import type { Llm } from "./protocol.js";
+import { runMarsLongTask } from "./scenario.js";
 
 const args = new Set(process.argv.slice(2));
 const provider = valueAfter("--provider") ?? "fake";
@@ -19,27 +18,32 @@ if (provider === "deepseek") {
     ...(baseUrl ? { baseUrl } : {}),
   });
 } else if (provider === "fake") {
-  llm = new ScriptedLlm(createCapabilityAuditReplies());
+  llm = new ScriptedLlm(createLongTaskAuditReplies());
 } else {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-const runtime = await composeRuntime(llm);
-const runtimeAgent = new Agent({
-  llm,
-  context: runtime.context,
-  systemPrompt:
-    "You are a careful relay recovery auditor. Use only the incident tools and submit a constraint-valid plan.",
-});
-const result = await runtimeAgent.runTurn(
-  "Audit incident MARS-RELAY-204 and submit the uniquely valid recovery plan.",
-);
+const result = await runMarsLongTask(llm);
 
 console.log("Mars relay audit");
-for (const entry of result.trace) {
-  console.log(`${entry.title}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : ""}`);
+for (const event of result.session.events) {
+  if (event.type === "goal/round-started") {
+    console.log(`round/${event.round} · ${event.label}`);
+  } else if (event.type === "tool/call") {
+    console.log(`call · ${event.call.name}`);
+  } else if (event.type === "tool/result") {
+    console.log(`result · ${event.name} · ${shorten(event.content, 86)}`);
+  } else if (event.type === "runtime/plugin-mounted" && event.plugin.startsWith("capability:")) {
+    console.log(`mounted · ${event.plugin}`);
+  } else if (event.type === "runtime/plugin-unmounted" && event.plugin.startsWith("capability:")) {
+    console.log(`unmounted · ${event.plugin}`);
+  } else if (event.type === "goal/status-changed") {
+    console.log(`goal/${event.status} · ${event.reason}`);
+  }
 }
-console.log(`result=${runtime.state.acceptedPlan ? "accepted" : "rejected"} steps=${result.steps} provider=${llm.provider}`);
+console.log(
+  `result=${result.submission.acceptedPlan ? "accepted" : "rejected"} rounds=${result.goal.roundsStarted} provider=${llm.provider}`,
+);
 
 function valueAfter(flag: string): string | undefined {
   const values = [...args];

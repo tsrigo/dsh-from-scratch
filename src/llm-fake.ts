@@ -126,3 +126,81 @@ export function createCapabilityAuditReplies(): ScriptedReply[] {
     },
   ];
 }
+
+export function createLongTaskAuditReplies(): ScriptedReply[] {
+  return [
+    {
+      message: {
+        role: "assistant",
+        content: "Surveying the bounded runtime and incident packet.",
+        toolCalls: [
+          { id: "r1-inspect", name: "inspect_runtime", arguments: {} },
+          { id: "r1-read", name: "read_incident_packet", arguments: {} },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Survey complete: RELAY-7 shows thermal drift and three routes require comparison.",
+        toolCalls: [],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Installing the bounded route scoring experiment.",
+        toolCalls: [
+          {
+            id: "r2-install",
+            name: "install_capability",
+            arguments: { name: "route_scoring" },
+          },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "The scoring tool is now available in this request.",
+        toolCalls: [{ id: "r2-score", name: "score_routes", arguments: {} }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Scoring complete: ASTER is the only eligible route.",
+        toolCalls: [],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Removing the experiment, then submitting the verified plan.",
+        toolCalls: [
+          {
+            id: "r3-remove",
+            name: "remove_capability",
+            arguments: { name: "route_scoring" },
+          },
+          {
+            id: "r3-submit",
+            name: "submit_recovery_plan",
+            arguments: {
+              routeId: "ASTER",
+              isolateRelay: "RELAY-7",
+              reasonCode: "THERMAL_DRIFT",
+            },
+          },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Goal complete: ASTER accepted and the temporary capability is gone.",
+        toolCalls: [],
+      },
+    },
+  ];
+}
