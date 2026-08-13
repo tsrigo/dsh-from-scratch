@@ -56,3 +56,73 @@ export function createMarsAuditReplies(): ScriptedReply[] {
     },
   ];
 }
+
+export function createCapabilityAuditReplies(): ScriptedReply[] {
+  return [
+    {
+      message: {
+        role: "assistant",
+        content: "I will inspect the current assembly before changing it.",
+        toolCalls: [{ id: "call-inspect", name: "inspect_runtime", arguments: {} }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "I need the incident facts and a transparent scoring experiment.",
+        toolCalls: [
+          { id: "call-read", name: "read_incident_packet", arguments: {} },
+          {
+            id: "call-install",
+            name: "install_capability",
+            arguments: { name: "route_scoring" },
+          },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "The trusted scoring tool is now visible; I will run it.",
+        toolCalls: [{ id: "call-score", name: "score_routes", arguments: {} }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "ASTER is uniquely eligible, so the experiment can be removed.",
+        toolCalls: [
+          {
+            id: "call-remove",
+            name: "remove_capability",
+            arguments: { name: "route_scoring" },
+          },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "I will submit the verified recovery plan using the permanent incident tool.",
+        toolCalls: [
+          {
+            id: "call-submit",
+            name: "submit_recovery_plan",
+            arguments: {
+              routeId: "ASTER",
+              isolateRelay: "RELAY-7",
+              reasonCode: "THERMAL_DRIFT",
+            },
+          },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "Recovery plan accepted. The temporary scoring capability is no longer mounted.",
+        toolCalls: [],
+      },
+    },
+  ];
+}

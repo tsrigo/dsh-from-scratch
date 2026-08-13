@@ -1,7 +1,7 @@
 import { Agent } from "./agent.js";
 import { DeepSeekLlm } from "./llm-deepseek.js";
-import { createMarsAuditReplies, ScriptedLlm } from "./llm-fake.js";
-import { composeM03Runtime } from "./plugins.js";
+import { createCapabilityAuditReplies, ScriptedLlm } from "./llm-fake.js";
+import { composeRuntime } from "./plugins.js";
 import type { Llm } from "./protocol.js";
 
 const args = new Set(process.argv.slice(2));
@@ -19,12 +19,12 @@ if (provider === "deepseek") {
     ...(baseUrl ? { baseUrl } : {}),
   });
 } else if (provider === "fake") {
-  llm = new ScriptedLlm(createMarsAuditReplies());
+  llm = new ScriptedLlm(createCapabilityAuditReplies());
 } else {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-const runtime = await composeM03Runtime(llm);
+const runtime = await composeRuntime(llm);
 const runtimeAgent = new Agent({
   llm,
   context: runtime.context,

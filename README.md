@@ -2,7 +2,7 @@
 
 一个原创、可离线运行的 TypeScript 教学 Harness。我们用同一宗“火星中继站恢复审计”，从普通 tool calling 开始，逐步加入上下文投影、插件生命周期、只追加 Session Log、受信任能力实验和跨 Round 续行。
 
-当前教学 checkpoint：M04。
+当前教学 checkpoint：M05。
 
 ```sh
 corepack enable

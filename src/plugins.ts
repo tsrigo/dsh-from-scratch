@@ -1,7 +1,14 @@
 import { createIncidentTools, type SubmissionState } from "./incident.js";
+import { routeScoringPlugin } from "./catalog/route-scoring.js";
+import { wordCountPlugin } from "./catalog/word-count.js";
 import type { Llm } from "./protocol.js";
 import { Context, ServiceToken, type Plugin } from "./runtime.js";
 import { SessionLog, sessionPlugin } from "./session.js";
+import {
+  capabilityCatalogPlugin,
+  runtimeToolsPlugin,
+  TrustedCapabilityCatalog,
+} from "./runtime-tools.js";
 
 export const LLM = new ServiceToken<Llm>("llm");
 export const SUBMISSION_STATE = new ServiceToken<SubmissionState>("submission-state");
@@ -54,4 +61,23 @@ export async function composeM03Runtime(llm: Llm): Promise<{
   await context.mount(submissionStatePlugin(state));
   await context.mount(incidentPlugin());
   return { context, state, session };
+}
+
+export async function composeRuntime(llm: Llm): Promise<{
+  context: Context;
+  state: SubmissionState;
+  session: SessionLog;
+}> {
+  const runtime = await composeM03Runtime(llm);
+  const { context } = runtime;
+  await context.mount(
+    capabilityCatalogPlugin(
+      new TrustedCapabilityCatalog({
+        route_scoring: routeScoringPlugin,
+        word_count: wordCountPlugin,
+      }),
+    ),
+  );
+  await context.mount(runtimeToolsPlugin());
+  return runtime;
 }
