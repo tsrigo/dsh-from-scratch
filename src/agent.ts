@@ -1,4 +1,10 @@
 import { Ajv, type ValidateFunction } from "ajv";
+import {
+  DEFAULT_PROJECTION,
+  projectMessages,
+  toolSchemas,
+  type ProjectionSettings,
+} from "./context.js";
 import type {
   AssistantMessage,
   JsonValue,
@@ -26,6 +32,7 @@ export interface AgentOptions {
   tools: ToolDefinition[];
   systemPrompt: string;
   dynamicContext?: (step: number) => string;
+  projection?: ProjectionSettings;
   maxSteps?: number;
 }
 
@@ -36,6 +43,7 @@ export class Agent {
   readonly #systemPrompt: string;
   readonly #dynamicContext: (step: number) => string;
   readonly #maxSteps: number;
+  readonly #projection: ProjectionSettings;
   readonly #messages: ModelMessage[] = [];
 
   constructor(options: AgentOptions) {
@@ -48,6 +56,7 @@ export class Agent {
     this.#systemPrompt = options.systemPrompt;
     this.#dynamicContext = options.dynamicContext ?? ((step) => `Current step: ${step}`);
     this.#maxSteps = options.maxSteps ?? 8;
+    this.#projection = options.projection ?? DEFAULT_PROJECTION;
   }
 
   async runTurn(userInput: string): Promise<RunTurnResult> {
@@ -59,12 +68,8 @@ export class Agent {
       trace.push({ kind: "step", label: `step/${step}/start` });
       const request: UnifiedRequest = {
         system: this.#systemPrompt,
-        tools: [...this.#tools.values()].map(({ name, description, inputSchema }) => ({
-          name,
-          description,
-          inputSchema,
-        })),
-        messages: structuredClone(this.#messages),
+        tools: toolSchemas([...this.#tools.values()]),
+        messages: projectMessages(this.#messages, this.#projection),
         dynamicContext: this.#dynamicContext(step),
       };
       requests.push(structuredClone(request));

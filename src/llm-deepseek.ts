@@ -57,8 +57,11 @@ export class DeepSeekLlm implements Llm {
         temperature: 0,
         thinking: { type: "disabled" },
         messages: [
-          { role: "system", content: [request.system, request.dynamicContext].filter(Boolean).join("\n\n") },
+          { role: "system", content: request.system },
           ...request.messages.flatMap(toDeepSeekMessages),
+          ...(request.dynamicContext
+            ? [{ role: "system", content: `[Step context]\n${request.dynamicContext}` }]
+            : []),
         ],
         tools: request.tools.map((tool) => ({
           type: "function",
