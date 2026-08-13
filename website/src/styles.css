@@ -294,7 +294,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 34px
   .chapter { grid-template-columns: 55px 1fr; }.chapter-content { padding-inline: 38px; }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 960px) {
   .site-header { grid-template-columns: 1fr auto; height: 60px; }.checkpoint-nav { position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; height: 54px; justify-content: center; background: #10171b; border-top: 1px solid rgba(223,255,89,.18); }.checkpoint-nav button { flex: 1; height: 54px; max-width: 90px; }.repo-link { display: none; }
   .hero { min-height: auto; grid-template-columns: 1fr; padding: 70px 28px 62px; }.hero h1 { font-size: clamp(42px, 12vw, 66px); }.hero-intro { font-size: 15px; }.orbit-art { width: min(100%, 560px); margin: 34px auto -20px; justify-self: center; }.hero-caption { display: none; }.hero-facts div { min-width: 0; flex: 1; }
   .learning-layout { display: block; border: 0; }.evidence-dock { display: none; }.chapter { min-height: 0; grid-template-columns: 40px minmax(0, 1fr); scroll-margin-top: 60px; }.chapter-rail { padding-top: 56px; }.chapter-content { min-width: 0; padding: 54px 24px 76px 22px; }.chapter h2 { font-size: clamp(34px, 9vw, 48px); }.chapter-kicker span:last-child { display: none; }.lesson-copy p { font-size: 14px; }.mode-contrast { grid-template-columns: 1fr; }.mode-arrow { transform: rotate(90deg); }.preset-grid { grid-template-columns: 1fr 1fr; }.chapter-verdict { grid-template-columns: auto 1fr; }.chapter-verdict button { display: none; }
