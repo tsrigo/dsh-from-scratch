@@ -1,3 +1,6 @@
+import { readFile, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import type { JsonValue, ToolDefinition } from "./protocol.js";
 
 export const RECOVERY_PLAN = {
@@ -6,33 +9,52 @@ export const RECOVERY_PLAN = {
   reasonCode: "THERMAL_DRIFT",
 } as const;
 
-const telemetry = Array.from({ length: 36 }, (_, index) => {
-  const minute = String(index).padStart(2, "0");
-  const temperature = index < 30 ? 41 + (index % 4) : 74 + index - 30;
-  return `T+${minute} relay=RELAY-7 temp=${temperature}C jitter=${3 + (index % 5)}ms`;
-});
-
-export const INCIDENT_PACKET = {
-  incidentId: "MARS-RELAY-204",
-  symptom: "Surface packets disappear whenever RELAY-7 warms past 76C.",
+export interface IncidentPacket {
+  incidentId: string;
+  symptom: string;
   constraints: {
-    maximumLatencyMs: 65,
-    maximumPacketLossPercent: 2,
-    maximumEnergyUnits: 5,
-  },
-  candidates: [
-    { routeId: "BOREAL", latencyMs: 42, packetLossPercent: 6.5, energyUnits: 4 },
-    { routeId: "ASTER", latencyMs: 58, packetLossPercent: 1.2, energyUnits: 3 },
-    { routeId: "CRATER", latencyMs: 75, packetLossPercent: 0.5, energyUnits: 8 },
-  ],
-  telemetry,
-};
+    maximumLatencyMs: number;
+    maximumPacketLossPercent: number;
+    maximumEnergyUnits: number;
+  };
+  candidates: Array<{
+    routeId: string;
+    latencyMs: number;
+    packetLossPercent: number;
+    energyUnits: number;
+  }>;
+  telemetry: string[];
+}
+
+const readFileAsync = promisify(readFile);
+const defaultFixture = new URL("../demo-workspace/incident.json", import.meta.url);
+
+export const INCIDENT_PACKET = parseIncidentPacket(
+  JSON.parse(readFileSync(defaultFixture, "utf8")),
+  defaultFixture.pathname,
+);
+
+export async function loadIncidentPacket(workspace: string): Promise<IncidentPacket> {
+  const path = join(workspace, "incident.json");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFileAsync(path, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `Cannot load the bounded incident packet at ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return parseIncidentPacket(parsed, path);
+}
 
 export interface SubmissionState {
   acceptedPlan: typeof RECOVERY_PLAN | null;
 }
 
-export function createIncidentTools(state: SubmissionState): ToolDefinition[] {
+export function createIncidentTools(
+  state: SubmissionState,
+  packet: IncidentPacket = INCIDENT_PACKET,
+): ToolDefinition[] {
   return [
     {
       name: "read_incident_packet",
@@ -42,7 +64,7 @@ export function createIncidentTools(state: SubmissionState): ToolDefinition[] {
         properties: {},
         additionalProperties: false,
       },
-      execute: () => INCIDENT_PACKET as unknown as JsonValue,
+      execute: () => packet as unknown as JsonValue,
     },
     {
       name: "submit_recovery_plan",
@@ -69,4 +91,43 @@ export function createIncidentTools(state: SubmissionState): ToolDefinition[] {
       },
     },
   ];
+}
+
+function parseIncidentPacket(value: unknown, source: string): IncidentPacket {
+  if (!isRecord(value)) throw new Error(`Invalid incident packet at ${source}: root must be an object.`);
+  const constraints = value.constraints;
+  const candidates = value.candidates;
+  if (
+    typeof value.incidentId !== "string" ||
+    typeof value.symptom !== "string" ||
+    !isRecord(constraints) ||
+    !isFiniteNumber(constraints.maximumLatencyMs) ||
+    !isFiniteNumber(constraints.maximumPacketLossPercent) ||
+    !isFiniteNumber(constraints.maximumEnergyUnits) ||
+    !Array.isArray(candidates) ||
+    !candidates.every(isCandidate) ||
+    !Array.isArray(value.telemetry) ||
+    !value.telemetry.every((line) => typeof line === "string")
+  ) {
+    throw new Error(`Invalid incident packet at ${source}: fields do not match the Nano fixture schema.`);
+  }
+  return structuredClone(value) as unknown as IncidentPacket;
+}
+
+function isCandidate(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.routeId === "string" &&
+    isFiniteNumber(value.latencyMs) &&
+    isFiniteNumber(value.packetLossPercent) &&
+    isFiniteNumber(value.energyUnits)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }

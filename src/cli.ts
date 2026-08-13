@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { loadIncidentPacket } from "./incident.js";
 import { DeepSeekLlm } from "./llm-deepseek.js";
 import { createLongTaskAuditReplies, ScriptedLlm } from "./llm-fake.js";
 import type { Llm } from "./protocol.js";
@@ -5,6 +7,8 @@ import { runMarsLongTask } from "./scenario.js";
 
 const args = new Set(process.argv.slice(2));
 const provider = valueAfter("--provider") ?? "fake";
+const workspace = resolve(valueAfter("--workspace") ?? "./demo-workspace");
+const packet = await loadIncidentPacket(workspace);
 
 let llm: Llm;
 if (provider === "deepseek") {
@@ -23,7 +27,7 @@ if (provider === "deepseek") {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-const result = await runMarsLongTask(llm);
+const result = await runMarsLongTask(llm, { packet });
 
 console.log("Mars relay audit");
 for (const event of result.session.events) {
@@ -42,7 +46,7 @@ for (const event of result.session.events) {
   }
 }
 console.log(
-  `result=${result.submission.acceptedPlan ? "accepted" : "rejected"} rounds=${result.goal.roundsStarted} provider=${llm.provider}`,
+  `result=${result.submission.acceptedPlan ? "accepted" : "rejected"} rounds=${result.goal.roundsStarted} provider=${llm.provider} workspace=${workspace}`,
 );
 
 function valueAfter(flag: string): string | undefined {

@@ -1,4 +1,4 @@
-import { INCIDENT_PACKET } from "../incident.js";
+import { INCIDENT_PACKET, type IncidentPacket } from "../incident.js";
 import type { JsonValue } from "../protocol.js";
 import type { Plugin } from "../runtime.js";
 
@@ -13,9 +13,9 @@ export interface RouteScore {
   };
 }
 
-export function scoreIncidentRoutes(): RouteScore[] {
-  const limits = INCIDENT_PACKET.constraints;
-  return INCIDENT_PACKET.candidates
+export function scoreIncidentRoutes(packet: IncidentPacket = INCIDENT_PACKET): RouteScore[] {
+  const limits = packet.constraints;
+  return packet.candidates
     .map((route) => {
       const checks = {
         latency: route.latencyMs <= limits.maximumLatencyMs,
@@ -34,7 +34,7 @@ export function scoreIncidentRoutes(): RouteScore[] {
     .sort((left, right) => Number(right.eligible) - Number(left.eligible) || left.score - right.score);
 }
 
-export function routeScoringPlugin(): Plugin {
+export function routeScoringPlugin(packet: IncidentPacket = INCIDENT_PACKET): Plugin {
   return {
     name: "capability:route_scoring",
     setup(context) {
@@ -52,7 +52,7 @@ export function routeScoringPlugin(): Plugin {
         },
         execute: () => ({
           formula: "latency + packetLoss×10 + energy×5; eligibility is a hard gate",
-          routes: scoreIncidentRoutes(),
+          routes: scoreIncidentRoutes(packet),
         }) as unknown as JsonValue,
       });
     },

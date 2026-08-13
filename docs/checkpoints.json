@@ -1,0 +1,74 @@
+[
+  {
+    "id": "m01",
+    "number": "01",
+    "tag": "tutorial-m01",
+    "previousTag": "71ddc78",
+    "scenario": "ordinary-loop",
+    "sourcePath": "src/agent.ts",
+    "lessonPath": "docs/lessons/m01.md",
+    "shortTitle": "Loop",
+    "title": "从一次工具往返开始",
+    "question": "模型怎样把判断变成可验证的动作？"
+  },
+  {
+    "id": "m02",
+    "number": "02",
+    "tag": "tutorial-m02",
+    "previousTag": "tutorial-m01",
+    "scenario": "projected-context",
+    "sourcePath": "src/context.ts",
+    "lessonPath": "docs/lessons/m02.md",
+    "shortTitle": "Context",
+    "title": "让稳定前缀保持稳定",
+    "question": "完整记录和模型上下文为什么不该是同一份？"
+  },
+  {
+    "id": "m03",
+    "number": "03",
+    "tag": "tutorial-m03",
+    "previousTag": "tutorial-m02",
+    "scenario": "plugin-kernel",
+    "sourcePath": "src/runtime.ts",
+    "lessonPath": "docs/lessons/m03.md",
+    "shortTitle": "Plugins",
+    "title": "给每项能力一个主人",
+    "question": "一项能力怎样完整安装，也完整离场？"
+  },
+  {
+    "id": "m04",
+    "number": "04",
+    "tag": "tutorial-m04",
+    "previousTag": "tutorial-m03",
+    "scenario": "event-history",
+    "sourcePath": "src/session.ts",
+    "lessonPath": "docs/lessons/m04.md",
+    "shortTitle": "Session",
+    "title": "只保留一份历史",
+    "question": "怎样从发生过的事件重建任意模型请求？"
+  },
+  {
+    "id": "m05",
+    "number": "05",
+    "tag": "tutorial-m05",
+    "previousTag": "tutorial-m04",
+    "scenario": "trusted-experiment",
+    "sourcePath": "src/runtime-tools.ts",
+    "lessonPath": "docs/lessons/m05.md",
+    "shortTitle": "Create",
+    "title": "先试装，再决定",
+    "question": "创造模式的运行时实验，边界到底在哪里？"
+  },
+  {
+    "id": "m06",
+    "number": "06",
+    "tag": "tutorial-m06",
+    "previousTag": "tutorial-m05",
+    "scenario": "long-task",
+    "sourcePath": "src/long-task.ts",
+    "lessonPath": "docs/lessons/m06.md",
+    "shortTitle": "Rounds",
+    "title": "把同一目标带到下一轮",
+    "question": "长程续行怎样知道该继续，还是该停？"
+  }
+]

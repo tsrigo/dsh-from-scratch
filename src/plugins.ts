@@ -1,4 +1,9 @@
-import { createIncidentTools, type SubmissionState } from "./incident.js";
+import {
+  createIncidentTools,
+  INCIDENT_PACKET,
+  type IncidentPacket,
+  type SubmissionState,
+} from "./incident.js";
 import { routeScoringPlugin } from "./catalog/route-scoring.js";
 import { wordCountPlugin } from "./catalog/word-count.js";
 import type { Llm } from "./protocol.js";
@@ -31,7 +36,7 @@ export function submissionStatePlugin(state: SubmissionState): Plugin {
   };
 }
 
-export function incidentPlugin(): Plugin {
+export function incidentPlugin(packet: IncidentPacket = INCIDENT_PACKET): Plugin {
   return {
     name: "mars-incident",
     setup(context) {
@@ -40,7 +45,7 @@ export function incidentPlugin(): Plugin {
         "incident-guardrails",
         "Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.",
       );
-      for (const tool of createIncidentTools(state)) context.registerTool(tool);
+      for (const tool of createIncidentTools(state, packet)) context.registerTool(tool);
       context.on("tool/executed", () => {
         // The no-op listener exists to make lifecycle ownership observable in M03.
       });
@@ -48,7 +53,10 @@ export function incidentPlugin(): Plugin {
   };
 }
 
-export async function composeM03Runtime(llm: Llm): Promise<{
+export async function composeM03Runtime(
+  llm: Llm,
+  options: { packet?: IncidentPacket } = {},
+): Promise<{
   context: Context;
   state: SubmissionState;
   session: SessionLog;
@@ -59,21 +67,25 @@ export async function composeM03Runtime(llm: Llm): Promise<{
   await context.mount(sessionPlugin(session));
   await context.mount(llmPlugin(llm));
   await context.mount(submissionStatePlugin(state));
-  await context.mount(incidentPlugin());
+  await context.mount(incidentPlugin(options.packet ?? INCIDENT_PACKET));
   return { context, state, session };
 }
 
-export async function composeRuntime(llm: Llm): Promise<{
+export async function composeRuntime(
+  llm: Llm,
+  options: { packet?: IncidentPacket } = {},
+): Promise<{
   context: Context;
   state: SubmissionState;
   session: SessionLog;
 }> {
-  const runtime = await composeM03Runtime(llm);
+  const packet = options.packet ?? INCIDENT_PACKET;
+  const runtime = await composeM03Runtime(llm, { packet });
   const { context } = runtime;
   await context.mount(
     capabilityCatalogPlugin(
       new TrustedCapabilityCatalog({
-        route_scoring: routeScoringPlugin,
+        route_scoring: () => routeScoringPlugin(packet),
         word_count: wordCountPlugin,
       }),
     ),

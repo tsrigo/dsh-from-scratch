@@ -1,0 +1,52 @@
+{
+  "incidentId": "MARS-RELAY-204",
+  "symptom": "Surface packets disappear whenever RELAY-7 warms past 76C.",
+  "constraints": {
+    "maximumLatencyMs": 65,
+    "maximumPacketLossPercent": 2,
+    "maximumEnergyUnits": 5
+  },
+  "candidates": [
+    { "routeId": "BOREAL", "latencyMs": 42, "packetLossPercent": 6.5, "energyUnits": 4 },
+    { "routeId": "ASTER", "latencyMs": 58, "packetLossPercent": 1.2, "energyUnits": 3 },
+    { "routeId": "CRATER", "latencyMs": 75, "packetLossPercent": 0.5, "energyUnits": 8 }
+  ],
+  "telemetry": [
+    "T+00 relay=RELAY-7 temp=41C jitter=3ms",
+    "T+01 relay=RELAY-7 temp=42C jitter=4ms",
+    "T+02 relay=RELAY-7 temp=43C jitter=5ms",
+    "T+03 relay=RELAY-7 temp=44C jitter=6ms",
+    "T+04 relay=RELAY-7 temp=41C jitter=7ms",
+    "T+05 relay=RELAY-7 temp=42C jitter=3ms",
+    "T+06 relay=RELAY-7 temp=43C jitter=4ms",
+    "T+07 relay=RELAY-7 temp=44C jitter=5ms",
+    "T+08 relay=RELAY-7 temp=41C jitter=6ms",
+    "T+09 relay=RELAY-7 temp=42C jitter=7ms",
+    "T+10 relay=RELAY-7 temp=43C jitter=3ms",
+    "T+11 relay=RELAY-7 temp=44C jitter=4ms",
+    "T+12 relay=RELAY-7 temp=41C jitter=5ms",
+    "T+13 relay=RELAY-7 temp=42C jitter=6ms",
+    "T+14 relay=RELAY-7 temp=43C jitter=7ms",
+    "T+15 relay=RELAY-7 temp=44C jitter=3ms",
+    "T+16 relay=RELAY-7 temp=41C jitter=4ms",
+    "T+17 relay=RELAY-7 temp=42C jitter=5ms",
+    "T+18 relay=RELAY-7 temp=43C jitter=6ms",
+    "T+19 relay=RELAY-7 temp=44C jitter=7ms",
+    "T+20 relay=RELAY-7 temp=41C jitter=3ms",
+    "T+21 relay=RELAY-7 temp=42C jitter=4ms",
+    "T+22 relay=RELAY-7 temp=43C jitter=5ms",
+    "T+23 relay=RELAY-7 temp=44C jitter=6ms",
+    "T+24 relay=RELAY-7 temp=41C jitter=7ms",
+    "T+25 relay=RELAY-7 temp=42C jitter=3ms",
+    "T+26 relay=RELAY-7 temp=43C jitter=4ms",
+    "T+27 relay=RELAY-7 temp=44C jitter=5ms",
+    "T+28 relay=RELAY-7 temp=41C jitter=6ms",
+    "T+29 relay=RELAY-7 temp=42C jitter=7ms",
+    "T+30 relay=RELAY-7 temp=74C jitter=3ms",
+    "T+31 relay=RELAY-7 temp=75C jitter=4ms",
+    "T+32 relay=RELAY-7 temp=76C jitter=5ms",
+    "T+33 relay=RELAY-7 temp=77C jitter=6ms",
+    "T+34 relay=RELAY-7 temp=78C jitter=7ms",
+    "T+35 relay=RELAY-7 temp=79C jitter=3ms"
+  ]
+}

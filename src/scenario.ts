@@ -1,5 +1,6 @@
 import { Agent } from "./agent.js";
 import type { SubmissionState } from "./incident.js";
+import type { IncidentPacket } from "./incident.js";
 import { LongTaskRunner, type LongTaskState } from "./long-task.js";
 import type { Llm } from "./protocol.js";
 import { composeRuntime } from "./plugins.js";
@@ -13,8 +14,11 @@ export interface MarsLongTaskResult {
   submission: SubmissionState;
 }
 
-export async function runMarsLongTask(llm: Llm): Promise<MarsLongTaskResult> {
-  const runtime = await composeRuntime(llm);
+export async function runMarsLongTask(
+  llm: Llm,
+  options: { packet?: IncidentPacket } = {},
+): Promise<MarsLongTaskResult> {
+  const runtime = await composeRuntime(llm, options);
   const agent = new Agent({
     llm,
     context: runtime.context,
