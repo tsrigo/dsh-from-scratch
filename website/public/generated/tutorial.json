@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "project": {
     "name": "dsh-from-scratch",
     "scenario": "火星中继站恢复审计",
