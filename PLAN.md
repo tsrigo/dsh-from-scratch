@@ -8,7 +8,7 @@
 
 同目录的 `deepseek-harness/` 是只读上游参考，固定在 commit `47f943859bef60e4160492346772ded9b24f765a`，不得修改。新项目文件直接创建在本文件所在目录。
 
-目标读者会基础 TypeScript，但没有接触过 Cordis 或 Agent Harness。教程应像一次从零搭建：遇到一个问题，加入一块机制，立即运行并观察结果；不要写成 DSH 功能百科。
+目标读者不需要预先了解 TypeScript、Cordis 或 Agent Harness。网站在 M01 前提供只覆盖本教程必要语法的 TypeScript 预检；教程随后像一次从零搭建：遇到一个问题，加入一块机制，立即运行并观察结果，不写成 DSH 功能百科。
 
 M01–M05 是首版入门主线，经过第 2.4 节的贯穿任务筛选后，M06 也已进入首版。筛选过程与原始候选保存在 [Nano DSH 内容候选](nano-dsh-curriculum/NANO-DSH-CANDIDATES.md)。
 

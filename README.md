@@ -2,7 +2,7 @@
 
 一个原创、可离线运行的 TypeScript 教学 Harness 与交互式网站。我们用同一宗“火星中继站恢复审计”，从普通 tool calling 开始，逐步加入上下文投影、插件生命周期、只追加 Session Log、受信任能力实验和跨 Round 续行。
 
-目标读者只需会一点基础 TypeScript，不需要了解 Cordis 或 Agent Harness。每章先暴露上一步的具体不足，再加入一块机制，并同步展示当时的真实源码、Git diff、模型请求、Trace、Session Events 和插件图。
+不要求读者预先了解 TypeScript、Cordis 或 Agent Harness。网站在 M01 前用四张预检卡解释本教程会反复出现的类型标注、`interface`、`async/await` 和事件联合；每章再先暴露上一步的具体不足，加入一块机制，并同步展示当时的真实源码、Git diff、模型请求、Trace、Session Events 和插件图。
 
 ## 离线运行
 

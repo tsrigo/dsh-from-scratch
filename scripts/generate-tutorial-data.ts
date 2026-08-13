@@ -41,6 +41,7 @@ const root = resolve(import.meta.dirname, "..");
 const configs = JSON.parse(
   await readFile(resolve(root, "docs/checkpoints.json"), "utf8"),
 ) as CheckpointConfig[];
+const primer = await readFile(resolve(root, "docs/typescript-primer.md"), "utf8");
 
 const chapters = [];
 for (const config of configs) {
@@ -88,7 +89,7 @@ for (const config of configs) {
 }
 
 const output = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   project: {
     name: "dsh-from-scratch",
     scenario: "火星中继站恢复审计",
@@ -101,6 +102,7 @@ const output = {
       codeRuntime: false,
       presetLoader: false,
     },
+    primer,
   },
   chapters,
 };

@@ -86,6 +86,7 @@ export function App() {
       <Header data={data} activeId={activeChapter.id} onNavigate={navigateTo} />
       <main>
         <Hero data={data} onStart={() => navigateTo(data.chapters[0]!)} />
+        <TypeScriptPrimer markdown={data.project.primer ?? ""} />
         <div className="learning-layout">
           <article className="chapters" aria-label="渐进教程">
             {data.chapters.map((chapter, index) => (
@@ -129,6 +130,32 @@ export function App() {
         <span>确定性 fake LLM · 静态证据 · 原创实现</span>
       </footer>
     </div>
+  );
+}
+
+function TypeScriptPrimer({ markdown }: { markdown: string }) {
+  const sections = parsePrimer(markdown);
+  return (
+    <section className="typescript-primer" aria-labelledby="typescript-primer-title">
+      <div className="primer-heading">
+        <p className="eyebrow">ZERO-PREREQUISITE PREFLIGHT</p>
+        <h2 id="typescript-primer-title">不会 TypeScript？先认四个路标。</h2>
+        <p>{sections.intro}</p>
+      </div>
+      <div className="primer-cards">
+        {sections.cards.map((card, index) => (
+          <article key={card.title}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <h3>{card.title}</h3>
+            <pre><code>{card.code}</code></pre>
+            <p>{card.body}</p>
+          </article>
+        ))}
+      </div>
+      <div className="primer-flow">
+        <span>USER</span><i>→</i><span>REQUEST</span><i>→</i><span>TOOL</span><i>→</i><span>EVENT</span><i>→</i><span>NEXT STEP</span>
+      </div>
+    </section>
   );
 }
 
@@ -574,6 +601,22 @@ function parseLesson(markdown: string): Array<{ kind: "heading" | "paragraph"; t
       kind: block.startsWith("## ") ? "heading" : "paragraph",
       text: block.replace(/^##\s+/u, "").replace(/\n/gu, " "),
     }));
+}
+
+function parsePrimer(markdown: string): {
+  intro: string;
+  cards: Array<{ title: string; code: string; body: string }>;
+} {
+  if (!markdown) return { intro: "TypeScript 预检数据正在更新。", cards: [] };
+  const intro = markdown.split(/\n\s*\n/u)[1]?.trim() ?? "";
+  const cards = [...markdown.matchAll(
+    /##\s+([^\n]+)\n\s*```ts\n([\s\S]*?)```\n\s*([^\n][\s\S]*?)(?=\n##\s+|$)/gu,
+  )].map((match) => ({
+    title: match[1]?.trim() ?? "",
+    code: match[2]?.trim() ?? "",
+    body: match[3]?.trim().replace(/\n/gu, " ") ?? "",
+  }));
+  return { intro, cards };
 }
 
 function renderInlineCode(text: string) {

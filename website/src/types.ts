@@ -78,6 +78,7 @@ export interface TutorialData {
     scenario: string;
     dataPolicy: string;
     selectedScope: Record<string, boolean>;
+    primer: string;
   };
   chapters: Chapter[];
 }
