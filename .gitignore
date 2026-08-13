@@ -1,0 +1,16 @@
+node_modules/
+dist/
+coverage/
+website/dist/
+.DS_Store
+*.log
+
+# Read-only local references; they are not part of the original implementation.
+deepseek-harness/
+ref/
+
+# Local task brief contains an API credential and must never enter history.
+goal.md
+.env
+.env.*
+!.env.example
