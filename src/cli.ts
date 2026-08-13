@@ -37,7 +37,7 @@ const result = await runtimeAgent.runTurn(
 
 console.log("Mars relay audit");
 for (const entry of result.trace) {
-  console.log(`${entry.label}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : ""}`);
+  console.log(`${entry.title}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : ""}`);
 }
 console.log(`result=${runtime.state.acceptedPlan ? "accepted" : "rejected"} steps=${result.steps} provider=${llm.provider}`);
 

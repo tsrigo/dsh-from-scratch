@@ -15,6 +15,11 @@ export interface UserMessage {
   content: string;
 }
 
+export interface SystemMessage {
+  role: "system";
+  content: string;
+}
+
 export interface AssistantMessage {
   role: "assistant";
   content: string;
@@ -28,7 +33,7 @@ export interface ToolMessage {
   content: string;
 }
 
-export type ModelMessage = UserMessage | AssistantMessage | ToolMessage;
+export type ModelMessage = SystemMessage | UserMessage | AssistantMessage | ToolMessage;
 
 export interface ToolSchema {
   name: string;

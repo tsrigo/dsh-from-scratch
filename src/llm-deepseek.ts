@@ -101,6 +101,7 @@ export class DeepSeekLlm implements Llm {
 }
 
 function toDeepSeekMessages(message: ModelMessage): Array<Record<string, unknown>> {
+  if (message.role === "system") return [{ role: "system", content: message.content }];
   if (message.role === "user") return [{ role: "user", content: message.content }];
   if (message.role === "tool") {
     return [{ role: "tool", tool_call_id: message.toolCallId, content: message.content }];

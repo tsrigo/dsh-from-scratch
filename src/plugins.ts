@@ -1,6 +1,7 @@
 import { createIncidentTools, type SubmissionState } from "./incident.js";
 import type { Llm } from "./protocol.js";
 import { Context, ServiceToken, type Plugin } from "./runtime.js";
+import { SessionLog, sessionPlugin } from "./session.js";
 
 export const LLM = new ServiceToken<Llm>("llm");
 export const SUBMISSION_STATE = new ServiceToken<SubmissionState>("submission-state");
@@ -43,11 +44,14 @@ export function incidentPlugin(): Plugin {
 export async function composeM03Runtime(llm: Llm): Promise<{
   context: Context;
   state: SubmissionState;
+  session: SessionLog;
 }> {
   const context = new Context();
   const state: SubmissionState = { acceptedPlan: null };
+  const session = new SessionLog();
+  await context.mount(sessionPlugin(session));
   await context.mount(llmPlugin(llm));
   await context.mount(submissionStatePlugin(state));
   await context.mount(incidentPlugin());
-  return { context, state };
+  return { context, state, session };
 }

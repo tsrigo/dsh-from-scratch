@@ -1,7 +1,6 @@
 import { Ajv, type ValidateFunction } from "ajv";
 import {
   DEFAULT_PROJECTION,
-  projectMessages,
   toolSchemas,
   type ProjectionSettings,
 } from "./context.js";
@@ -9,23 +8,30 @@ import type {
   AssistantMessage,
   JsonValue,
   Llm,
-  ModelMessage,
-  ToolDefinition,
   UnifiedRequest,
 } from "./protocol.js";
 import type { Context } from "./runtime.js";
-
-export interface AgentTraceEntry {
-  kind: "turn" | "step" | "request" | "assistant" | "tool";
-  label: string;
-  detail?: string;
-}
+import {
+  buildRequest,
+  replayTrace,
+  SESSION_LOG,
+  type SessionEvent,
+  type SessionLog,
+  type TraceItem,
+} from "./session.js";
 
 export interface RunTurnResult {
   finalMessage: AssistantMessage;
   steps: number;
-  trace: AgentTraceEntry[];
+  turnId: string;
+  stepIds: string[];
+  trace: TraceItem[];
   requests: UnifiedRequest[];
+}
+
+export interface CheckpointProposal {
+  summary: string;
+  coveredThroughEventId: number;
 }
 
 export interface AgentOptions {
@@ -34,6 +40,10 @@ export interface AgentOptions {
   systemPrompt: string;
   dynamicContext?: (step: number) => string;
   projection?: ProjectionSettings;
+  checkpointBeforeStep?: (input: {
+    step: number;
+    events: readonly SessionEvent[];
+  }) => CheckpointProposal | undefined;
   maxSteps?: number;
 }
 
@@ -46,7 +56,8 @@ export class Agent {
   readonly #dynamicContext: (step: number) => string;
   readonly #maxSteps: number;
   readonly #projection: ProjectionSettings;
-  readonly #messages: ModelMessage[] = [];
+  readonly #session: SessionLog;
+  readonly #checkpointBeforeStep?: AgentOptions["checkpointBeforeStep"];
 
   constructor(options: AgentOptions) {
     this.#llm = options.llm;
@@ -55,46 +66,73 @@ export class Agent {
     this.#dynamicContext = options.dynamicContext ?? ((step) => `Current step: ${step}`);
     this.#maxSteps = options.maxSteps ?? 8;
     this.#projection = options.projection ?? DEFAULT_PROJECTION;
+    this.#session = this.#context.use(SESSION_LOG);
+    this.#checkpointBeforeStep = options.checkpointBeforeStep;
   }
 
   async runTurn(userInput: string): Promise<RunTurnResult> {
-    this.#messages.push({ role: "user", content: userInput });
-    const trace: AgentTraceEntry[] = [{ kind: "turn", label: "turn/start", detail: userInput }];
+    const eventStart = this.#session.events.length;
+    const turnId = this.#session.nextTurnId();
+    this.#session.append({ type: "turn/start", turnId });
+    this.#session.append({ type: "user/message", turnId, content: userInput });
     const requests: UnifiedRequest[] = [];
+    const stepIds: string[] = [];
 
     for (let step = 1; step <= this.#maxSteps; step += 1) {
-      trace.push({ kind: "step", label: `step/${step}/start` });
-      const request: UnifiedRequest = {
+      const checkpoint = this.#checkpointBeforeStep?.({ step, events: this.#session.events });
+      if (checkpoint) {
+        this.#session.checkpoint(checkpoint.summary, checkpoint.coveredThroughEventId);
+      }
+      const stepId = `${turnId}-step-${step}`;
+      stepIds.push(stepId);
+      this.#session.append({ type: "step/start", turnId, stepId, ordinal: step });
+      this.#session.append({
+        type: "request/header",
+        stepId,
+        provider: this.#llm.provider,
+        model: this.#llm.model,
         system: this.#context.compilePrompt(this.#systemPrompt),
         tools: toolSchemas(this.#context.listTools()),
-        messages: projectMessages(this.#messages, this.#projection),
         dynamicContext: this.#dynamicContext(step),
-      };
+        projection: this.#projection,
+      });
+      const request = buildRequest(this.#session.events, stepId);
       requests.push(structuredClone(request));
-      trace.push({ kind: "request", label: "llm/request", detail: `${request.tools.length} tools` });
 
       const response = await this.#llm.complete(request);
       const assistant = response.message;
-      this.#messages.push(assistant);
-      trace.push({ kind: "assistant", label: "assistant/message", detail: assistant.content });
+      this.#session.append({ type: "assistant/message", stepId, content: assistant.content });
+      for (const call of assistant.toolCalls) {
+        this.#session.append({ type: "tool/call", stepId, call });
+      }
 
       if (assistant.toolCalls.length === 0) {
-        trace.push({ kind: "turn", label: "turn/end", detail: "completed" });
-        return { finalMessage: assistant, steps: step, trace, requests };
+        this.#session.append({ type: "step/end", stepId, outcome: "complete" });
+        this.#session.append({ type: "turn/end", turnId, outcome: "completed" });
+        return {
+          finalMessage: assistant,
+          steps: step,
+          turnId,
+          stepIds,
+          trace: replayTrace(this.#session.events.slice(eventStart)),
+          requests,
+        };
       }
 
       for (const call of assistant.toolCalls) {
         const result = await this.#executeTool(call.name, call.arguments);
-        this.#messages.push({
-          role: "tool",
+        this.#session.append({
+          type: "tool/result",
+          stepId,
           toolCallId: call.id,
           name: call.name,
           content: JSON.stringify(result),
         });
-        trace.push({ kind: "tool", label: call.name, detail: JSON.stringify(result) });
       }
+      this.#session.append({ type: "step/end", stepId, outcome: "tool-calls" });
     }
 
+    this.#session.append({ type: "turn/end", turnId, outcome: "max-steps" });
     throw new Error(`Agent exceeded maxSteps (${this.#maxSteps}) before finishing the turn.`);
   }
 

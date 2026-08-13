@@ -11,11 +11,13 @@ describe("M03 plugin kernel", () => {
     const inspection = context.inspect();
 
     expect(inspection.plugins).toEqual([
+      "session-log",
       "provider:fake",
       "submission-state",
       "mars-incident",
     ]);
     expect(inspection.services.map((service) => service.name)).toEqual([
+      "session-log",
       "llm",
       "submission-state",
     ]);
@@ -24,9 +26,11 @@ describe("M03 plugin kernel", () => {
       "submit_recovery_plan",
     ]);
     expect(inspection.prompts).toHaveLength(1);
-    expect(inspection.listeners).toEqual([
-      { event: "tool/executed", plugin: "mars-incident" },
-    ]);
+    expect(inspection.listeners).toContainEqual({
+      event: "tool/executed",
+      plugin: "mars-incident",
+    });
+    expect(inspection.listeners.filter((listener) => listener.plugin === "session-log")).toHaveLength(2);
     expect(inspection.relations).toContainEqual({
       consumer: "mars-incident",
       service: "submission-state",

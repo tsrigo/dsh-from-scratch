@@ -20,7 +20,7 @@ describe("M01 ordinary tool Agent Loop", () => {
     expect(result.steps).toBe(3);
     expect(state.acceptedPlan?.routeId).toBe("ASTER");
     expect(llm.requests).toHaveLength(3);
-    expect(result.trace.filter((event) => event.kind === "tool")).toHaveLength(2);
+    expect(result.trace.filter((event) => event.type === "tool/result")).toHaveLength(2);
   });
 
   it("returns unknown and invalid calls to the model as tool results", async () => {
