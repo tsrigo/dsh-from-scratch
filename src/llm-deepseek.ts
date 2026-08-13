@@ -106,17 +106,19 @@ function toDeepSeekMessages(message: ModelMessage): Array<Record<string, unknown
   if (message.role === "tool") {
     return [{ role: "tool", tool_call_id: message.toolCallId, content: message.content }];
   }
-  return [
-    {
-      role: "assistant",
-      content: message.content || null,
-      tool_calls: message.toolCalls.map((call) => ({
-        id: call.id,
-        type: "function",
-        function: { name: call.name, arguments: JSON.stringify(call.arguments) },
-      })),
-    },
-  ];
+  return [{
+    role: "assistant",
+    content: message.content || null,
+    ...(message.toolCalls.length > 0
+      ? {
+          tool_calls: message.toolCalls.map((call) => ({
+            id: call.id,
+            type: "function",
+            function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+          })),
+        }
+      : {}),
+  }];
 }
 
 function parseArguments(value: string): JsonValue {

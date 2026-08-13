@@ -119,7 +119,7 @@ export function sessionPlugin(log: SessionLog): Plugin {
         const plugin = pluginName(payload);
         log.append({ type: "runtime/plugin-mounted", plugin });
       });
-      context.on("runtime/plugin-unmounting", (payload) => {
+      context.on("runtime/plugin-unmounted", (payload) => {
         const plugin = pluginName(payload);
         log.append({ type: "runtime/plugin-unmounted", plugin });
       });

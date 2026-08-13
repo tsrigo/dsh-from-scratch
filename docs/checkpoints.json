@@ -65,7 +65,7 @@
     "tag": "tutorial-m06",
     "previousTag": "tutorial-m05",
     "scenario": "long-task",
-    "sourcePath": "src/long-task.ts",
+    "sourcePath": "src/scenario.ts",
     "lessonPath": "docs/lessons/m06.md",
     "shortTitle": "Rounds",
     "title": "把同一目标带到下一轮",

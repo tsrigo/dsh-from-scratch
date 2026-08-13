@@ -87,4 +87,31 @@ describe("M01 ordinary tool Agent Loop", () => {
       thinking: { type: "disabled" },
     });
   });
+
+  it("omits an empty tool_calls field from assistant history", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: "next", tool_calls: [] } }] }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const llm = new DeepSeekLlm({ apiKey: "test-key", fetch: fetchMock });
+    await llm.complete({
+      system: "system",
+      dynamicContext: "round=2",
+      tools: [],
+      messages: [
+        { role: "user", content: "round one" },
+        { role: "assistant", content: "round one complete", toolCalls: [] },
+        { role: "user", content: "round two" },
+      ],
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+      messages: Array<Record<string, unknown>>;
+    };
+    const assistant = body.messages.find((message) => message.role === "assistant");
+    expect(assistant).toEqual({ role: "assistant", content: "round one complete" });
+    expect(assistant).not.toHaveProperty("tool_calls");
+  });
 });

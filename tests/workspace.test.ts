@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadIncidentPacket } from "../src/incident.js";
+import { createIncidentTools, type SubmissionState } from "../src/incident.js";
 
 describe("bounded demo workspace", () => {
   it("loads the same validated fixture used by fake and DeepSeek providers", async () => {
@@ -26,5 +27,19 @@ describe("bounded demo workspace", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it("accepts the recovery fields regardless of JSON object key order", async () => {
+    const state: SubmissionState = { acceptedPlan: null };
+    const submit = createIncidentTools(state).find(
+      (tool) => tool.name === "submit_recovery_plan",
+    );
+    const result = await submit?.execute({
+      reasonCode: "THERMAL_DRIFT",
+      routeId: "ASTER",
+      isolateRelay: "RELAY-7",
+    });
+    expect(result).toMatchObject({ accepted: true });
+    expect(state.acceptedPlan?.routeId).toBe("ASTER");
   });
 });

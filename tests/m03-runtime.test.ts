@@ -31,6 +31,10 @@ describe("M03 plugin kernel", () => {
       plugin: "mars-incident",
     });
     expect(inspection.listeners.filter((listener) => listener.plugin === "session-log")).toHaveLength(2);
+    expect(inspection.listeners).toContainEqual({
+      event: "runtime/plugin-unmounted",
+      plugin: "session-log",
+    });
     expect(inspection.relations).toContainEqual({
       consumer: "mars-incident",
       service: "submission-state",

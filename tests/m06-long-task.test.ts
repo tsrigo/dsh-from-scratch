@@ -19,6 +19,86 @@ describe("M06 long task rounds", () => {
     ).toEqual(["survey", "score", "submit"]);
   });
 
+  it("uses one bounded follow-up turn after concrete installation progress", async () => {
+    const llm = new ScriptedLlm([
+      ...createLongTaskAuditReplies().slice(0, 2),
+      {
+        message: {
+          role: "assistant",
+          content: "Install first.",
+          toolCalls: [{ id: "install-only", name: "install_capability", arguments: { name: "route_scoring" } }],
+        },
+      },
+      { message: { role: "assistant", content: "Installation complete.", toolCalls: [] } },
+      {
+        message: {
+          role: "assistant",
+          content: "Now use the newly visible tool.",
+          toolCalls: [{ id: "score-follow-up", name: "score_routes", arguments: {} }],
+        },
+      },
+      { message: { role: "assistant", content: "ASTER is eligible.", toolCalls: [] } },
+      ...createLongTaskAuditReplies().slice(5),
+    ]);
+    const result = await runMarsLongTask(llm);
+
+    expect(result.goal).toMatchObject({ status: "completed", roundsStarted: 3 });
+    expect(
+      result.session.events.filter((event) => event.type === "turn/start"),
+    ).toHaveLength(4);
+    expect(
+      result.session.events.filter(
+        (event) => event.type === "tool/result" && event.name === "score_routes",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("uses one bounded follow-up after a rejected submission", async () => {
+    const replies = createLongTaskAuditReplies().slice(0, 5);
+    replies.push(
+      {
+        message: {
+          role: "assistant",
+          content: "Remove the experiment and attempt a plan.",
+          toolCalls: [
+            { id: "remove-before-correction", name: "remove_capability", arguments: { name: "route_scoring" } },
+            {
+              id: "rejected-plan",
+              name: "submit_recovery_plan",
+              arguments: {
+                routeId: "BOREAL",
+                isolateRelay: "RELAY-7",
+                reasonCode: "THERMAL_DRIFT",
+              },
+            },
+          ],
+        },
+      },
+      { message: { role: "assistant", content: "That attempt finished.", toolCalls: [] } },
+      {
+        message: {
+          role: "assistant",
+          content: "Correcting the rejected plan.",
+          toolCalls: [
+            {
+              id: "corrected-plan",
+              name: "submit_recovery_plan",
+              arguments: {
+                reasonCode: "THERMAL_DRIFT",
+                isolateRelay: "RELAY-7",
+                routeId: "ASTER",
+              },
+            },
+          ],
+        },
+      },
+      { message: { role: "assistant", content: "Correction accepted.", toolCalls: [] } },
+    );
+    const result = await runMarsLongTask(new ScriptedLlm(replies));
+    expect(result.goal.status).toBe("completed");
+    expect(result.submission.acceptedPlan?.routeId).toBe("ASTER");
+  });
+
   it("stops blocked when a round reports no progress", async () => {
     const session = new SessionLog();
     const runRound = vi.fn().mockResolvedValue({ progressed: false });

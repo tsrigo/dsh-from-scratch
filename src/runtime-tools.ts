@@ -68,6 +68,8 @@ export function runtimeToolsPlugin(): Plugin {
             ok: true,
             installed: name,
             tools: context.inspect().tools.map((tool) => tool.name),
+            nextAction:
+              "The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.",
           };
         },
       });
@@ -85,6 +87,8 @@ export function runtimeToolsPlugin(): Plugin {
             ok: true,
             removed: name,
             tools: context.inspect().tools.map((tool) => tool.name),
+            nextAction:
+              "Continue the current task with permanent tools; removed tools will be absent from the next request.",
           };
         },
       });

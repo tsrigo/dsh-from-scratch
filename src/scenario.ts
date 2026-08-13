@@ -23,8 +23,8 @@ export async function runMarsLongTask(
     llm,
     context: runtime.context,
     systemPrompt:
-      "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.",
-    maxSteps: 5,
+      "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.",
+    maxSteps: 8,
     dynamicContext: (step) => `Current model step within this round: ${step}`,
   });
 
@@ -35,28 +35,32 @@ export async function runMarsLongTask(
     rounds: [
       {
         label: "survey",
-        input: "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed.",
+        input: "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything.",
       },
       {
         label: "score",
-        input: "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission.",
+        input: "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit.",
       },
       {
         label: "submit",
-        input: "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion.",
+        input: "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything.",
       },
     ],
     async runRound(round, roundNumber) {
       const before = runtime.session.events.length;
       await agent.runTurn(round.input);
-      const events = runtime.session.events.slice(before);
-      const results = events.filter((event) => event.type === "tool/result");
-      const names = results.map((event) => (event.type === "tool/result" ? event.name : ""));
-      const expected = roundNumber === 1 ? "read_incident_packet" : roundNumber === 2 ? "score_routes" : "submit_recovery_plan";
-      const progressed = names.includes(expected);
-      const completed =
-        roundNumber === 3 &&
-        runtime.state.acceptedPlan !== null &&
+      let names = toolResultNames(runtime.session.events.slice(before));
+      const expected = expectedTool(roundNumber);
+      const hasExpectedEvidence = () =>
+        roundNumber === 3 ? runtime.state.acceptedPlan !== null : names.includes(expected);
+
+      if (!hasExpectedEvidence() && hasConcretePartialProgress(roundNumber, names, runtime.context.inspect().plugins)) {
+        await agent.runTurn(followUpInstruction(roundNumber, names));
+        names = toolResultNames(runtime.session.events.slice(before));
+      }
+
+      const progressed = hasExpectedEvidence();
+      const completed = roundNumber === 3 && runtime.state.acceptedPlan !== null &&
         !runtime.context.inspect().plugins.includes("capability:route_scoring");
       return { progressed, completed };
     },
@@ -69,4 +73,44 @@ export async function runMarsLongTask(
     session: runtime.session,
     submission: runtime.state,
   };
+}
+
+function toolResultNames(events: readonly { type: string; name?: string }[]): string[] {
+  return events.flatMap((event) => event.type === "tool/result" && event.name ? [event.name] : []);
+}
+
+function expectedTool(roundNumber: number): string {
+  return roundNumber === 1
+    ? "read_incident_packet"
+    : roundNumber === 2
+      ? "score_routes"
+      : "submit_recovery_plan";
+}
+
+function hasConcretePartialProgress(
+  roundNumber: number,
+  names: string[],
+  plugins: string[],
+): boolean {
+  if (roundNumber === 1) return names.includes("inspect_runtime");
+  if (roundNumber === 2) {
+    return names.includes("install_capability") && plugins.includes("capability:route_scoring");
+  }
+  return names.includes("remove_capability") || names.includes("submit_recovery_plan");
+}
+
+function followUpInstruction(roundNumber: number, names: string[]): string {
+  if (roundNumber === 1) {
+    return "Round 1 follow-up — inspect_runtime succeeded. Call read_incident_packet exactly once, then finish this turn.";
+  }
+  if (roundNumber === 2) {
+    return "Round 2 follow-up — route_scoring is mounted and score_routes is now visible. Call score_routes exactly once, then finish this turn; do not remove it yet.";
+  }
+  const missing = [
+    ...(names.includes("remove_capability") ? [] : ["remove route_scoring exactly once"]),
+    ...(names.includes("submit_recovery_plan")
+      ? ["the previous submission was rejected; submit a corrected ASTER / RELAY-7 / THERMAL_DRIFT plan exactly once"]
+      : ["submit the ASTER / RELAY-7 / THERMAL_DRIFT recovery plan exactly once"]),
+  ];
+  return `Round 3 follow-up — ${missing.join(" and ")}. Then finish this turn without reinstalling anything.`;
 }

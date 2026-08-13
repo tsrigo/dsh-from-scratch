@@ -80,7 +80,7 @@ export function createIncidentTools(
         additionalProperties: false,
       },
       execute: (input) => {
-        const accepted = JSON.stringify(input) === JSON.stringify(RECOVERY_PLAN);
+        const accepted = isRecoveryPlan(input);
         if (accepted) state.acceptedPlan = RECOVERY_PLAN;
         return {
           accepted,
@@ -91,6 +91,15 @@ export function createIncidentTools(
       },
     },
   ];
+}
+
+function isRecoveryPlan(value: JsonValue): value is typeof RECOVERY_PLAN {
+  return (
+    isRecord(value) &&
+    value.routeId === RECOVERY_PLAN.routeId &&
+    value.isolateRelay === RECOVERY_PLAN.isolateRelay &&
+    value.reasonCode === RECOVERY_PLAN.reasonCode
+  );
 }
 
 function parseIncidentPacket(value: unknown, source: string): IncidentPacket {
