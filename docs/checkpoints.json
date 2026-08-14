@@ -7,9 +7,28 @@
     "scenario": "ordinary-loop",
     "sourcePath": "src/agent.ts",
     "lessonPath": "docs/lessons/m01.md",
-    "shortTitle": "Loop",
+    "shortTitle": "工具循环",
     "title": "从一次工具往返开始",
-    "question": "模型怎样把判断变成可验证的动作？"
+    "question": "模型怎样把判断变成可验证的动作？",
+    "sourceRange": { "start": 70, "end": 91 },
+    "codeGuide": {
+      "title": "一次往返怎样接上下一步",
+      "description": "模型先返回回复和工具调用。运行框架执行每个工具，再把结果放回对话记录；下一次模型请求因此能接着处理真实结果。",
+      "observations": [
+        { "text": "把整理好的请求交给模型，等待它给出下一步。", "lines": [73, 73] },
+        { "text": "如果模型没有调用工具，这次用户交互就在这里结束。", "lines": [78, 81] },
+        { "text": "逐个执行工具，并把结果保存给下一次模型请求。", "lines": [83, 91] }
+      ]
+    },
+    "changeStory": {
+      "title": "模型可以完成“判断—行动—继续”",
+      "summary": "单次模型回复被接成一个有上限的工具循环。每个动作都有参数检查和结果回传，整个任务可以等到真实执行结果后再往下走。",
+      "outcomes": [
+        "模型从受限动作目录中选择工具",
+        "参数通过结构校验后才会执行",
+        "没有工具调用时，本轮自动收尾"
+      ]
+    }
   },
   {
     "id": "m02",
@@ -19,9 +38,28 @@
     "scenario": "projected-context",
     "sourcePath": "src/context.ts",
     "lessonPath": "docs/lessons/m02.md",
-    "shortTitle": "Context",
+    "shortTitle": "上下文",
     "title": "让稳定前缀保持稳定",
-    "question": "完整记录和模型上下文为什么不该是同一份？"
+    "question": "完整记录和模型上下文为什么要分开管理？",
+    "sourceRange": { "start": 49, "end": 67 },
+    "codeGuide": {
+      "title": "长工具结果怎样变成适合模型阅读的版本",
+      "description": "完整结果继续留在执行记录里；发送给模型时，只保留开头、结尾和明确的省略说明，避免一段遥测挤占后续对话空间。",
+      "observations": [
+        { "text": "短结果原样通过，不增加额外处理。", "lines": [53, 55] },
+        { "text": "省略标记写明删去了多少字符。", "lines": [56, 60] },
+        { "text": "长结果保留头尾，模型仍能看到身份信息和结论。", "lines": [61, 66] }
+      ]
+    },
+    "changeStory": {
+      "title": "长遥测不会挤满后续模型请求",
+      "summary": "执行记录保留原文，模型输入使用可控长度的投影。稳定规则和工具说明放在请求前部，便于相邻步骤复用相同前缀。",
+      "outcomes": [
+        "长工具结果有明确的长度上限",
+        "完整记录仍可用于审计和回放",
+        "页面能解释每部分的体积与变化位置"
+      ]
+    }
   },
   {
     "id": "m03",
@@ -31,9 +69,28 @@
     "scenario": "plugin-kernel",
     "sourcePath": "src/runtime.ts",
     "lessonPath": "docs/lessons/m03.md",
-    "shortTitle": "Plugins",
+    "shortTitle": "插件组装",
     "title": "给每项能力一个主人",
-    "question": "一项能力怎样完整安装，也完整离场？"
+    "question": "一项能力怎样完整安装，也完整离场？",
+    "sourceRange": { "start": 45, "end": 76 },
+    "codeGuide": {
+      "title": "安装失败和主动卸载共用一套清理路径",
+      "description": "插件安装时登记自己带来的服务、工具、提示词和监听器。安装失败或用户卸载时，登记过的影响会按相反顺序撤回。",
+      "observations": [
+        { "text": "安装开始时先建立一份影响清单。", "lines": [45, 50] },
+        { "text": "setup 报错会触发回滚，不留下半安装状态。", "lines": [51, 60] },
+        { "text": "返回的卸载函数只执行一次，并同步清理关联关系。", "lines": [62, 76] }
+      ]
+    },
+    "changeStory": {
+      "title": "每项能力都能查到来源，也能完整撤下",
+      "summary": "工具列表升级为带归属的插件组装。使用者可以检查当前能力来自哪里，并在配置切换或实验结束时可靠清理。",
+      "outcomes": [
+        "服务、工具、提示词和监听器都有归属",
+        "安装失败会自动回滚已登记的影响",
+        "运行时关系可被检查并画成能力图"
+      ]
+    }
   },
   {
     "id": "m04",
@@ -43,9 +100,28 @@
     "scenario": "event-history",
     "sourcePath": "src/session.ts",
     "lessonPath": "docs/lessons/m04.md",
-    "shortTitle": "Session",
+    "shortTitle": "过程日志",
     "title": "只保留一份历史",
-    "question": "怎样从发生过的事件重建任意模型请求？"
+    "question": "怎样从发生过的事件重建任意模型请求？",
+    "sourceRange": { "start": 130, "end": 153 },
+    "codeGuide": {
+      "title": "一份模型请求如何从过程记录中还原",
+      "description": "函数先找到目标步骤的请求头，再读取它之前发生的事件。若已有上下文摘要点，就从摘要与后续事件继续拼装。",
+      "observations": [
+        { "text": "stepId 指定要回看的模型步骤。", "lines": [130, 136] },
+        { "text": "请求头之前的事件构成这一步的历史。", "lines": [138, 143] },
+        { "text": "找到摘要点后，从摘要和后续事件继续拼装。", "lines": [144, 153] }
+      ]
+    },
+    "changeStory": {
+      "title": "任意一步的模型输入都能从记录还原",
+      "summary": "用户消息、模型回复、工具动作和运行时变化进入同一条只追加日志。请求视图与执行轨迹都由这份日志生成。",
+      "outcomes": [
+        "每条记录按顺序获得固定编号",
+        "任意模型步骤都可重建当时的输入",
+        "执行轨迹与请求视图共用同一数据来源"
+      ]
+    }
   },
   {
     "id": "m05",
@@ -55,9 +131,28 @@
     "scenario": "trusted-experiment",
     "sourcePath": "src/runtime-tools.ts",
     "lessonPath": "docs/lessons/m05.md",
-    "shortTitle": "Create",
+    "shortTitle": "受控实验",
     "title": "先试装，再决定",
-    "question": "创造模式的运行时实验，边界到底在哪里？"
+    "question": "创造模式的运行时实验，边界在哪里？",
+    "sourceRange": { "start": 57, "end": 72 },
+    "codeGuide": {
+      "title": "临时能力只能从受信任目录中选择",
+      "description": "安装工具先检查名称，再通过既有插件生命周期挂载能力。成功结果会列出新的工具目录，让下一次模型请求看到变化。",
+      "observations": [
+        { "text": "输入规则只接受目录中已经登记的名称。", "lines": [57, 60] },
+        { "text": "重复安装和未知名称都会返回可读错误。", "lines": [61, 64] },
+        { "text": "安装复用插件挂载流程，并返回更新后的工具目录。", "lines": [65, 71] }
+      ]
+    },
+    "changeStory": {
+      "title": "临时评分能力只在需要时出现",
+      "summary": "智能体可以检查当前能力、试装受信任插件、使用后撤下。工具目录和提示词会随生命周期同步变化。",
+      "outcomes": [
+        "可安装范围由受信任目录限定",
+        "新能力在下一次模型请求中出现",
+        "实验结束后工具与提示词一起消失"
+      ]
+    }
   },
   {
     "id": "m06",
@@ -67,8 +162,27 @@
     "scenario": "long-task",
     "sourcePath": "src/scenario.ts",
     "lessonPath": "docs/lessons/m06.md",
-    "shortTitle": "Rounds",
+    "shortTitle": "分轮任务",
     "title": "把同一目标带到下一轮",
-    "question": "长程续行怎样知道该继续，还是该停？"
+    "question": "长程续行怎样知道该继续，还是该停？",
+    "sourceRange": { "start": 31, "end": 48 },
+    "codeGuide": {
+      "title": "三轮工作各自有明确任务和边界",
+      "description": "调查、评分、提交被写成三个可读阶段。每轮只要求当前所需动作，并为整项任务设置轮数上限。",
+      "observations": [
+        { "text": "objective 保存三轮之间不变的目标。", "lines": [31, 34] },
+        { "text": "maxRounds 把执行上限设为三轮。", "lines": [31, 34] },
+        { "text": "每轮输入都写明要做的动作和停止位置。", "lines": [35, 48] }
+      ]
+    },
+    "changeStory": {
+      "title": "一项任务可以分轮推进，并说明停止原因",
+      "summary": "同一个目标跨调查、评分和提交三轮延续。每轮都检查实际工具结果，最终状态会说明完成、受阻或达到轮数上限。",
+      "outcomes": [
+        "跨轮共享同一运行环境与过程日志",
+        "进展判断依赖工具结果和提交状态",
+        "完成、受阻和达到上限都有明确状态"
+      ]
+    }
   }
 ]

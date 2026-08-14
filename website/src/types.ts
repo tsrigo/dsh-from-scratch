@@ -45,21 +45,39 @@ export interface GraphSnapshot {
   edges: Array<{ from: string; to: string; label: string }>;
 }
 
+export interface DiffStats {
+  filesChanged: number;
+  additions: number;
+  deletions: number;
+  files: Array<{ path: string; additions: number; deletions: number }>;
+}
+
 export interface Chapter {
   id: string;
   number: string;
-  tag: string;
-  previousTag: string;
-  scenario: string;
-  sourcePath: string;
-  lessonPath: string;
   shortTitle: string;
   title: string;
   question: string;
-  commit: string;
   lesson: string;
-  source: { path: string; content: string };
+  source: {
+    path: string;
+    content: string;
+    excerpt: string;
+    startLine: number;
+    endLine: number;
+  };
+  codeGuide: {
+    title: string;
+    description: string;
+    observations: Array<{ text: string; lines: [number, number] }>;
+  };
+  changeStory: {
+    title: string;
+    summary: string;
+    outcomes: string[];
+  };
   diff: string;
+  diffStats: DiffStats;
   verdict: string;
   requests: RequestEvidence[];
   events: Array<Record<string, unknown> & { id: number; type: string }>;
@@ -67,7 +85,6 @@ export interface Chapter {
   graphs: GraphSnapshot[];
   ptc?: {
     program: string;
-    comparison: { standard: string; ptc: string; nanoBoundary: string };
   };
 }
 
