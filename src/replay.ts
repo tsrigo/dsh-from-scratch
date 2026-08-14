@@ -84,7 +84,9 @@ export class ReplayRecorder {
       goal: structuredClone(input.goal),
       outcome: {
         acceptedPatch: input.acceptedPatch ?? "",
-        capabilityRemoved: !input.activePlugins.includes("capability:typescript_analysis"),
+        capabilityRemoved: !input.activePlugins.some((plugin) =>
+          plugin === "capability:typescript_analysis" || plugin === "dynamic:typescript_analysis"
+        ),
       },
       events: structuredClone(this.#events),
     };

@@ -7,16 +7,10 @@ import {
   type CheckoutWorkspaceFixture,
   type CheckoutWorkspaceState,
 } from "./checkout-workspace.js";
-import { typescriptAnalysisPlugin } from "./catalog/typescript-analysis.js";
-import { wordCountPlugin } from "./catalog/word-count.js";
 import type { Llm } from "./protocol.js";
 import { Context, ServiceToken, type Plugin } from "./runtime.js";
 import { SessionLog, sessionPlugin } from "./session.js";
-import {
-  capabilityCatalogPlugin,
-  runtimeToolsPlugin,
-  TrustedCapabilityCatalog,
-} from "./runtime-tools.js";
+import { runtimeToolsPlugin } from "./runtime-tools.js";
 
 export const LLM = new ServiceToken<Llm>("llm");
 
@@ -97,14 +91,6 @@ export async function composeRuntime(
   session: SessionLog;
 }> {
   const runtime = await composeM03Runtime(llm, options);
-  await runtime.context.mount(
-    capabilityCatalogPlugin(
-      new TrustedCapabilityCatalog({
-        typescript_analysis: typescriptAnalysisPlugin,
-        word_count: wordCountPlugin,
-      }),
-    ),
-  );
   await runtime.context.mount(runtimeToolsPlugin());
   return runtime;
 }

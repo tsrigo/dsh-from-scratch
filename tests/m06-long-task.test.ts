@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { BUGGY_RETURN, FIXED_RETURN, SOURCE_PATH } from "../src/checkout-workspace.js";
+import { TYPESCRIPT_ANALYSIS_PLUGIN_CODE } from "../src/catalog/typescript-analysis.js";
 import { LongTaskRunner } from "../src/long-task.js";
 import { createLongTaskBugFixReplies, ScriptedLlm } from "../src/llm-fake.js";
 import { runCheckoutLongTask } from "../src/scenario.js";
@@ -12,7 +13,7 @@ describe("M06 long task rounds", () => {
 
     expect(result.goal).toMatchObject({ status: "completed", roundsStarted: 3 });
     expect(result.workspace.acceptedPatch?.issueId).toBe("CHECKOUT-417");
-    expect(result.context.inspect().plugins).not.toContain("capability:typescript_analysis");
+    expect(result.context.inspect().plugins).not.toContain("dynamic:typescript_analysis");
     expect(
       result.session.events
         .filter((event) => event.type === "goal/round-started")
@@ -20,21 +21,32 @@ describe("M06 long task rounds", () => {
     ).toEqual(["diagnose", "repair", "verify-submit"]);
   });
 
-  it("uses one bounded follow-up turn after concrete installation progress", async () => {
+  it("uses one bounded follow-up turn after defining a dynamic Plugin", async () => {
     const llm = new ScriptedLlm([
       ...createLongTaskBugFixReplies().slice(0, 5),
       {
         message: {
           role: "assistant",
-          content: "Install first.",
+          content: "Define the Plugin first.",
           toolCalls: [{
-            id: "install-only",
-            name: "install_capability",
-            arguments: { name: "typescript_analysis" },
+            id: "define-only",
+            name: "cordis_define",
+            arguments: {
+              name: "typescript_analysis",
+              purpose: "Inspect calculateTotal references and check the current TypeScript fix.",
+              code: TYPESCRIPT_ANALYSIS_PLUGIN_CODE,
+            },
           }],
         },
       },
-      { message: { role: "assistant", content: "Installation complete.", toolCalls: [] } },
+      { message: { role: "assistant", content: "Definition complete.", toolCalls: [] } },
+      {
+        message: {
+          role: "assistant",
+          content: "Run the Plugin.",
+          toolCalls: [{ id: "run-follow-up", name: "cordis_run", arguments: { pluginId: "dyn-1" } }],
+        },
+      },
       {
         message: {
           role: "assistant",
@@ -42,7 +54,7 @@ describe("M06 long task rounds", () => {
           toolCalls: [
             { id: "references-follow-up", name: "find_references", arguments: { symbol: "calculateTotal" } },
             { id: "types-follow-up", name: "check_types", arguments: {} },
-            { id: "remove-follow-up", name: "remove_capability", arguments: { name: "typescript_analysis" } },
+            { id: "undefine-follow-up", name: "cordis_undefine", arguments: { pluginId: "dyn-1" } },
             { id: "submit-follow-up", name: "submit_patch", arguments: { summary: "Fix duplicate discount." } },
           ],
         },
@@ -61,7 +73,7 @@ describe("M06 long task rounds", () => {
   });
 
   it("uses one bounded follow-up after a rejected patch submission", async () => {
-    const replies = createLongTaskBugFixReplies().slice(0, 7);
+    const replies = createLongTaskBugFixReplies().slice(0, 8);
     replies.push(
       {
         message: {
@@ -73,7 +85,7 @@ describe("M06 long task rounds", () => {
               name: "apply_patch",
               arguments: { path: SOURCE_PATH, oldText: FIXED_RETURN, newText: BUGGY_RETURN },
             },
-            { id: "remove-before-rejection", name: "remove_capability", arguments: { name: "typescript_analysis" } },
+            { id: "undefine-before-rejection", name: "cordis_undefine", arguments: { pluginId: "dyn-1" } },
             { id: "rejected-submit", name: "submit_patch", arguments: { summary: "Incorrect patch." } },
           ],
         },

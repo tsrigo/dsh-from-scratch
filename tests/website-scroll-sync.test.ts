@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   chapterFills,
+  graphSnapshotForEvidenceStep,
   isFinalCheckpoint,
   newLineNumbers,
   snapshotForCheckpoint,
@@ -55,6 +56,23 @@ describe("chapterFills", () => {
   });
 });
 
+describe("graphSnapshotForEvidenceStep", () => {
+  it("selects the matching chapter-five lifecycle snapshot", () => {
+    const chapter = tutorial.chapters[4]!;
+    expect(graphSnapshotForEvidenceStep(chapter, 0)?.stepId).toBe("before-install");
+    expect(graphSnapshotForEvidenceStep(chapter, 1)?.stepId).toBe("after-install");
+    expect(graphSnapshotForEvidenceStep(chapter, 2)?.stepId).toBe("after-remove");
+  });
+
+  it("keeps the baseline internally consistent", () => {
+    const graph = graphSnapshotForEvidenceStep(tutorial.chapters[4]!, 0)!;
+    expect(graph.plugins).toContain("runtime-tools");
+    expect(graph.prompts.map((prompt) => prompt.id)).toContain("runtime-evolution-guide");
+    expect(graph.tools.map((tool) => tool.name)).toContain("cordis_define");
+    expect(graph.tools.map((tool) => tool.name)).not.toContain("word_count");
+  });
+});
+
 describe("snapshotForCheckpoint", () => {
   it("starts with only the skeleton: declarations plus closing brace", () => {
     const m01 = tutorial.chapters[0]!;
@@ -102,7 +120,23 @@ describe("snapshotForCheckpoint", () => {
       for (const line of snapshot) {
         expect(line.text).toBe(sourceLines[line.number - 1]);
       }
+      for (let index = 1; index < snapshot.length; index += 1) {
+        const previous = snapshot[index - 1]!.number;
+        const current = snapshot[index]!.number;
+        if (current - previous <= 1) continue;
+        expect(
+          sourceLines.slice(previous, current - 1).some((line) => line.trim() !== ""),
+        ).toBe(true);
+      }
     }
+  });
+
+  it("keeps blank source lines between displayed ranges", () => {
+    const m04 = tutorial.chapters[3]!;
+    const snapshot = snapshotForCheckpoint(m04, chapterFills(m04).length - 1);
+    const line = snapshot.find((item) => item.number === 212);
+    expect(line).toEqual({ number: 212, text: "" });
+    expect(snapshot[snapshot.findIndex((item) => item.number === 211) + 1]?.number).toBe(212);
   });
 });
 
@@ -112,9 +146,13 @@ describe("newLineNumbers", () => {
     const skeleton = snapshotForCheckpoint(m01, 0);
     const next = snapshotForCheckpoint(m01, 1);
     const added = newLineNumbers(skeleton, next);
-    expect(added.size).toBe(next.length - skeleton.length);
+    const expected = next.filter(
+      (line) => !skeleton.some((previous) => previous.number === line.number) && line.text.trim() !== "",
+    );
+    expect(added.size).toBe(expected.length);
     for (const number of added) {
       expect(skeleton.some((line) => line.number === number)).toBe(false);
+      expect(next.find((line) => line.number === number)?.text.trim()).not.toBe("");
     }
   });
 
@@ -122,5 +160,14 @@ describe("newLineNumbers", () => {
     const m01 = tutorial.chapters[0]!;
     const snapshot = snapshotForCheckpoint(m01, 1);
     expect(newLineNumbers(snapshot, snapshot).size).toBe(0);
+  });
+
+  it("does not highlight the blank line between chapter four ranges", () => {
+    const m04 = tutorial.chapters[3]!;
+    const previous = snapshotForCheckpoint(m04, 6);
+    const current = snapshotForCheckpoint(m04, 7);
+    expect(current.find((line) => line.number === 212)?.text).toBe("");
+    expect(newLineNumbers(previous, current)).not.toContain(212);
+    expect(newLineNumbers(previous, current)).toContain(213);
   });
 });

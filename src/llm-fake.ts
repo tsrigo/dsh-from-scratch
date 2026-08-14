@@ -1,4 +1,5 @@
 import { BUGGY_RETURN, FIXED_RETURN, SOURCE_PATH } from "./checkout-workspace.js";
+import { TYPESCRIPT_ANALYSIS_PLUGIN_CODE } from "./catalog/typescript-analysis.js";
 import type { Llm, LlmResponse, LlmStreamEvent, UnifiedRequest } from "./protocol.js";
 
 export type ScriptedReply =
@@ -64,13 +65,17 @@ export function createCapabilityExperimentReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "The regression suite should verify behavior; I will also install bounded TypeScript analysis for caller checks.",
+        content: "The regression suite should verify behavior; I will define a TypeScript analysis Plugin for caller checks.",
         toolCalls: [
           { id: "capability-test", name: "run_tests", arguments: {} },
           {
-            id: "capability-install",
-            name: "install_capability",
-            arguments: { name: "typescript_analysis" },
+            id: "capability-define",
+            name: "cordis_define",
+            arguments: {
+              name: "typescript_analysis",
+              purpose: "Inspect calculateTotal references and check the current TypeScript fix.",
+              code: TYPESCRIPT_ANALYSIS_PLUGIN_CODE,
+            },
           },
         ],
       },
@@ -78,7 +83,16 @@ export function createCapabilityExperimentReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "The temporary TypeScript tools are now visible. I will inspect callers and diagnostics.",
+        content: "The Plugin is defined. I will run it in the current Context.",
+        toolCalls: [
+          { id: "capability-run", name: "cordis_run", arguments: { pluginId: "dyn-1" } },
+        ],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "The new TypeScript tools are now visible. I will inspect callers and diagnostics.",
         toolCalls: [
           {
             id: "capability-references",
@@ -92,12 +106,12 @@ export function createCapabilityExperimentReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "All callers use independent discounts and type checks pass. I will remove the experiment and submit.",
+        content: "All callers use independent discounts and type checks pass. I will undefine the Plugin and submit.",
         toolCalls: [
           {
-            id: "capability-remove",
-            name: "remove_capability",
-            arguments: { name: "typescript_analysis" },
+            id: "capability-undefine",
+            name: "cordis_undefine",
+            arguments: { pluginId: "dyn-1" },
           },
           {
             id: "capability-submit",
@@ -110,7 +124,7 @@ export function createCapabilityExperimentReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "Patch accepted. The TypeScript analysis capability is no longer mounted.",
+        content: "Patch accepted. The dynamic TypeScript analysis Plugin has been removed.",
         toolCalls: [],
       },
     },
@@ -145,12 +159,23 @@ export function createLongTaskBugFixReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "I will temporarily install TypeScript analysis for final caller verification.",
+        content: "I will define a TypeScript analysis Plugin for final caller verification.",
         toolCalls: [{
-          id: "r3-install",
-          name: "install_capability",
-          arguments: { name: "typescript_analysis" },
+          id: "r3-define",
+          name: "cordis_define",
+          arguments: {
+            name: "typescript_analysis",
+            purpose: "Inspect calculateTotal references and check the current TypeScript fix.",
+            code: TYPESCRIPT_ANALYSIS_PLUGIN_CODE,
+          },
         }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "The Plugin is defined. I will run it in the current Context.",
+        toolCalls: [{ id: "r3-run", name: "cordis_run", arguments: { pluginId: "dyn-1" } }],
       },
     },
     {
@@ -170,12 +195,12 @@ export function createLongTaskBugFixReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "Verification passed. I will remove the temporary capability and submit the patch.",
+        content: "Verification passed. I will undefine the dynamic Plugin and submit the patch.",
         toolCalls: [
           {
-            id: "r3-remove",
-            name: "remove_capability",
-            arguments: { name: "typescript_analysis" },
+            id: "r3-undefine",
+            name: "cordis_undefine",
+            arguments: { pluginId: "dyn-1" },
           },
           {
             id: "r3-submit",
@@ -188,7 +213,7 @@ export function createLongTaskBugFixReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "Goal complete: CHECKOUT-417 was accepted and the temporary analysis capability is gone.",
+        content: "Goal complete: CHECKOUT-417 was accepted and the dynamic analysis Plugin is gone.",
         toolCalls: [],
       },
     },
@@ -201,7 +226,7 @@ function readWorkspaceReply(prefix: string, inspect = false): ScriptedReply {
       role: "assistant",
       content: "I will inspect the issue, implementation, regression test, and failing CI evidence before editing.",
       toolCalls: [
-        ...(inspect ? [{ id: `${prefix}-inspect`, name: "inspect_runtime", arguments: {} }] : []),
+        ...(inspect ? [{ id: `${prefix}-inspect`, name: "cordis_inspect", arguments: {} }] : []),
         ...(["issue.md", SOURCE_PATH, "tests/checkout.test.ts", "ci.log"] as const).map((path, index) => ({
           id: `${prefix}-read-${index + 1}`,
           name: "read_workspace_file",
