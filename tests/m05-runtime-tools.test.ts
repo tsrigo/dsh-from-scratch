@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/agent.js";
+import { WORD_COUNT_PLUGIN_CODE } from "../src/catalog/word-count.js";
 import {
   createCapabilityExperimentReplies,
   ScriptedLlm,
@@ -7,7 +8,7 @@ import {
 import { composeRuntime } from "../src/plugins.js";
 import { buildRequest } from "../src/session.js";
 
-describe("M05 trusted capability experiment", () => {
+describe("M05 dynamic Cordis Plugin experiment", () => {
   it("changes the next request through ordinary mount and disposer lifecycles", async () => {
     const llm = new ScriptedLlm(createCapabilityExperimentReplies());
     const { context, session, state } = await composeRuntime(llm);
@@ -19,18 +20,19 @@ describe("M05 trusted capability experiment", () => {
     }).runTurn("Fix CHECKOUT-417.");
 
     expect(state.acceptedPatch?.issueId).toBe("CHECKOUT-417");
-    expect(result.steps).toBe(6);
+    expect(result.steps).toBe(7);
     expect(llm.requests[2]!.tools.map((tool) => tool.name)).not.toContain("find_references");
-    expect(llm.requests[3]!.tools.map((tool) => tool.name)).toContain("find_references");
-    expect(llm.requests[3]!.tools.map((tool) => tool.name)).toContain("check_types");
-    expect(llm.requests[3]!.system).toContain("inspect calculateTotal references");
-    expect(llm.requests[5]!.tools.map((tool) => tool.name)).not.toContain("find_references");
-    expect(llm.requests[5]!.system).not.toContain("inspect calculateTotal references");
+    expect(llm.requests[3]!.tools.map((tool) => tool.name)).not.toContain("find_references");
+    expect(llm.requests[4]!.tools.map((tool) => tool.name)).toContain("find_references");
+    expect(llm.requests[4]!.tools.map((tool) => tool.name)).toContain("check_types");
+    expect(llm.requests[4]!.system).toContain("inspect calculateTotal references");
+    expect(llm.requests[6]!.tools.map((tool) => tool.name)).not.toContain("find_references");
+    expect(llm.requests[6]!.system).not.toContain("inspect calculateTotal references");
 
     const runtimeEvents = session.events.filter(
       (event) =>
         (event.type === "runtime/plugin-mounted" || event.type === "runtime/plugin-unmounted") &&
-        event.plugin === "capability:typescript_analysis",
+        event.plugin === "dynamic:typescript_analysis",
     );
     expect(runtimeEvents.map((event) => event.type)).toEqual([
       "runtime/plugin-mounted",
@@ -43,17 +45,21 @@ describe("M05 trusted capability experiment", () => {
     }
   });
 
-  it("provides word_count as a separate install-use-remove mechanism check", async () => {
+  it("defines, runs, uses, and undefines a word_count Plugin", async () => {
     const replies = [
       {
         message: {
           role: "assistant" as const,
-          content: "Install the small mechanism example.",
+          content: "Define the small mechanism example.",
           toolCalls: [
             {
-              id: "install",
-              name: "install_capability",
-              arguments: { name: "word_count" },
+              id: "define",
+              name: "cordis_define",
+              arguments: {
+                name: "word_count",
+                purpose: "Count words in supplied text.",
+                code: WORD_COUNT_PLUGIN_CODE,
+              },
             },
           ],
         },
@@ -61,7 +67,20 @@ describe("M05 trusted capability experiment", () => {
       {
         message: {
           role: "assistant" as const,
-          content: "Use it.",
+          content: "Run it.",
+          toolCalls: [
+            {
+              id: "run",
+              name: "cordis_run",
+              arguments: { pluginId: "dyn-1" },
+            },
+          ],
+        },
+      },
+      {
+        message: {
+          role: "assistant" as const,
+          content: "Use the new tool.",
           toolCalls: [
             {
               id: "count",
@@ -74,12 +93,12 @@ describe("M05 trusted capability experiment", () => {
       {
         message: {
           role: "assistant" as const,
-          content: "Remove it.",
+          content: "Undefine it.",
           toolCalls: [
             {
-              id: "remove",
-              name: "remove_capability",
-              arguments: { name: "word_count" },
+              id: "undefine",
+              name: "cordis_undefine",
+              arguments: { pluginId: "dyn-1" },
             },
           ],
         },
@@ -91,25 +110,26 @@ describe("M05 trusted capability experiment", () => {
     await new Agent({ llm, context, systemPrompt: "Test lifecycle." }).runTurn("Count words.");
 
     expect(llm.requests[0]!.tools.map((tool) => tool.name)).not.toContain("word_count");
-    expect(llm.requests[1]!.tools.map((tool) => tool.name)).toContain("word_count");
-    expect(llm.requests[3]!.tools.map((tool) => tool.name)).not.toContain("word_count");
+    expect(llm.requests[1]!.tools.map((tool) => tool.name)).not.toContain("word_count");
+    expect(llm.requests[2]!.tools.map((tool) => tool.name)).toContain("word_count");
+    expect(llm.requests[4]!.tools.map((tool) => tool.name)).not.toContain("word_count");
     const count = session.events.find(
       (event) => event.type === "tool/result" && event.name === "word_count",
     );
     expect(count?.type === "tool/result" ? JSON.parse(count.content) : null).toEqual({ words: 3 });
   });
 
-  it("rejects names outside the trusted catalog at argument validation", async () => {
+  it("reports invalid Plugin code through the ordinary tool result", async () => {
     const llm = new ScriptedLlm([
       {
         message: {
           role: "assistant",
-          content: "Try an untrusted name.",
+          content: "Try invalid Plugin code.",
           toolCalls: [
             {
               id: "bad",
-              name: "install_capability",
-              arguments: { name: "remote_package" },
+              name: "cordis_define",
+              arguments: { name: "broken", purpose: "Broken syntax fixture.", code: "return {" },
             },
           ],
         },
@@ -118,11 +138,11 @@ describe("M05 trusted capability experiment", () => {
         const result = request.messages.find(
           (message) => message.role === "tool" && message.toolCallId === "bad",
         );
-        expect(result?.content).toContain("Invalid tool arguments");
+        expect(result?.content).toContain("Unexpected token");
         return { message: { role: "assistant", content: "Rejected.", toolCalls: [] } };
       },
     ]);
     const { context } = await composeRuntime(llm);
-    await new Agent({ llm, context, systemPrompt: "Bounded runtime." }).runTurn("Try install.");
+    await new Agent({ llm, context, systemPrompt: "Dynamic runtime." }).runTurn("Try define.");
   });
 });

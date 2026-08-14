@@ -53,15 +53,15 @@ export async function runCheckoutLongTask(
     rounds: [
       {
         label: "diagnose",
-        input: "Round 1/3 — call inspect_runtime exactly once. Read issue.md, src/checkout.ts, tests/checkout.test.ts, and ci.log exactly once each. Diagnose the duplicate discount, then finish this turn without editing.",
+        input: "Round 1/3 — call cordis_inspect exactly once. Read issue.md, src/checkout.ts, tests/checkout.test.ts, and ci.log exactly once each. Diagnose the duplicate discount, then finish this turn without editing.",
       },
       {
         label: "repair",
-        input: `Round 2/3 — apply one exact patch in ${SOURCE_PATH}: replace ${JSON.stringify(BUGGY_RETURN)} with ${JSON.stringify(FIXED_RETURN)}. Then call run_tests exactly once and finish this turn without installing capabilities or submitting.`,
+        input: `Round 2/3 — apply one exact patch in ${SOURCE_PATH}: replace ${JSON.stringify(BUGGY_RETURN)} with ${JSON.stringify(FIXED_RETURN)}. Then call run_tests exactly once and finish this turn without defining Plugins or submitting.`,
       },
       {
         label: "verify-submit",
-        input: "Round 3/3 — install typescript_analysis exactly once. On the next model step call find_references for calculateTotal and check_types exactly once each. Then remove typescript_analysis, submit the tested patch exactly once, and finish.",
+        input: "Round 3/3 — define and run one typescript_analysis Cordis Plugin. After its tools appear, call find_references for calculateTotal and check_types exactly once each. Then undefine the Plugin, submit the tested patch exactly once, and finish.",
       },
     ],
     async runRound(round, roundNumber) {
@@ -81,7 +81,7 @@ export async function runCheckoutLongTask(
       const completed =
         roundNumber === 3 &&
         runtime.state.acceptedPatch !== null &&
-        !runtime.context.inspect().plugins.includes("capability:typescript_analysis");
+        !runtime.context.inspect().plugins.includes("dynamic:typescript_analysis");
       return { progressed, completed };
     },
   });
@@ -108,7 +108,7 @@ function hasExpectedEvidence(
 ): boolean {
   const names = toolResultNames(events);
   if (roundNumber === 1) {
-    return names.includes("inspect_runtime") && names.filter((name) => name === "read_workspace_file").length >= 4;
+    return names.includes("cordis_inspect") && names.filter((name) => name === "read_workspace_file").length >= 4;
   }
   if (roundNumber === 2) {
     return names.includes("apply_patch") && names.includes("run_tests") && state.testsPassed;
@@ -122,18 +122,19 @@ function hasConcretePartialProgress(
   plugins: string[],
 ): boolean {
   const names = toolResultNames(events);
-  if (roundNumber === 1) return names.includes("inspect_runtime") || names.includes("read_workspace_file");
+  if (roundNumber === 1) return names.includes("cordis_inspect") || names.includes("read_workspace_file");
   if (roundNumber === 2) return names.includes("apply_patch") || names.includes("run_tests");
   return (
     names.some((name) =>
       [
-        "install_capability",
+        "cordis_define",
+        "cordis_run",
         "find_references",
         "check_types",
-        "remove_capability",
+        "cordis_undefine",
         "submit_patch",
       ].includes(name),
-    ) || plugins.includes("capability:typescript_analysis")
+    ) || plugins.includes("dynamic:typescript_analysis")
   );
 }
 
@@ -154,16 +155,21 @@ function followUpInstruction(
         : [`apply the exact ${SOURCE_PATH} replacement from ${JSON.stringify(BUGGY_RETURN)} to ${JSON.stringify(FIXED_RETURN)}`]),
       ...(state.testsPassed ? [] : ["call run_tests exactly once after the patch"]),
     ];
-    return `Round 2 follow-up — ${actions.join(" and ")}. Then finish without installing or submitting.`;
+    return `Round 2 follow-up — ${actions.join(" and ")}. Then finish without defining Plugins or submitting.`;
   }
-  const installed = names.includes("install_capability") ||
+  const defined = names.includes("cordis_define") ||
+    names.includes("cordis_run") ||
+    names.includes("find_references") ||
+    names.includes("check_types");
+  const running = names.includes("cordis_run") ||
     names.includes("find_references") ||
     names.includes("check_types");
   const actions = [
-    ...(installed ? [] : ["install typescript_analysis exactly once"]),
-    ...(names.includes("find_references") ? [] : ["call find_references for calculateTotal exactly once after installation"]),
-    ...(names.includes("check_types") ? [] : ["call check_types exactly once after installation"]),
-    ...(names.includes("remove_capability") ? [] : ["remove typescript_analysis exactly once after analysis"]),
+    ...(defined ? [] : ["define the typescript_analysis Cordis Plugin exactly once"]),
+    ...(running ? [] : ["run the defined Plugin exactly once"]),
+    ...(names.includes("find_references") ? [] : ["call find_references for calculateTotal exactly once after the Plugin starts"]),
+    ...(names.includes("check_types") ? [] : ["call check_types exactly once after the Plugin starts"]),
+    ...(names.includes("cordis_undefine") ? [] : ["undefine the dynamic Plugin exactly once after analysis"]),
     ...(!state.testsPassed
       ? [
           `restore the exact ${SOURCE_PATH} fix from ${JSON.stringify(BUGGY_RETURN)} to ${JSON.stringify(FIXED_RETURN)}`,
@@ -172,5 +178,5 @@ function followUpInstruction(
       : []),
     ...(state.acceptedPatch ? [] : ["submit the tested CHECKOUT-417 patch exactly once"]),
   ];
-  return `Round 3 follow-up — ${actions.join(", then ")}. Finish after submit_patch returns accepted; do not reinstall anything.`;
+  return `Round 3 follow-up — ${actions.join(", then ")}. Finish after submit_patch returns accepted; do not define another Plugin.`;
 }

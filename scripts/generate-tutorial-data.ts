@@ -8,6 +8,7 @@ import {
   describeRequest,
   projectMessages,
 } from "../src/context.js";
+import { WORD_COUNT_PLUGIN_CODE } from "../src/catalog/word-count.js";
 import type { ToolSchema, UnifiedRequest } from "../src/protocol.js";
 import { assertValidLiveReplay, type LiveReplayRecording } from "../src/replay.js";
 import {
@@ -25,6 +26,7 @@ interface CheckpointConfig {
   previousTag: string;
   scenario: string;
   sourcePath: string;
+  sourceMode?: "worktree";
   lessonPath: string;
   shortTitle: string;
   title: string;
@@ -91,17 +93,28 @@ const chapters = [];
 for (const config of configs) {
   const evidence = teachingEvidence(config.id);
   verifyReconstruction(evidence);
-  const source = git("show", `${config.tag}:${config.sourcePath}`);
+  const source = config.sourceMode === "worktree"
+    ? await readFile(resolve(root, config.sourcePath), "utf8")
+    : git("show", `${config.tag}:${config.sourcePath}`);
   const lesson = await readFile(resolve(root, config.lessonPath), "utf8");
-  const diff = git(
-    "diff",
-    "--no-ext-diff",
-    "--unified=3",
-    config.previousTag,
-    config.tag,
-    "--",
-    config.sourcePath,
-  );
+  const diff = config.sourceMode === "worktree"
+    ? git(
+        "diff",
+        "--no-ext-diff",
+        "--unified=3",
+        config.previousTag,
+        "--",
+        config.sourcePath,
+      )
+    : git(
+        "diff",
+        "--no-ext-diff",
+        "--unified=3",
+        config.previousTag,
+        config.tag,
+        "--",
+        config.sourcePath,
+      );
   const requests = evidence.requests.map((request, index) => {
     const parts = describeRequest(request);
     return {
@@ -119,9 +132,15 @@ for (const config of configs) {
   // 文件 tab：主文件 + 该章为止已出现的其余主文件（历史 tag 快照）。
   // 章节越靠后，tab 越多：第一章只有 agent.ts，第六章集齐全部六个。
   const mainIndex = SIX_MAIN_FILES.indexOf(config.sourcePath);
-  const extraFiles = (mainIndex > 0 ? SIX_MAIN_FILES.slice(0, mainIndex) : [])
-    .filter((path) => fileExistsInTag(config.tag, path))
-    .map((path) => ({ path, content: git("show", `${config.tag}:${path}`) }));
+  const extraFiles = [];
+  for (const path of mainIndex > 0 ? SIX_MAIN_FILES.slice(0, mainIndex) : []) {
+    const owner = configs.find((candidate) => candidate.sourcePath === path);
+    if (owner?.sourceMode === "worktree" && Number(owner.number) <= Number(config.number)) {
+      extraFiles.push({ path, content: await readFile(resolve(root, path), "utf8") });
+    } else if (fileExistsInTag(config.tag, path)) {
+      extraFiles.push({ path, content: git("show", `${config.tag}:${path}`) });
+    }
+  }
   chapters.push({
     id: `chapter-${Number(config.number)}`,
     number: config.number,
@@ -295,51 +314,136 @@ function teachingEvidence(id: string): TeachingEvidence {
       return evidenceFromEvents(events);
     }
     case "m05": {
-      const baseTools = [inspectTool(), installTool(), removeTool()];
+      const baseTools = [
+        inspectTool(),
+        definePluginTool(),
+        runPluginTool(),
+        stopPluginTool(),
+        undefinePluginTool(),
+      ];
       const wordCount = wordCountTool();
+      const basePlugins = ["session-log", "runtime-tools"];
+      const basePrompts = [{
+        id: "runtime-evolution-guide",
+        text: "检查当前 Context，定义并运行任务需要的 Cordis 插件，验证后停止或移除。",
+        owner: "runtime-tools",
+      }];
+      const baseServices = [{ name: "session-log", provider: "session-log" }];
+      const baseRelations: TeachingGraph["relations"] = [];
       const before = graphSnapshot({
         stepId: "before-install",
-        eventId: 0,
-        plugins: ["session-log", "runtime-tools"],
+        eventId: 2,
+        plugins: basePlugins,
         tools: baseTools.map((item) => ({ name: item.name, owner: "runtime-tools" })),
+        prompts: basePrompts,
+        services: baseServices,
+        relations: baseRelations,
       });
       const installed = graphSnapshot({
         stepId: "after-install",
-        eventId: 1,
-        plugins: ["session-log", "runtime-tools", "capability:word_count"],
+        eventId: 6,
+        plugins: [...basePlugins, "dynamic:word_count"],
         tools: [
           ...baseTools.map((item) => ({ name: item.name, owner: "runtime-tools" })),
-          { name: wordCount.name, owner: "capability:word_count" },
+          { name: wordCount.name, owner: "dynamic:word_count" },
         ],
+        prompts: basePrompts,
+        services: baseServices,
+        relations: baseRelations,
       });
       const removed = graphSnapshot({
         stepId: "after-remove",
-        eventId: 4,
-        plugins: ["session-log", "runtime-tools"],
+        eventId: 11,
+        plugins: basePlugins,
         tools: baseTools.map((item) => ({ name: item.name, owner: "runtime-tools" })),
+        prompts: basePrompts,
+        services: baseServices,
+        relations: baseRelations,
       });
       const requests = [
-        requestWithTools(baseTools, "检查当前能力。"),
-        requestWithTools([...baseTools, wordCount], "试用临时分词统计能力。"),
-        requestWithTools(baseTools, "能力已撤回。"),
+        requestWithTools(baseTools, "检查当前能力并定义 word_count 插件。"),
+        requestWithTools([...baseTools, wordCount], "调用刚刚定义的 word_count 工具。"),
+        requestWithTools(baseTools, "动态插件已经移除。"),
       ];
       const events: SessionEvent[] = [
-        { id: 1, type: "runtime/plugin-mounted", plugin: "capability:word_count" },
+        {
+          id: 1,
+          type: "tool/call",
+          stepId: "inspect-step",
+          call: { id: "call-inspect", name: "cordis_inspect", arguments: {} },
+        },
         {
           id: 2,
+          type: "tool/result",
+          stepId: "inspect-step",
+          toolCallId: "call-inspect",
+          name: "cordis_inspect",
+          content: JSON.stringify({
+            plugins: basePlugins,
+            tools: baseTools.map((tool) => tool.name),
+            prompts: basePrompts.map((prompt) => prompt.id),
+            services: baseServices.map((service) => service.name),
+            relations: baseRelations,
+          }),
+        },
+        {
+          id: 3,
+          type: "tool/call",
+          stepId: "define-step",
+          call: { id: "call-define", name: "cordis_define", arguments: { name: "word_count", purpose: "统计单词", code: WORD_COUNT_PLUGIN_CODE } },
+        },
+        {
+          id: 4,
+          type: "tool/result",
+          stepId: "define-step",
+          toolCallId: "call-define",
+          name: "cordis_define",
+          content: JSON.stringify({ ok: true, pluginId: "dyn-1", status: "defined" }),
+        },
+        {
+          id: 5,
+          type: "tool/call",
+          stepId: "run-step",
+          call: { id: "call-run", name: "cordis_run", arguments: { pluginId: "dyn-1" } },
+        },
+        { id: 6, type: "runtime/plugin-mounted", plugin: "dynamic:word_count" },
+        {
+          id: 7,
+          type: "tool/result",
+          stepId: "run-step",
+          toolCallId: "call-run",
+          name: "cordis_run",
+          content: JSON.stringify({ ok: true, pluginId: "dyn-1", status: "running" }),
+        },
+        {
+          id: 8,
           type: "tool/call",
           stepId: "experiment-step",
           call: { id: "call-count", name: "word_count", arguments: { text: "one two three" } },
         },
         {
-          id: 3,
+          id: 9,
           type: "tool/result",
           stepId: "experiment-step",
           toolCallId: "call-count",
           name: "word_count",
           content: JSON.stringify({ words: 3 }),
         },
-        { id: 4, type: "runtime/plugin-unmounted", plugin: "capability:word_count" },
+        {
+          id: 10,
+          type: "tool/call",
+          stepId: "remove-step",
+          call: { id: "call-undefine", name: "cordis_undefine", arguments: { pluginId: "dyn-1" } },
+        },
+        { id: 11, type: "runtime/plugin-unmounted", plugin: "dynamic:word_count" },
+        {
+          id: 12,
+          type: "tool/result",
+          stepId: "remove-step",
+          toolCallId: "call-undefine",
+          name: "cordis_undefine",
+          content: JSON.stringify({ ok: true, pluginId: "dyn-1", status: "undefined" }),
+        },
       ];
       return manualEvidence(requests, events, [before, installed, removed]);
     }
@@ -387,7 +491,7 @@ function baseRequest(options: {
 
 function requestWithTools(tools: ToolSchema[], dynamicContext: string): UnifiedRequest {
   return baseRequest({
-    system: "只使用当前已安装的能力。",
+    system: "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
     tools,
     messages: [{ role: "user", content: "统计 ‘one two three’ 的单词数；完成后恢复原能力。" }],
     dynamicContext,
@@ -421,15 +525,23 @@ function readNoteTool(): ToolSchema {
 }
 
 function inspectTool(): ToolSchema {
-  return simpleTool("inspect_runtime", "查看当前已安装的能力。");
+  return simpleTool("cordis_inspect", "查看当前 Context 中的插件及其能力。");
 }
 
-function installTool(): ToolSchema {
-  return simpleTool("install_capability", "从受信任目录临时安装一项能力。");
+function definePluginTool(): ToolSchema {
+  return simpleTool("cordis_define", "登记 Agent 编写的 Cordis 插件代码。");
 }
 
-function removeTool(): ToolSchema {
-  return simpleTool("remove_capability", "移除先前临时安装的能力。");
+function runPluginTool(): ToolSchema {
+  return simpleTool("cordis_run", "运行已经定义的 Cordis 插件。");
+}
+
+function stopPluginTool(): ToolSchema {
+  return simpleTool("cordis_stop", "停止插件并保留定义。");
+}
+
+function undefinePluginTool(): ToolSchema {
+  return simpleTool("cordis_undefine", "停止插件并删除定义。");
 }
 
 function wordCountTool(): ToolSchema {

@@ -62,7 +62,7 @@ describe("live replay reading flow", () => {
             arguments: "{}",
             result: {
               name: "inspect_runtime",
-              summary: "当前插件、服务和受信任能力目录已返回。",
+              summary: "当前插件、服务、工具和依赖关系已返回。",
             },
           }),
         ],

@@ -1,5 +1,8 @@
 import {
   type CSSProperties,
+  type RefObject,
+  Fragment,
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -32,6 +35,7 @@ import {
 } from "./replay-timing.js";
 import {
   chapterFills,
+  graphSnapshotForEvidenceStep,
   newLineNumbers,
   snapshotForCheckpoint,
 } from "./scroll-sync.js";
@@ -93,8 +97,26 @@ type LessonBlock =
   | { kind: "paragraph"; text: string }
   | LessonEvidenceBlock;
 
+/** 返回文档顺序中最后一个越过观察线的元素，只需读取 O(log n) 个矩形。 */
+function lastElementAbove(elements: HTMLElement[], line: number): HTMLElement | null {
+  let low = 0;
+  let high = elements.length - 1;
+  let match = -1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (elements[middle]!.getBoundingClientRect().top <= line) {
+      match = middle;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return match >= 0 ? elements[match]! : null;
+}
+
 export function App() {
   const [language, setLanguage] = useState<TutorialLanguage>(initialLanguage);
+  const compactLayout = useCompactLayout();
   const [data, setData] = useState<TutorialData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState("chapter-1");
@@ -102,7 +124,26 @@ export function App() {
   const [lockedCodeView, setLockedCodeView] = useState<LockedCodeView | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const activeChapterIdRef = useRef(activeChapterId);
+  const pendingChapterNavigationRef = useRef<string | null>(null);
+  const navigationReleaseTimerRef = useRef<number | null>(null);
   useEffect(() => { activeChapterIdRef.current = activeChapterId; }, [activeChapterId]);
+  useEffect(() => () => {
+    if (navigationReleaseTimerRef.current !== null) {
+      window.clearTimeout(navigationReleaseTimerRef.current);
+    }
+  }, []);
+
+  const lockChapterNavigation = (chapterId: string) => {
+    pendingChapterNavigationRef.current = chapterId;
+    if (navigationReleaseTimerRef.current !== null) {
+      window.clearTimeout(navigationReleaseTimerRef.current);
+    }
+    // scrollend 并非所有浏览器均可靠提供；超时仅作为目标元素意外不可达时的兜底。
+    navigationReleaseTimerRef.current = window.setTimeout(() => {
+      pendingChapterNavigationRef.current = null;
+      navigationReleaseTimerRef.current = null;
+    }, 2_000);
+  };
 
   useEffect(() => {
     let current = true;
@@ -134,49 +175,61 @@ export function App() {
     // 编辑器随之回退（代码段逐段消失）；滚回页面顶部时清空编辑器。
     // 用 scroll 监听而不是 IntersectionObserver：IO 在快速滚动/拖滚动条
     // 时会跳过中间帧，锚点从未进入观察带就不会触发回调，编辑器会卡住。
-    const onScroll = () => {
-      const anchors = [...document.querySelectorAll<HTMLElement>("[data-fill-cp]")];
-      if (anchors.length === 0) return;
+    const anchors = [...document.querySelectorAll<HTMLElement>("[data-fill-cp]")];
+    const sections = data.chapters
+      .map((chapter) => sectionRefs.current.get(chapter.id))
+      .filter((section): section is HTMLElement => section !== undefined);
+    let scrollFrame: number | null = null;
+    const updateFromScroll = () => {
+      scrollFrame = null;
       const line = window.innerHeight * 0.25;
-      let current: { chapterId: string; cp: number } | null = null;
-      for (const anchor of anchors) {
-        if (anchor.getBoundingClientRect().top <= line) {
-          const chapterId = anchor.getAttribute("data-chapter");
-          const cp = anchor.getAttribute("data-fill-cp");
-          if (chapterId && cp !== null) {
-            current = { chapterId, cp: Number(cp) };
-          }
+      const pendingChapter = pendingChapterNavigationRef.current;
+      if (pendingChapter) {
+        const target = sectionRefs.current.get(pendingChapter);
+        // 平滑滚动途经上一章的锚点时，不能让它覆盖用户刚点击的章节。
+        // 目标章首进入观察线后，才交还给普通滚动联动。
+        if (!target || target.getBoundingClientRect().top > line) return;
+        pendingChapterNavigationRef.current = null;
+        if (navigationReleaseTimerRef.current !== null) {
+          window.clearTimeout(navigationReleaseTimerRef.current);
+          navigationReleaseTimerRef.current = null;
         }
       }
+      if (anchors.length === 0) return;
+      const currentSection = lastElementAbove(sections, line);
+      const currentChapterId = currentSection?.dataset.chapter ?? null;
+      let currentAnchor = lastElementAbove(anchors, line);
       // 末尾兜底：最后一个锚点后面没有足够内容把它顶过 25% 线，
       // 用户一旦滚到底部（读完了），就激活它。
       const atBottom =
         window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8;
       if (atBottom) {
         const last = anchors[anchors.length - 1];
-        if (last) {
-          const chapterId = last.getAttribute("data-chapter");
-          const cp = last.getAttribute("data-fill-cp");
-          if (chapterId && cp !== null) {
-            current = { chapterId, cp: Number(cp) };
-          }
-        }
+        if (last) currentAnchor = last;
       }
-      if (!current) {
+      // 章节由章首决定；checkpoint 只由当前章内的代码锚点决定。这样位于
+      // 章首和第一张代码卡之间时，不会错误沿用上一章的标签与进度。
+      if (currentChapterId && currentChapterId !== activeChapterIdRef.current) {
+        activeChapterIdRef.current = currentChapterId;
+        setActiveChapterId(currentChapterId);
+      }
+      if (!currentAnchor || currentAnchor.dataset.chapter !== currentChapterId) {
         setCheckpoint(null);
         return;
       }
-      if (current.chapterId !== activeChapterIdRef.current) {
-        setActiveChapterId(current.chapterId);
-      }
-      setCheckpoint((previous) => previous === current!.cp ? previous : current!.cp);
+      const currentCheckpoint = Number(currentAnchor.dataset.fillCp);
+      setCheckpoint((previous) => previous === currentCheckpoint ? previous : currentCheckpoint);
     };
-    onScroll();
+    const onScroll = () => {
+      if (scrollFrame === null) scrollFrame = requestAnimationFrame(updateFromScroll);
+    };
+    updateFromScroll();
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onScroll);
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
     };
   }, [data, lockedCodeView]);
 
@@ -187,10 +240,11 @@ export function App() {
       const hash = window.location.hash.slice(1);
       const chapter = data.chapters.find((candidate) => candidate.id === hash);
       if (!chapter) return;
+      lockChapterNavigation(chapter.id);
       setActiveChapterId(chapter.id);
       setCheckpoint(null);
       requestAnimationFrame(() => {
-        sectionRefs.current.get(chapter.id)?.scrollIntoView({ behavior: "auto", block: "start" });
+        sectionRefs.current.get(chapter.id)?.scrollIntoView({ behavior: "instant", block: "start" });
       });
     };
     fromHash();
@@ -219,16 +273,17 @@ export function App() {
     : Math.round(((codeCheckpoint + 1) / (codeFills.length + 1)) * 100);
 
   const navigateTo = (chapter: Chapter) => {
+    lockChapterNavigation(chapter.id);
     setActiveChapterId(chapter.id);
     setCheckpoint(null);
     window.history.pushState(null, "", `#${chapter.id}`);
-    const compact = window.matchMedia("(max-width: 960px)").matches;
     const scroll = () => sectionRefs.current.get(chapter.id)?.scrollIntoView({
-      behavior: compact ? "auto" : "smooth",
+      // 跨章平滑滚动会连续布局、绘制途经的整章内容；软件合成环境下
+      // 会形成数秒长任务。章节导航应直接到达，章内手动滚动仍保持联动。
+      behavior: "instant",
       block: "start",
     });
-    if (compact) requestAnimationFrame(scroll);
-    else scroll();
+    requestAnimationFrame(scroll);
   };
 
   const switchLanguage = (nextLanguage: TutorialLanguage) => {
@@ -277,10 +332,9 @@ export function App() {
                 key={chapter.id}
                 chapter={chapter}
                 active={activeChapter.id === chapter.id}
-                sectionRef={(node) => {
-                  if (node) sectionRefs.current.set(chapter.id, node);
-                }}
-                checkpoint={checkpoint}
+                sectionRefs={sectionRefs}
+                checkpoint={activeChapter.id === chapter.id ? checkpoint : null}
+                showMobileCode={compactLayout}
               />
             ))}
           </article>
@@ -297,6 +351,21 @@ export function App() {
       </footer>
     </div>
   );
+}
+
+/** 仅在窄屏挂载章内代码面板。每章的面板保持固定高度，避免滚动跨章时
+ * 因卸载上一章面板而改变页面高度；桌面端只使用右侧 dock。 */
+function useCompactLayout(): boolean {
+  const query = "(max-width: 960px)";
+  const [compact, setCompact] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setCompact(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return compact;
 }
 
 interface ReplayToolState {
@@ -959,13 +1028,19 @@ export function extractReplayInstructions(events: LiveReplayEvent[]): ReplayInst
 
 function replayToolResult(name: string, content: string): string {
   if (name === "read_workspace_file") return "工作区证据已读取：issue、源码、测试或 CI 日志进入会话。";
-  if (name === "inspect_runtime") return "当前插件、服务和受信任能力目录已返回。";
+  if (name === "inspect_runtime" || name === "cordis_inspect") {
+    return "当前插件、服务、工具和依赖关系已返回。";
+  }
   if (name === "apply_patch") return "最小补丁已应用：返回值不再重复扣除订单优惠。";
   if (name === "run_tests") return "回归测试完成：43 项全部通过。";
-  if (name === "install_capability") return "typescript_analysis 已进入运行时。";
+  if (name === "install_capability") return "typescript_analysis 插件及其工具已经加入当前 Context。";
+  if (name === "cordis_define") return "新的 Cordis 插件代码已经登记。";
+  if (name === "cordis_run") return "动态插件及其工具已经进入当前 Context。";
   if (name === "find_references") return "calculateTotal 的调用方已列出，折扣参数彼此独立。";
   if (name === "check_types") return "TypeScript 类型检查通过，没有诊断。";
-  if (name === "remove_capability") return "typescript_analysis 已从运行时撤下。";
+  if (name === "remove_capability") return "typescript_analysis 插件及其工具已经从当前 Context 移除。";
+  if (name === "cordis_stop") return "动态插件已经停止，它提供的工具已被移除。";
+  if (name === "cordis_undefine") return "动态插件已经停止并删除定义。";
   if (name === "submit_patch") {
     return content.includes('"accepted":true')
       ? "补丁通过：CHECKOUT-417 已被验收器接受。"
@@ -1221,17 +1296,29 @@ type LessonFlowItem =
   | LessonBlock
   | { kind: "fill"; fillIndex: number };
 
-/** 正文流 = 骨架卡（第一个锚点，checkpoint 0）+ body 填充卡（1..n）按比例交错插入。
+/** 正文流 = 骨架卡（第一个锚点，checkpoint 0）+ 章节导语 + body 填充卡（1..n）。
+ * 第一张 body 卡放在首个小节标题之前，让导语始终对应右侧骨架；其余卡片按比例交错插入。
  * 卡片是滚动联动的锚点（data-chapter + data-fill-cp）。 */
 function interleaveFillCards(blocks: LessonBlock[], chapter: Chapter): LessonFlowItem[] {
   const fills = chapterFills(chapter);
   const bodyCount = Math.max(fills.length - 1, 0);
   const result: LessonFlowItem[] = [{ kind: "fill", fillIndex: 0 }];
-  const denominator = blocks.length || 1;
+  const firstHeading = blocks.findIndex((block) => block.kind === "heading");
+  const leadCount = firstHeading > 0 ? firstHeading : 0;
+  result.push(...blocks.slice(0, leadCount));
   let placed = 0;
-  blocks.forEach((block, index) => {
+  if (leadCount > 0 && bodyCount > 0) {
+    result.push({ kind: "fill", fillIndex: 1 });
+    placed = 1;
+  }
+  const remainingBlocks = blocks.slice(leadCount);
+  const initiallyPlaced = placed;
+  const remainingBodyCount = bodyCount - initiallyPlaced;
+  const denominator = remainingBlocks.length || 1;
+  remainingBlocks.forEach((block, index) => {
     result.push(block);
-    const target = Math.round(((index + 1) * bodyCount) / denominator);
+    const target = initiallyPlaced
+      + Math.round(((index + 1) * remainingBodyCount) / denominator);
     while (placed < target && placed < bodyCount) {
       result.push({ kind: "fill", fillIndex: placed + 1 });
       placed += 1;
@@ -1240,38 +1327,60 @@ function interleaveFillCards(blocks: LessonBlock[], chapter: Chapter): LessonFlo
   return result;
 }
 
-function ChapterArticle({
+const ChapterArticle = memo(function ChapterArticle({
   chapter,
   active,
-  sectionRef,
+  sectionRefs,
   checkpoint,
+  showMobileCode,
 }: {
   chapter: Chapter;
   active: boolean;
-  sectionRef: (node: HTMLElement | null) => void;
+  sectionRefs: RefObject<Map<string, HTMLElement>>;
   checkpoint: number | null;
+  showMobileCode: boolean;
+}) {
+  return (
+    <section
+      ref={(node) => {
+        if (node) sectionRefs.current.set(chapter.id, node);
+        else sectionRefs.current.delete(chapter.id);
+      }}
+      data-chapter={chapter.id}
+      id={chapter.id}
+      className={`chapter ${active ? "active" : ""}`}
+    >
+      <ChapterContent
+        chapter={chapter}
+        checkpoint={checkpoint}
+        showMobileCode={showMobileCode}
+      />
+    </section>
+  );
+});
+
+/** active 只改变外层章节标记；正文保持 memo，避免切换标签时重新执行
+ * 两整章的 Markdown 渲染及折叠证据区语法高亮。 */
+const ChapterContent = memo(function ChapterContent({
+  chapter,
+  checkpoint,
+  showMobileCode,
+}: {
+  chapter: Chapter;
+  checkpoint: number | null;
+  showMobileCode: boolean;
 }) {
   const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
   const flow = useMemo(() => interleaveFillCards(lesson, chapter), [lesson, chapter]);
   const fills = chapterFills(chapter);
   return (
-    <section
-      ref={sectionRef}
-      data-chapter={chapter.id}
-      id={chapter.id}
-      className={`chapter ${active ? "active" : ""}`}
-    >
-      <div className="chapter-rail">
-        <span>{chapterNumeral(chapter.number)}</span><i />
-      </div>
-      <div className="chapter-content">
+    <div className="chapter-content">
         <div className="chapter-kicker">
-          <span>{chapterName(chapter.number)}</span>
           <span>{fixedChapterTitle(chapter)}</span>
         </div>
         <div className="chapter-heading">
           <div className="chapter-file">
-            <span>第 {Number(chapter.number)} / 6 次写入</span>
+            <span>当前正在写入</span>
             <code>{chapter.source.path}</code>
           </div>
           <h2>{chapter.title}</h2>
@@ -1283,14 +1392,14 @@ function ChapterArticle({
         <CodeGuideCard chapter={chapter} />
         <div className="lesson-copy">
           {flow.map((item, index) => {
-            if (item.kind === "heading") return <h3 key={index}>{item.text}</h3>;
-            if (item.kind === "paragraph") return <p key={index}>{renderInlineCode(item.text)}</p>;
+            if (item.kind === "heading") return <h3 key={`heading-${index}`}>{item.text}</h3>;
+            if (item.kind === "paragraph") return <p key={`paragraph-${index}`}>{renderInlineCode(item.text)}</p>;
             if (item.kind === "fill") {
               const fill = fills[item.fillIndex];
               if (!fill) return null;
               return (
                 <FillCard
-                  key={item.fillIndex}
+                  key={`fill-${item.fillIndex}`}
                   chapter={chapter}
                   fillIndex={item.fillIndex}
                   fill={fill}
@@ -1298,17 +1407,16 @@ function ChapterArticle({
                 />
               );
             }
-            return <EvidenceContentCard key={item.id} chapter={chapter} block={item} />;
+            return <EvidenceContentCard key={`evidence-${item.id}`} chapter={chapter} block={item} />;
           })}
         </div>
         <ChapterSummaryCard chapter={chapter} />
         <div className="chapter-code-mobile">
-          <CodeDock chapter={chapter} checkpoint={checkpoint} />
+          {showMobileCode && <CodeDock chapter={chapter} checkpoint={checkpoint} />}
         </div>
-      </div>
-    </section>
+    </div>
   );
-}
+});
 
 function CodeGuideCard({ chapter }: { chapter: Chapter }) {
   return (
@@ -1366,7 +1474,7 @@ function EvidenceContentCard({ chapter, block }: { chapter: Chapter; block: Less
       <p className="evidence-content-description">{block.description}</p>
       {target.tab === "request" && <RequestCard chapter={chapter} target={target} />}
       {target.tab === "events" && <TraceCard chapter={chapter} />}
-      {target.tab === "graph" && <GraphCard chapter={chapter} />}
+      {target.tab === "graph" && <GraphCard chapter={chapter} target={target} />}
       {target.tab === "diff" && <SummaryCard chapter={chapter} />}
     </section>
   );
@@ -1494,6 +1602,10 @@ function CodeDock({
   const code = snapshot.map((line) => line.text).join("\n");
   const lineNumbers = snapshot.map((line) => line.number);
   const language = languageForPath(file);
+  const segmentComments = fills.map((fill, index) => ({
+    beforeLine: Math.min(...fill.ranges.map(([start]) => start)),
+    text: `// ${fillStageLabel(index)}：${fill.label}`,
+  }));
   // 写入动画只作用于主文件的新增行（extra 文件为完整查看，不动画）
   const enteringLines = !extra && safeCheckpoint !== null && safeCheckpoint > 0
     ? added
@@ -1520,8 +1632,10 @@ function CodeDock({
           {file}
           {extra ? ` · 完整文件` : fills.length > 0
             ? safeCheckpoint === null
-              ? " · 尚未开始"
-              : ` · 第 ${safeCheckpoint + 1}/${fills.length} 段`
+              ? ` · 结构 + ${Math.max(fills.length - 1, 0)} 段代码`
+              : safeCheckpoint === 0
+                ? " · 结构"
+                : ` · 代码 ${safeCheckpoint}/${fills.length - 1}`
             : ""}
         </span>
         <button onClick={() => navigator.clipboard?.writeText(extra ? extra.content : code)}>复制</button>
@@ -1541,7 +1655,7 @@ function CodeDock({
               language={language}
             />
           ) : (
-            <div className="editor-empty">当前阅读位置尚未显示这个文件</div>
+            <CodeOutline fills={fills} language={language} />
           )
         ) : (
           <CodeBlock
@@ -1550,12 +1664,35 @@ function CodeDock({
             language={language}
             newLines={safeCheckpoint === 0 ? null : added}
             enteringLines={enteringLines}
+            annotations={segmentComments}
           />
         )}
         {!extra && fills.length > 0 && safeCheckpoint !== null && safeCheckpoint < fills.length - 1 && (
           <p className="code-dock-hint">继续向下阅读，右侧将显示下一段代码</p>
         )}
       </div>
+    </div>
+  );
+}
+
+function fillStageLabel(index: number): string {
+  return index === 0 ? "结构" : `代码 ${index}`;
+}
+
+/** 进入章节、尚未触发首个 checkpoint 时，先用注释列出整章的补全顺序。 */
+function CodeOutline({ fills, language }: {
+  fills: ReturnType<typeof chapterFills>;
+  language: string;
+}) {
+  const comment = language === "python" ? "#" : "//";
+  const code = [
+    `${comment} 本章先显示结构，再补全 ${Math.max(fills.length - 1, 0)} 段代码：`,
+    ...fills.map((fill, index) => `${comment} ${fillStageLabel(index)}：${fill.label}`),
+  ].join("\n");
+  return (
+    <div className="code-outline">
+      <CodeBlock code={code} language={language} />
+      <p>继续向下阅读，代码会按照上面的顺序逐段显示。</p>
     </div>
   );
 }
@@ -1642,8 +1779,8 @@ function TraceCard({ chapter }: { chapter: Chapter }) {
 }
 
 /** 能力图卡（压缩版）：插件归属快照 */
-function GraphCard({ chapter }: { chapter: Chapter }) {
-  const graph = chapter.graphs[chapter.graphs.length - 1];
+function GraphCard({ chapter, target }: { chapter: Chapter; target: EvidenceTarget }) {
+  const graph = graphSnapshotForEvidenceStep(chapter, target.step);
   if (!graph) {
     return (
       <div className="evidence-card-body graph-card">
@@ -1651,19 +1788,137 @@ function GraphCard({ chapter }: { chapter: Chapter }) {
       </div>
     );
   }
-  const capability = graph.plugins.find((plugin) => plugin.startsWith("capability:"));
+  if (chapter.number === "05") {
+    return <EvolutionGraphCard chapter={chapter} graph={graph} />;
+  }
   return (
     <div className="evidence-card-body graph-card">
       <div className="graph-ledger">
         <section><small>插件 · {graph.plugins.length}</small>{graph.plugins.map((plugin) => <span key={plugin}>{prettyPlugin(plugin)}</span>)}</section>
         <section><small>工具 · {graph.tools.length}</small>{graph.tools.map((tool) => <span key={tool.name}>{tool.name}</span>)}</section>
+        <section><small>提示词 · {graph.prompts.length}</small>{graph.prompts.map((prompt) => <span key={prompt.id ?? prompt.text} title={prompt.text}>{prettyPrompt(prompt.id)}</span>)}</section>
         <section><small>服务 · {graph.services.length}</small>{graph.services.map((service) => <span key={service.name}>{service.name}</span>)}</section>
       </div>
-      {chapter.number === "05" && (
-        <p className={`capability-state ${capability ? "mounted" : "removed"}`}>
-          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录包含 word_count" : "未安装；工具目录处于基线状态"}
+      {graph.relations.length > 0 && (
+        <p className="graph-relations">
+          <b>依赖</b>
+          {graph.relations.map((relation) => (
+            <span key={`${relation.consumer}-${relation.service}-${relation.provider}`}>
+              {prettyPlugin(relation.consumer)} → {prettyPlugin(relation.provider)}（{relation.service}）
+            </span>
+          ))}
         </p>
       )}
+    </div>
+  );
+}
+
+type EvolutionPhase = "baseline" | "mounted" | "restored";
+
+/** 第五章的能力快照只讲一次变化，不让读者从完整清单里自行找差异。 */
+function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: GraphSnapshot }) {
+  const baseline = chapter.graphs.find((snapshot) => snapshot.stepId === "before-install")
+    ?? chapter.graphs[0]
+    ?? graph;
+  const mounted = chapter.graphs.find((snapshot) =>
+    snapshot.tools.some((tool) => tool.name === "word_count")) ?? graph;
+  const capabilityName = mounted.plugins.find((plugin) => !baseline.plugins.includes(plugin))
+    ?? "dynamic:word_count";
+  const phase: EvolutionPhase = graph.stepId === "after-remove"
+    ? "restored"
+    : graph.tools.some((tool) => tool.name === "word_count")
+      ? "mounted"
+      : "baseline";
+  const phaseIndex = ({ baseline: 0, mounted: 1, restored: 2 } as const)[phase];
+  const comparison = phase === "mounted" ? baseline : phase === "restored" ? mounted : null;
+  const pluginDelta = comparison ? graph.plugins.length - comparison.plugins.length : 0;
+  const toolDelta = comparison ? graph.tools.length - comparison.tools.length : 0;
+  const phaseCopy = ({
+    baseline: {
+      pluginStatus: "尚未加入",
+      toolStatus: "不可调用",
+      relation: "能力缺口",
+      timingLabel: "下一步",
+      timing: "定义并运行插件，再观察这两个位置是否发生变化。",
+    },
+    mounted: {
+      pluginStatus: "新增插件",
+      toolStatus: "新增工具",
+      relation: "向 Context 注册",
+      timingLabel: "生效时点",
+      timing: "下一次模型请求会读取更新后的工具列表。",
+    },
+    restored: {
+      pluginStatus: "已移除",
+      toolStatus: "已移除",
+      relation: "贡献已撤销",
+      timingLabel: "验证结果",
+      timing: "插件和工具数量都回到实验开始前的基线。",
+    },
+  } as const)[phase];
+
+  return (
+    <div className={`evidence-card-body evolution-snapshot ${phase}`}>
+      <ol className="evolution-steps" aria-label="运行时能力变化阶段">
+        {["运行前", "已挂载", "已移除"].map((label, index) => (
+          <li className={index === phaseIndex ? "current" : index < phaseIndex ? "done" : ""} key={label}>
+            <i>{index < phaseIndex ? "✓" : index + 1}</i>
+            <span>{label}</span>
+          </li>
+        ))}
+      </ol>
+
+      <div className="evolution-flow" aria-label={`${capabilityName} 提供 word_count 工具`}>
+        <div className="evolution-node plugin">
+          <small>PLUGIN</small>
+          <code>{capabilityName}</code>
+          <span>{phaseCopy.pluginStatus}</span>
+        </div>
+        <div className="evolution-link" aria-hidden="true">
+          <span>{phaseCopy.relation}</span>
+          <b>→</b>
+        </div>
+        <div className="evolution-node tool">
+          <small>TOOL</small>
+          <code>word_count</code>
+          <span>{phaseCopy.toolStatus}</span>
+        </div>
+      </div>
+
+      <div className="evolution-metrics" aria-label="能力数量变化">
+        <EvolutionMetric label="插件" before={comparison?.plugins.length} after={graph.plugins.length} delta={pluginDelta} />
+        <EvolutionMetric label="工具" before={comparison?.tools.length} after={graph.tools.length} delta={toolDelta} />
+      </div>
+
+      <div className="evolution-note">
+        <span>未变化</span>
+        <b>提示词 {graph.prompts.length}</b>
+        <b>服务 {graph.services.length}</b>
+      </div>
+      <div className="evolution-timing">
+        <b>{phaseCopy.timingLabel}</b>
+        <span>{phaseCopy.timing}</span>
+      </div>
+    </div>
+  );
+}
+
+function EvolutionMetric({
+  label,
+  before,
+  after,
+  delta,
+}: {
+  label: string;
+  before: number | undefined;
+  after: number;
+  delta: number;
+}) {
+  return (
+    <div>
+      <small>{label}</small>
+      <strong>{before === undefined ? after : <>{before}<i>→</i>{after}</>}</strong>
+      {before !== undefined && <span>{delta > 0 ? `+${delta}` : delta}</span>}
     </div>
   );
 }
@@ -1677,6 +1932,7 @@ function CodeBlock({
   newLines = null,
   enteringLines = null,
   sourceLineNumbers = null,
+  annotations = [],
 }: {
   code: string;
   startLine?: number;
@@ -1688,6 +1944,8 @@ function CodeBlock({
   enteringLines?: Set<number> | null;
   /** 快照渲染时逐行指定源文件真实行号（与 code 的行一一对应） */
   sourceLineNumbers?: number[] | null;
+  /** 在指定源文件行之前插入的教学注释，不占用真实行号。 */
+  annotations?: Array<{ beforeLine: number; text: string }>;
 }) {
   const lines = code.trimEnd().split(/\r?\n/u);
   const languages = diffLanguages(lines, language);
@@ -1701,26 +1959,34 @@ function CodeBlock({
     <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
       {lines.map((line, index) => {
         const lineNumber = sourceLineNumbers?.[index] ?? startLine + index;
+        const comments = annotations.filter((item) => item.beforeLine === lineNumber);
         const highlighted = highlightedRange !== null
           && lineNumber >= highlightedRange[0]
           && lineNumber <= highlightedRange[1];
         const enteringIndex = enteringOrder.get(lineNumber);
         const isEntering = enteringIndex !== undefined;
         return (
-          <div
-            key={index}
-            data-line={lineNumber}
-            className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""} ${newLines?.has(lineNumber) ? "is-new" : ""} ${isEntering ? "is-entering" : ""}`.trim()}
-            style={isEntering ? ({
-              "--write-delay": `${120 + enteringIndex! * 28}ms`,
-              "--write-duration": `${Math.max(260, line.length * 10)}ms`,
-            } as CSSProperties) : undefined}
-          >
-            <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
-            {diff
-              ? <DiffCodeLine line={line} language={languages[index] ?? language} />
-              : <SyntaxCode code={line || " "} language={language} />}
-          </div>
+          <Fragment key={index}>
+            {comments.map((comment) => (
+              <div key={comment.text} className="code-segment-comment">
+                <span className="line-no" aria-hidden="true">···</span>
+                <SyntaxCode code={comment.text} language={language} />
+              </div>
+            ))}
+            <div
+              data-line={lineNumber}
+              className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""} ${newLines?.has(lineNumber) ? "is-new" : ""} ${isEntering ? "is-entering" : ""}`.trim()}
+              style={isEntering ? ({
+                "--write-delay": `${120 + enteringIndex! * 28}ms`,
+                "--write-duration": `${Math.max(260, line.length * 10)}ms`,
+              } as CSSProperties) : undefined}
+            >
+              <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
+              {diff
+                ? <DiffCodeLine line={line} language={languages[index] ?? language} />
+                : <SyntaxCode code={line || " "} language={language} />}
+            </div>
+          </Fragment>
         );
       })}
     </div>
@@ -1874,8 +2140,13 @@ function toolNameLabel(name: string): string {
     run_tests: "运行回归测试",
     submit_patch: "提交补丁",
     inspect_runtime: "检查运行环境",
+    cordis_inspect: "列出 Cordis 插件与能力",
     install_capability: "安装临时能力",
     remove_capability: "移除临时能力",
+    cordis_define: "定义 Cordis 插件",
+    cordis_run: "运行 Cordis 插件",
+    cordis_stop: "停止 Cordis 插件",
+    cordis_undefine: "移除 Cordis 插件",
     get_time: "查询城市时间",
     read_note: "读取备忘录",
     word_count: "统计单词数",
@@ -2026,8 +2297,13 @@ function humanTraceTitle(item: Chapter["trace"][number]): string {
       run_tests: "运行回归测试",
       submit_patch: "提交补丁",
       inspect_runtime: "检查运行环境",
+      cordis_inspect: "列出 Cordis 插件与能力",
       install_capability: "安装临时能力",
       remove_capability: "移除临时能力",
+      cordis_define: "定义 Cordis 插件",
+      cordis_run: "运行 Cordis 插件",
+      cordis_stop: "停止 Cordis 插件",
+      cordis_undefine: "移除 Cordis 插件",
       find_references: "查找调用方",
       check_types: "检查 TypeScript 类型",
     } as Record<string, string>)[item.type];
@@ -2039,9 +2315,11 @@ function humanTraceTitle(item: Chapter["trace"][number]): string {
 function prettyPlugin(plugin: string): string {
   const known = ({
     "session-log": "过程日志",
-    "runtime-tools": "实验工具",
+    "runtime-tools": "能力管理工具",
     "trusted-capability-catalog": "受信任能力目录",
     "capability:word_count": "临时 · 分词统计",
+    "dynamic:word_count": "动态 · 分词统计",
+    "dynamic:typescript_analysis": "动态 · TypeScript 分析",
     "checkout-workspace-state": "结账工作区状态",
     "checkout-workspace": "文件与补丁工具",
     "checkout-tests": "测试与提交工具",
@@ -2051,6 +2329,12 @@ function prettyPlugin(plugin: string): string {
     .replace(/^provider:/u, "模型 · ")
     .replace(/^capability:/u, "临时 · ")
     .replaceAll("-", " ");
+}
+
+function prettyPrompt(id?: string): string {
+  if (id === "runtime-experiment-boundary") return "运行时实验边界";
+  if (id === "clock-rule") return "时间工具调用规则";
+  return id ?? "Prompt";
 }
 
 function truncate(value: string, length: number): string {

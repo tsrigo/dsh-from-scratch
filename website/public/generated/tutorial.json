@@ -9515,16 +9515,16 @@
       },
       "changeStory": {
         "title": "模型选择动作，Harness 校验并执行",
-        "summary": "DSH 把一个 Turn 分成可重复的 Step。每个 Step 根据当前状态构造请求，接收模型提出的 Tool Call（工具调用），由 Harness 校验并执行，再把 Tool Result（工具结果）加入下一步。没有新调用时结束 Turn；超过运行时限制时明确返回失败。",
+        "summary": "Nano DSH 用一条用户消息启动 Turn，并把 Turn 分成可重复的 Step。每个 Step 根据当前状态构造请求，接收模型提出的 Tool Call（工具调用），由 Harness 校验并执行，再把 Tool Result（工具结果）加入下一步。模型返回最终文字时结束 Turn；达到 Step 数量上限时明确返回失败。这段实现集中展示 DSH 中模型请求、工具执行和结果反馈的循环关系。",
         "harnessRole": "执行层：把模型输出转换为经过校验的操作",
-        "connection": "第一问确定 Harness 的最小执行循环。后五问分别管理循环的输入、能力、记录、运行时适配和跨轮协调。Agent Loop 为这些机制提供执行位置，完整 Harness 还需要其余五项机制共同工作。",
+        "connection": "第一问确定 Harness 的最小执行循环。后五问分别说明循环的输入、能力、记录、运行时适配和跨轮协调。六章共同组成这份 Nano DSH。",
         "outcomes": [
           "能沿 Agent.runTurn() 说明请求、回复、工具结果和下一步的执行顺序",
           "能解释模型提出 Tool Call，Harness 负责工具查找、参数校验和执行",
           "能区分 Step、Turn 与 maxSteps，并指出每一种停止发生在哪里"
         ]
       },
-      "lesson": "# Agent Loop 按模型反馈重复执行步骤\n\n一次模型调用只产生一次回复。Agent（智能体）处理任务时，模型可能需要先确定缺少的信息，调用工具取得结果，再根据结果选择下一步。工具调用次数无法预先确定，固定工作流也无法覆盖模型根据结果作出的所有选择，因此运行时需要重复执行一组步骤。\n\n## 模型选择动作，Harness 校验并执行\n\n一个 Turn 表示一次用户任务。DeepSeek Harness（DSH）先把系统规则、当前工具、已有历史和本步说明组成统一请求，再交给模型。模型可以返回普通文字，也可以返回一组包含名称和参数的 Tool Call（工具调用）。Tool Call 只描述待执行动作，不会直接执行代码。\n\nHarness 收到 Tool Call 后查找工具、校验参数并执行。未知工具、参数错误和执行异常都会转换为模型可读的结构化结果。模型负责选择动作，运行时负责判断动作能否执行并完成具体操作，两者的职责由工具接口分隔。\n\n<!-- evidence {\"id\":\"m01-loop-source\",\"tab\":\"source\",\"lines\":[53,113],\"label\":\"模型决策与运行时执行\",\"description\":\"按照请求组装、停止判断和参数校验的顺序，查看一个 Step 中模型与运行时如何交接控制权。\"} -->\n\n## 工具结果进入下一次请求\n\n工具执行完成后，任务可能仍需继续。Harness 把 Tool Result（工具结果）及其调用编号写入历史，然后进入下一个 Step 并再次请求模型。模型可以读取刚才提出的调用和运行时返回的实际结果，据此修改计划、调用其他工具或给出最终回答。\n\n右侧请求对比只展示这一处变化。第一份请求要求模型取得时间；第二份请求保留原有规则和问题，并在末尾追加工具调用与查询结果。Agent Loop 通过这次追加把执行结果用于下一步判断。\n\n<!-- evidence {\"id\":\"m01-request-feedback\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"反馈进入下一次请求\",\"description\":\"比较两次请求，确认工具调用和结果如何成为下一步判断的依据。\"} -->\n\n## Turn、Step 与停止条件\n\n在这份教学实现中，一个 Turn 表示一次用户任务；一次模型请求及其触发的工具执行构成一个 Step。一个 Turn 可以包含多个 Step。模型继续调用工具时，Harness 会进入下一步；模型不再调用工具时，当前回复结束这个 Turn。\n\n循环还需要运行时边界。工具失败会作为结果返回给模型，使模型有机会调整处理方式。连续 Step 达到上限后，Harness 会明确终止运行，避免无限消耗资源。Provider（模型服务适配器）只负责把统一请求转换为具体模型接口所需的格式，可以替换，不控制 Agent Loop。\n\nDSH 的 Agent Loop 依次完成请求组装、模型调用、工具校验与执行、结果追加，并根据新的模型输出继续或停止。后五章分别管理这组循环的输入、能力、记录、运行时变更和跨轮协调。\n\n<!-- evidence {\"id\":\"m01-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第一问，用三个代码控制点说明执行循环，并标出 Agent Loop 与后五章的关系。\"} -->\n",
+      "lesson": "# Agent Loop 按模型反馈重复执行步骤\n\n一次模型调用只产生一次回复。Agent（智能体）处理任务时，模型可能需要先确定缺少的信息，调用工具取得结果，再根据结果选择下一步。工具调用次数由模型在执行期间根据已有结果决定，因此运行时需要重复执行一组步骤，直到模型给出最终回复。\n\n## 模型选择动作，Harness 校验并执行\n\nDeepSeek Harness（DSH）把一次连续执行称为 Turn（轮次）。Turn 从 Agent 接收一批已经准入的输入开始，在这批输入不再产生后续工作时结束。Nano DSH 用一条用户消息组成这批输入。Turn 中的每次模型请求及其触发的工具执行构成一个 Step（步骤）。\n\n每个 Step 开始时，Harness 把系统规则、当前工具、已有历史和本步说明组成统一请求，再交给模型。模型可以返回普通文字，也可以返回一组 Tool Call（工具调用）。每个 Tool Call 包含工具名称和参数，Harness 根据这些内容启动对应操作。\n\nHarness 收到 Tool Call 后查找工具、校验参数并执行。未知工具、参数错误和执行异常都会转换为模型可读的结构化结果。模型负责选择动作，运行时负责判断动作能否执行并完成具体操作，两者的职责由工具接口分隔。\n\n<!-- evidence {\"id\":\"m01-loop-source\",\"tab\":\"source\",\"lines\":[53,113],\"label\":\"模型决策与运行时执行\",\"description\":\"按照请求组装、停止判断和参数校验的顺序，查看一个 Step 中模型与运行时如何交接控制权。\"} -->\n\n## 工具结果进入下一次请求\n\n工具执行完成后，任务可能仍需继续。Harness 把 Tool Result（工具结果）及其调用编号写入历史，然后进入下一个 Step 并再次请求模型。模型可以读取刚才提出的调用和运行时返回的实际结果，据此修改计划、调用其他工具或给出最终回答。\n\n右侧请求对比只展示这一处变化。第一份请求要求模型取得时间；第二份请求保留原有规则和问题，并在末尾追加工具调用与查询结果。Agent Loop 通过这次追加把执行结果用于下一步判断。\n\n<!-- evidence {\"id\":\"m01-request-feedback\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"反馈进入下一次请求\",\"description\":\"比较两次请求，确认工具调用和结果如何成为下一步判断的依据。\"} -->\n\n## Turn、Step 与停止条件\n\nNano DSH 的 `runTurn()` 每次接收一条用户消息，并在同一个 Turn 中连续执行多个 Step。模型返回 Tool Call 时，Harness 执行工具并进入下一步；模型返回最终文字时，当前 Turn 结束。这条路径集中展示模型请求、工具执行和结果反馈之间的循环关系。\n\n完整 DSH 会在每个 Step 结束时检查当前 Turn 是否仍有待处理的工具结果或新输入。Nano DSH 为 Turn 设置 Step 数量上限；工具失败会作为结果返回给模型，使模型可以调整处理方式，达到上限时则明确终止运行。Provider（模型服务适配器）负责把统一请求转换为具体模型接口所需的格式并处理流式返回，Agent Loop 负责推进 Turn 和 Step。\n\nDSH 的 Agent Loop 依次完成请求组装、模型调用、工具校验与执行、结果追加，并根据新的模型输出继续或停止。后五章分别管理这组循环的输入、能力、记录、运行时变更和跨轮协调。\n\n<!-- evidence {\"id\":\"m01-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第一问，用三个代码控制点说明执行循环，并标出 Agent Loop 与后五章的关系。\"} -->\n",
       "source": {
         "path": "src/agent.ts",
         "content": "import { Ajv, type ValidateFunction } from \"ajv\";\nimport type {\n  AssistantMessage,\n  JsonValue,\n  Llm,\n  ModelMessage,\n  ToolDefinition,\n  UnifiedRequest,\n} from \"./protocol.js\";\n\nexport interface AgentTraceEntry {\n  kind: \"turn\" | \"step\" | \"request\" | \"assistant\" | \"tool\";\n  label: string;\n  detail?: string;\n}\n\nexport interface RunTurnResult {\n  finalMessage: AssistantMessage;\n  steps: number;\n  trace: AgentTraceEntry[];\n  requests: UnifiedRequest[];\n}\n\nexport interface AgentOptions {\n  llm: Llm;\n  tools: ToolDefinition[];\n  systemPrompt: string;\n  dynamicContext?: (step: number) => string;\n  maxSteps?: number;\n}\n\nexport class Agent {\n  readonly #llm: Llm;\n  readonly #tools: Map<string, ToolDefinition>;\n  readonly #validators: Map<string, ValidateFunction>;\n  readonly #systemPrompt: string;\n  readonly #dynamicContext: (step: number) => string;\n  readonly #maxSteps: number;\n  readonly #messages: ModelMessage[] = [];\n\n  constructor(options: AgentOptions) {\n    this.#llm = options.llm;\n    this.#tools = new Map(options.tools.map((tool) => [tool.name, tool]));\n    const ajv = new Ajv({ allErrors: true, strict: false });\n    this.#validators = new Map(\n      options.tools.map((tool) => [tool.name, ajv.compile(tool.inputSchema)]),\n    );\n    this.#systemPrompt = options.systemPrompt;\n    this.#dynamicContext = options.dynamicContext ?? ((step) => `Current step: ${step}`);\n    this.#maxSteps = options.maxSteps ?? 8;\n  }\n\n  async runTurn(userInput: string): Promise<RunTurnResult> {\n    this.#messages.push({ role: \"user\", content: userInput });\n    const trace: AgentTraceEntry[] = [{ kind: \"turn\", label: \"turn/start\", detail: userInput }];\n    const requests: UnifiedRequest[] = [];\n\n    for (let step = 1; step <= this.#maxSteps; step += 1) {\n      trace.push({ kind: \"step\", label: `step/${step}/start` });\n      const request: UnifiedRequest = {\n        system: this.#systemPrompt,\n        tools: [...this.#tools.values()].map(({ name, description, inputSchema }) => ({\n          name,\n          description,\n          inputSchema,\n        })),\n        messages: structuredClone(this.#messages),\n        dynamicContext: this.#dynamicContext(step),\n      };\n      requests.push(structuredClone(request));\n      trace.push({ kind: \"request\", label: \"llm/request\", detail: `${request.tools.length} tools` });\n\n      const response = await this.#llm.complete(request);\n      const assistant = response.message;\n      this.#messages.push(assistant);\n      trace.push({ kind: \"assistant\", label: \"assistant/message\", detail: assistant.content });\n\n      if (assistant.toolCalls.length === 0) {\n        trace.push({ kind: \"turn\", label: \"turn/end\", detail: \"completed\" });\n        return { finalMessage: assistant, steps: step, trace, requests };\n      }\n\n      for (const call of assistant.toolCalls) {\n        const result = await this.#executeTool(call.name, call.arguments);\n        this.#messages.push({\n          role: \"tool\",\n          toolCallId: call.id,\n          name: call.name,\n          content: JSON.stringify(result),\n        });\n        trace.push({ kind: \"tool\", label: call.name, detail: JSON.stringify(result) });\n      }\n    }\n\n    throw new Error(`Agent exceeded maxSteps (${this.#maxSteps}) before finishing the turn.`);\n  }\n\n  async #executeTool(name: string, input: JsonValue): Promise<JsonValue> {\n    const tool = this.#tools.get(name);\n    if (!tool) return { ok: false, error: `Unknown tool: ${name}` };\n    const validate = this.#validators.get(name);\n    if (!validate?.(input)) {\n      return {\n        ok: false,\n        error: \"Invalid tool arguments\",\n        issues: (validate?.errors ?? []).map((error) => `${error.instancePath || \"/\"} ${error.message}`),\n      };\n    }\n    try {\n      return await tool.execute(input);\n    } catch (error) {\n      return { ok: false, error: error instanceof Error ? error.message : String(error) };\n    }\n  }\n}\n",
@@ -9820,7 +9820,7 @@
           },
           {
             "title": "前缀比较在第一个差异处停止",
-            "text": "两份请求先进行确定性序列化，再从开头逐项比较。共享长度和首次变化位置仅用于教学估算，不代表模型服务的真实缓存命中。",
+            "text": "两份请求先进行确定性序列化，再从开头逐项比较。页面把共享长度和首次变化位置标记为教学估算，模型服务返回的数据用于判断实际缓存命中。",
             "lines": [
               101,
               137
@@ -9924,7 +9924,7 @@
       },
       "changeStory": {
         "title": "完整记录、较短输入与稳定前缀可以同时成立",
-        "summary": "DSH 分别管理完整历史和本步模型请求。完整历史保留原始内容，buildRequest() 生成当前模型视图。裁剪与摘要控制长度；固定内容前置、历史追加和动态说明后置，使相邻请求能够共享更长的稳定前缀。",
+        "summary": "Nano DSH 把原始消息保存在 Agent 内存中，由 projectMessages() 为当前请求生成较短的模型视图。固定内容前置、历史追加和动态说明后置，使相邻请求能够共享更长的稳定前缀。完整 DSH 从 Session Log 生成模型视图，并在 token 压力下剪枝工具结果和压缩较早历史。",
         "harnessRole": "输入层：决定每个 Step 交给模型的具体内容",
         "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成该请求。第四章提供完整事件来源；第三、五章改变 Tool 与 Prompt 时，也会改变这里的请求前缀。上下文管理连接执行、插件与会话记录。",
         "outcomes": [
@@ -9933,7 +9933,7 @@
           "能从 system、tools、history、dynamicContext 的顺序判断缓存从哪里失效"
         ]
       },
-      "lesson": "# 上下文管理分别保存完整记录与模型输入\n\n模型每次只能读取当前请求，不会自动保留上一步的内容。随着 Agent 持续运行，用户消息、模型回复和工具结果不断增加；如果每次请求都包含全部原文，内容最终会超过模型上下文可容纳的 token 数量。token 是模型处理文本时使用的计量单位。DSH 保存一份包含完整内容的记录，并从中生成每次请求所需的模型视图。第二章暂时把原文保存在 Agent 内存中；第四章再把完整记录迁入 Session Log（会话日志）。\n\n## 投影只影响当前模型请求\n\n工具结果的长度可能突然增加。测试日志、搜索结果或文件内容有时比其余历史的总和还长。Nano DSH 对长结果保留开头、结尾和明确的省略标记。开头可用于识别结果内容，结尾常包含结论或错误，省略标记则记录中间删去了多少字符。\n\n固定字符数只是本示例的投影配置。完整工具输出仍保存在原始记录中：本章使用 Agent 内存，第四章改用 Session Log。裁剪只发生在模型请求的构建阶段。需要进一步压缩时，可以生成新的历史投影，同时保留已经发生的原始记录。\n\n<!-- evidence {\"id\":\"m02-projection-source\",\"tab\":\"source\",\"lines\":[38,137],\"label\":\"记录与模型投影分离\",\"description\":\"源码先裁剪过长的工具结果，再按固定内容、累积内容和本步内容的顺序描述请求。\"} -->\n\n## 请求内容按变化频率排列\n\n请求最前面是固定区，包含系统规则与 Tool Schema（工具定义及参数规则）。中间是累积区，用户消息、模型回复和工具结果按发生顺序向后追加。最后是本步区，只包含当前 Step 使用的动态说明。这三个区域的变化频率不同。\n\n这种顺序可保留较长的稳定前缀。多数模型服务的 Prompt Cache（提示词缓存）复用相邻请求开头连续相同的 token。缓存比较的是实际内容及其顺序；语义接近但文本不同的内容无法直接复用。把频繁变化的本步说明放在末尾，并追加新消息而不重排旧内容，可以把首次变化的位置留在请求后部。\n\n<!-- evidence {\"id\":\"m02-prefix\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"稳定前缀与首次失效位置\",\"description\":\"比较相邻请求开头的相同内容，并查看新增历史从哪里开始影响缓存复用。\"} -->\n\n## 会让缓存提前失效的变化\n\n系统规则改变时，前缀从第一部分开始变化；插件安装改变工具目录时，变化位置落在 Tool Schema；普通新消息通常只影响历史末尾。历史压缩位于更靠前的位置：摘要可以减少请求长度，也会从摘要插入处改变后续前缀。上下文长度和缓存复用率需要分别评估。\n\n本教程展示请求结构能够提供的缓存复用机会，不代表服务端的真实命中率。模型服务商是否启用缓存以及采用何种计费粒度，由具体服务决定。DSH 能控制序列的确定性、固定内容的位置、历史的追加顺序，并记录每次请求最早发生变化的位置。\n\n第二章把完整记录投影成当前模型请求，并通过固定内容前置、历史追加和动态说明后置来延长稳定前缀。裁剪与摘要控制请求长度，内容顺序与稳定性影响缓存复用。\n\n<!-- evidence {\"id\":\"m02-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第二问，从内容投影、请求顺序和前缀比较三处代码说明输入层与其他章节的关系。\"} -->\n",
+      "lesson": "# 上下文管理分别保存完整记录与模型输入\n\n模型每次根据当前请求生成回复。随着 Agent 持续运行，用户消息、模型回复和工具结果不断增加；如果每次请求都包含全部原文，内容最终会超过模型上下文可容纳的 token 数量。token 是模型处理文本时使用的计量单位。DSH 从完整的 Session Log（会话日志）生成每次请求所需的模型视图。Nano DSH 在第二章先用 Agent 内存中的消息表示完整记录，第四章再用 Session Log 表达同一关系。\n\n## 投影只影响当前模型请求\n\n工具结果的长度可能突然增加。测试日志、搜索结果或文件内容有时比其余历史的总和还长。Nano DSH 使用固定字符数触发裁剪，对长结果保留开头、结尾和明确的省略标记。开头可用于识别结果内容，结尾常包含结论或错误，省略标记则记录中间删去了多少字符。\n\n固定字符数是这个最小样本的投影配置。完整工具输出仍保存在 Agent 内存中，裁剪发生在模型请求的构建阶段。完整 DSH 会在 token 压力达到阈值后剪枝过长的工具结果；如果请求仍然过长，再用摘要替换较早的模型视图。原始事件继续保存在 Session Log 中。Nano DSH 用固定阈值的头尾裁剪集中展示完整记录与模型视图的分工。\n\n<!-- evidence {\"id\":\"m02-projection-source\",\"tab\":\"source\",\"lines\":[38,137],\"label\":\"记录与模型投影分离\",\"description\":\"源码先裁剪过长的工具结果，再按固定内容、累积内容和本步内容的顺序描述请求。\"} -->\n\n## 请求内容按变化频率排列\n\n请求最前面是固定区，包含系统规则与 Tool Schema（工具定义及参数规则）。中间是累积区，用户消息、模型回复和工具结果按发生顺序向后追加。最后是本步区，只包含当前 Step 使用的动态说明。这三个区域的变化频率不同。\n\n这种顺序可保留较长的稳定前缀。这里的缓存复用指模型服务对相同请求前缀的 KV Cache（Key-Value Cache，键值缓存）复用。缓存比较的是实际内容及其顺序；语义接近但文本不同的内容会产生不同的缓存键。把频繁变化的本步说明放在末尾，并按顺序追加新消息，可以把首次变化的位置留在请求后部。\n\n<!-- evidence {\"id\":\"m02-prefix\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"稳定前缀与首次失效位置\",\"description\":\"比较相邻请求开头的相同内容，并查看新增历史从哪里开始影响缓存复用。\"} -->\n\n## 不同变化对应的前缀失效位置\n\n系统规则改变时，前缀从第一部分开始变化；插件安装改变工具目录时，变化位置落在 Tool Schema；普通新消息通常只影响历史末尾。历史压缩位于更靠前的位置：摘要可以减少请求长度，也会从摘要插入处改变后续前缀。上下文长度和缓存复用率需要分别评估。\n\n页面比较相邻请求的最长相同前缀，并用字符数估算对应的 token 数量。这个结果用于解释请求结构产生的缓存复用机会，页面会将它标记为教学估算。实际缓存命中和计费按照具体模型服务返回的数据判断。完整 DSH 通过稳定排列系统提示词和工具定义、按顺序追加历史来保留可复用前缀。Nano DSH 的页面进一步标出相邻请求最早发生变化的位置。\n\n第二章把完整记录投影成当前模型请求，并通过固定内容前置、历史追加和动态说明后置来延长稳定前缀。本章的头尾裁剪与第四章的摘要共同控制请求长度，内容顺序与稳定性影响缓存复用。\n\n<!-- evidence {\"id\":\"m02-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第二问，从内容投影、请求顺序和前缀比较三处代码说明输入层与其他章节的关系。\"} -->\n",
       "source": {
         "path": "src/context.ts",
         "content": "import type { ModelMessage, ToolMessage, ToolSchema, UnifiedRequest } from \"./protocol.js\";\n\nexport interface ProjectionSettings {\n  maxToolResultChars: number;\n  toolResultHeadChars: number;\n  toolResultTailChars: number;\n}\n\nexport const DEFAULT_PROJECTION: ProjectionSettings = {\n  maxToolResultChars: 720,\n  toolResultHeadChars: 430,\n  toolResultTailChars: 170,\n};\n\nexport interface RequestPart {\n  id: string;\n  kind: \"system\" | \"tools\" | \"message\" | \"dynamic\";\n  stability: \"stable\" | \"append-only\" | \"step-variable\";\n  label: string;\n  value: unknown;\n  approximateTokens: number;\n}\n\nexport interface PrefixComparison {\n  sharedParts: number;\n  sharedApproximateTokens: number;\n  previousParts: number;\n  currentParts: number;\n  firstInvalidation: string | null;\n  note: string;\n}\n\nexport interface ClippedToolResult {\n  content: string;\n  omittedCharacters: number;\n}\n\nexport function projectMessages(\n  messages: ModelMessage[],\n  settings: ProjectionSettings = DEFAULT_PROJECTION,\n): ModelMessage[] {\n  return messages.map((message) => {\n    if (message.role !== \"tool\") return structuredClone(message);\n    const clipped = clipToolResult(message.content, settings);\n    return { ...message, content: clipped.content } satisfies ToolMessage;\n  });\n}\n\nexport function clipToolResult(\n  content: string,\n  settings: ProjectionSettings = DEFAULT_PROJECTION,\n): ClippedToolResult {\n  if (content.length <= settings.maxToolResultChars) {\n    return { content, omittedCharacters: 0 };\n  }\n  const omittedCharacters = Math.max(\n    0,\n    content.length - settings.toolResultHeadChars - settings.toolResultTailChars,\n  );\n  const marker = `\\n[… ${omittedCharacters} characters omitted from the model projection …]\\n`;\n  return {\n    content:\n      content.slice(0, settings.toolResultHeadChars) +\n      marker +\n      content.slice(content.length - settings.toolResultTailChars),\n    omittedCharacters,\n  };\n}\n\nexport function describeRequest(request: UnifiedRequest): RequestPart[] {\n  const parts: RequestPart[] = [\n    part(\"system\", \"system\", \"stable\", \"System prompt\", request.system),\n    part(\"tools\", \"tools\", \"stable\", \"Tool schemas\", request.tools),\n  ];\n  for (const [index, message] of request.messages.entries()) {\n    const suffix = message.role === \"tool\" ? ` · ${message.name}` : \"\";\n    parts.push(\n      part(\n        `message-${index}`,\n        \"message\",\n        \"append-only\",\n        `${message.role}${suffix}`,\n        message,\n      ),\n    );\n  }\n  if (request.dynamicContext) {\n    parts.push(\n      part(\n        \"dynamic\",\n        \"dynamic\",\n        \"step-variable\",\n        \"Step context\",\n        request.dynamicContext,\n      ),\n    );\n  }\n  return parts;\n}\n\nexport function compareRequestPrefix(\n  previous: UnifiedRequest | undefined,\n  current: UnifiedRequest,\n): PrefixComparison {\n  const currentParts = describeRequest(current);\n  if (!previous) {\n    return {\n      sharedParts: 0,\n      sharedApproximateTokens: 0,\n      previousParts: 0,\n      currentParts: currentParts.length,\n      firstInvalidation: \"First request has no predecessor.\",\n      note: \"Teaching estimate only; no provider cache was queried.\",\n    };\n  }\n  const previousParts = describeRequest(previous);\n  let sharedParts = 0;\n  while (\n    sharedParts < previousParts.length &&\n    sharedParts < currentParts.length &&\n    canonical(previousParts[sharedParts]?.value) === canonical(currentParts[sharedParts]?.value)\n  ) {\n    sharedParts += 1;\n  }\n  return {\n    sharedParts,\n    sharedApproximateTokens: currentParts\n      .slice(0, sharedParts)\n      .reduce((total, item) => total + item.approximateTokens, 0),\n    previousParts: previousParts.length,\n    currentParts: currentParts.length,\n    firstInvalidation:\n      sharedParts === Math.min(previousParts.length, currentParts.length)\n        ? null\n        : currentParts[sharedParts]?.label ?? \"Request end\",\n    note: \"Longest identical canonical prefix; approximate tokens, not provider cache usage.\",\n  };\n}\n\nexport function approximateTokens(value: unknown): number {\n  const text = typeof value === \"string\" ? value : canonical(value);\n  return Math.max(1, Math.ceil([...text].length / 4));\n}\n\nexport function toolSchemas(tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>): ToolSchema[] {\n  return tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));\n}\n\nfunction part(\n  id: string,\n  kind: RequestPart[\"kind\"],\n  stability: RequestPart[\"stability\"],\n  label: string,\n  value: unknown,\n): RequestPart {\n  return { id, kind, stability, label, value, approximateTokens: approximateTokens(value) };\n}\n\nfunction canonical(value: unknown): string {\n  return JSON.stringify(sortObject(value));\n}\n\nfunction sortObject(value: unknown): unknown {\n  if (Array.isArray(value)) return value.map(sortObject);\n  if (value !== null && typeof value === \"object\") {\n    return Object.fromEntries(\n      Object.entries(value as Record<string, unknown>)\n        .sort(([left], [right]) => left.localeCompare(right))\n        .map(([key, item]) => [key, sortObject(item)]),\n    );\n  }\n  return value;\n}\n",
@@ -10214,11 +10214,11 @@
       "question": "如何实现“一切皆插件”？",
       "codeGuide": {
         "title": "每项贡献怎样获得归属和撤销路径",
-        "description": "Context 统一管理插件的安装与卸载。安装期间产生的 Service、Tool 与 Prompt 都记录 owner，并把清理函数加入同一个 effect 栈。",
+        "description": "Nano DSH 用 Context 统一管理插件的安装与卸载。插件在 setup 期间提供服务、工具、提示词与事件监听器，Context 记录来源并把清理函数加入同一个 effect 栈。",
         "observations": [
           {
             "title": "setup 失败后撤销已登记内容",
-            "text": "Context 在 setup 前登记安装记录并标记 active owner。setup 抛错时逆序撤销已登记的 effect。这个 Nano 实现假定 cleanup 可以正常完成。",
+            "text": "Context 在 setup 前建立安装记录，并把当前插件记为各项贡献的来源。setup 抛错时，Context 会逆序执行已经登记的清理函数。",
             "lines": [
               45,
               60
@@ -10226,15 +10226,15 @@
           },
           {
             "title": "卸载复用同一条 effect 栈",
-            "text": "成功挂载返回幂等卸载函数。卸载先撤销贡献，再清除插件和依赖关系；重复调用不会重复执行副作用。",
+            "text": "成功挂载会返回一个只生效一次的卸载函数。卸载先撤销贡献，再清除插件和依赖关系；重复调用不会重复执行清理操作。",
             "lines": [
               62,
               83
             ]
           },
           {
-            "title": "注册内容自动绑定 owner",
-            "text": "Service、Tool 与 Prompt 只能在插件 setup 期间注册。每次写入 Registry 时，Context 都会登记一个只删除该 owner 贡献的清理函数。",
+            "title": "注册内容自动记录来源",
+            "text": "插件在 setup 期间注册服务、工具、提示词与事件监听器。每次注册时，Context 都会记录来源插件，并登记一个撤销对应贡献的清理函数。",
             "lines": [
               86,
               123
@@ -10346,16 +10346,16 @@
       },
       "changeStory": {
         "title": "运行时能力使用统一的安装与卸载流程",
-        "summary": "一切皆插件要求进入 Context 的 Service、Tool、Prompt 与 Listener 都记录 owner（来源插件）和 disposer（卸载函数），普通对象无须改写成插件类。整组能力在挂载成功后生效，安装失败或主动卸载时沿同一个 effect 栈逆序撤销。",
+        "summary": "完整 DSH 通过 Cordis 插件树组装运行能力，使用 Context 注册服务、工具、提示词与事件监听器，并用 inject 声明服务依赖。Nano DSH 保留统一注册和可逆 effect：加载失败或主动卸载时，Context 沿同一个清理栈撤销插件贡献。",
         "harnessRole": "组装层：决定 Agent 此刻拥有哪些能力",
-        "connection": "第一章读取当前工具目录，第二章把它加入模型请求；本章说明这些工具和规则的来源及卸载方式。第五章把这里的 mount/unmount 生命周期开放给 Agent，在受控范围内变更运行时能力。",
+        "connection": "第一章读取当前工具目录，第二章把它加入模型请求；本章说明这些工具和规则怎样由插件提供并随插件卸载。第五章再把检查、定义、运行和移除插件的操作提供给 Agent。",
         "outcomes": [
           "能区分 Tool 这个模型动作与 Plugin 这个能力安装单元",
-          "能沿 Context.mount()、effect() 与 disposer 说明成功、失败和卸载三条路径",
-          "能根据 inspect() 返回的 owner 与 relation 说明当前运行时的能力来源和依赖"
+          "能沿 Context.mount()、effect() 与 disposer（资源释放函数）说明成功、失败和卸载三条路径",
+          "能根据 inspect() 返回的来源记录和服务关系说明当前能力由哪些插件提供"
         ]
       },
-      "lesson": "# 插件统一管理运行时能力的生命周期\n\n一个 Agent 的能力包含多种运行时对象。Tool 表示模型可以请求的操作，Service 提供共享服务，Prompt 提供行为规则，Listener 订阅运行事件，工具还可能依赖其他服务。如果这些对象分别使用全局变量注册，并由不同代码清理，运行时会积累难以检查和卸载的隐式状态。\n\nDSH 让所有运行时能力通过 Plugin（插件）安装。第三章所说的一切皆插件，要求每项运行时贡献都记录来源插件，并提供在插件移除时撤销该项贡献的方法。普通对象无须改写成插件类。\n\n## Context 提供统一注册入口\n\nPlugin 在 `setup()` 中取得同一个 Context（运行时上下文），随后可以提供 Service、注册 Tool、贡献 Prompt 或订阅 Event。Context 在安装期间记录当前插件名称，为每项注册内容添加 owner（来源插件）。一个插件使用另一个插件的 Service 时，Context 还会记录 consumer（使用方）、service（服务）与 provider（提供方）的关系。这些记录用于检查依赖关系，不处理版本选择、拓扑排序和级联卸载。\n\nAgent Loop 只从 Context 读取当前工具目录和合并后的系统 Prompt，不需要处理能力的安装过程。插件关系保持不变时，请求中的工具与规则也保持不变。卸载或重新挂载插件后，Context 会在下一次请求中提供更新后的能力列表。Nano DSH 没有实现原子替换操作。\n\n<!-- evidence {\"id\":\"m03-owners\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"能力归属与依赖关系\",\"description\":\"查看当前运行时状态，确认各插件提供的服务、工具和提示词，以及插件之间的依赖。\"} -->\n\n## 注册能力时登记撤销动作\n\n来源记录无法单独完成卸载。Context 在挂载开始时建立 effect 栈，即按顺序保存副作用清理函数的列表。每次注册能力时，对应的清理函数也会加入这个列表。`setup()` 全部成功后，Context 才确认挂载完成，并返回一个只生效一次的 disposer（卸载函数）。\n\n如果 `setup()` 执行到一半抛出错误，Context 会按相反顺序执行已经登记的清理函数，使运行时恢复到安装前的状态。主动卸载使用同一组清理函数。反向执行可以让后注册且可能依赖前项的贡献先退出。\n\nNano DSH 假定 cleanup（清理函数）能够正常完成，也没有实现完整的依赖事务。生产实现还需要在 `finally` 代码块中清除挂载状态，并处理部分 cleanup 失败。本章实现仅覆盖插件生命周期所需的最小机制。\n\n<!-- evidence {\"id\":\"m03-lifecycle\",\"tab\":\"source\",\"lines\":[45,123],\"label\":\"挂载、回滚与卸载\",\"description\":\"按照 effect 栈的记录顺序，查看安装确认、失败回滚，以及工具和提示词如何登记清理函数。\"} -->\n\n统一生命周期带来三个直接结果。owner 让运行时能够列出能力来源；disposer 让插件可以完整卸载后重新安装；同一组清理函数会同时移除 Tool、Prompt 和 Listener，避免只清理部分贡献。第五章会让 Agent 在受控范围内调用这里已经定义的安装与卸载操作。\n\nContext 负责统一注册，owner 记录来源，disposer 撤销插件产生的全部影响。这三项机制让不同类型的运行时能力遵循同一套安装、检查和卸载流程。\n\n<!-- evidence {\"id\":\"m03-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第三问，用 mount、effect 与 owner 说明能力组装方式，并连接 Agent Loop 与运行时适配。\"} -->\n",
+      "lesson": "# 插件统一管理运行时能力的生命周期\n\nDSH 使用 Cordis 把插件和子插件组成一棵有层级关系的插件树，以此组装一个可以运行的 Agent。函数形式的插件通过 `apply(ctx)` 取得 Context。Context 是插件共享的注册入口，其中包含 Service、Tool、Prompt 和 Event Listener 等运行时对象：Service 是插件之间共享的具名能力，Tool 是模型可以请求的操作，Prompt 为模型补充系统规则，Event Listener 负责处理运行期间发出的类型化事件。\n\n第三章所说的一切皆插件，是指 DSH 的运行能力都由插件提供，并随插件一起加载和卸载。一个插件可以同时提供服务、注册工具、贡献提示词和监听事件，这些内容共享同一段生命周期。\n\n## Context 连接能力的提供方和使用方\n\n完整 DSH 使用 `inject` 声明插件需要哪些 Service。Cordis 会在依赖就绪后调用插件的 `apply(ctx)`；服务提供方卸载后，依赖它的插件也会卸载，并在服务恢复后重新加载。应用启动时读取的 `cordis.yml` 负责选择插件树，插件之间的依赖关系决定实际加载时机。\n\nNano DSH 把这套关系浓缩为 `Plugin.setup(context)` 和 `Context.mount()`。插件通过 `provide()` 提供 Service，通过 `use()` 获取 Service。Context 会记录 provider（提供方）、consumer（使用方）和 Service 名称，页面据此展示当前插件之间的依赖关系。`registerTool()`、`contributePrompt()` 和 `on()` 则分别注册 Tool、Prompt 和 Event Listener，并记录提供这些内容的插件。\n\nAgent Loop 每次发起模型请求前，都会从 Context 读取当前 Tool 和合并后的系统 Prompt。插件加载或卸载后，后续请求会使用更新后的工具列表和系统规则。\n\n<!-- evidence {\"id\":\"m03-owners\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"能力归属与依赖关系\",\"description\":\"查看当前 Context 中的插件、服务、工具、提示词，以及服务的提供方和使用方。\"} -->\n\n## Effect 让插件贡献可以随插件撤销\n\nCordis 把插件注册的内容视为 effect（随插件生命周期管理的操作）。`ctx.on()`、`ctx.plugin()`、服务注册和 `ctx.tools.register()` 等接口会把对应的 disposer（资源释放函数）绑定到当前插件。定时器、连接等由插件自行创建的资源，也可以通过 `ctx.effect()` 登记释放方法。插件卸载或热重载时，Cordis 会执行这些 disposer。热重载是指代码更新后卸载旧插件，再加载新插件。\n\nNano DSH 使用一段更短的代码表达同一条路径。插件在 `setup()` 期间注册每项内容时，Context 会把对应的清理函数加入当前插件的 effect 栈。`setup()` 成功后，`mount()` 返回一个只生效一次的卸载函数。调用这个函数时，Context 按相反顺序执行清理函数，同时移除该插件提供的 Service、Tool、Prompt 和 Event Listener。\n\n如果 `setup()` 中途抛出错误，`mount()` 会沿同一个 effect 栈撤销已经完成的注册，使 Context 回到挂载前的状态。主动卸载和加载失败因此共用一套清理机制。\n\n<!-- evidence {\"id\":\"m03-lifecycle\",\"tab\":\"source\",\"lines\":[45,123],\"label\":\"挂载、回滚与卸载\",\"description\":\"查看 mount 如何记录 effect，并在加载失败或主动卸载时撤销插件贡献。\"} -->\n\nContext 提供统一的注册入口，插件说明一组能力来自哪里，effect 保存对应的撤销方法。DSH 因此可以通过插件树组装运行能力，并在配置变化、热重载和运行时调整时更新当前插件组合。第五章会把 Nano DSH 的插件检查、定义、运行和移除操作提供给 Agent。\n\n<!-- evidence {\"id\":\"m03-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第三问，用插件树、Context 和 effect 说明不同运行能力如何共享一套生命周期。\"} -->\n",
       "source": {
         "path": "src/runtime.ts",
         "content": "import type { ToolDefinition } from \"./protocol.js\";\n\nexport class ServiceToken<T> {\n  readonly key = Symbol();\n  constructor(readonly name: string) {}\n}\n\nexport interface Plugin {\n  name: string;\n  setup(context: Context): void | Promise<void>;\n}\n\nexport interface RuntimeInspection {\n  plugins: string[];\n  services: Array<{ name: string; provider: string }>;\n  tools: Array<{ name: string; plugin: string }>;\n  prompts: Array<{ id: string; plugin: string; text: string }>;\n  listeners: Array<{ event: string; plugin: string }>;\n  relations: Array<{ consumer: string; service: string; provider: string }>;\n}\n\ntype Disposer = () => void;\ntype Listener = (payload: unknown) => void;\n\ninterface MountRecord {\n  name: string;\n  effects: Disposer[];\n  state: \"installing\" | \"mounted\" | \"unmounted\";\n}\n\ninterface Owned<T> {\n  owner: string;\n  value: T;\n}\n\nexport class Context {\n  readonly #mounts = new Map<string, MountRecord>();\n  readonly #services = new Map<symbol, Owned<unknown> & { token: ServiceToken<unknown> }>();\n  readonly #tools = new Map<string, Owned<ToolDefinition>>();\n  readonly #prompts = new Map<string, Owned<string>>();\n  readonly #listeners = new Map<string, Set<Owned<Listener>>>();\n  readonly #relations: RuntimeInspection[\"relations\"] = [];\n  #activeMount: MountRecord | null = null;\n\n  async mount(plugin: Plugin): Promise<Disposer> {\n    if (this.#mounts.has(plugin.name)) throw new Error(`Plugin already mounted: ${plugin.name}`);\n    if (this.#activeMount) throw new Error(\"Nested plugin mounting is not supported during setup.\");\n    const record: MountRecord = { name: plugin.name, effects: [], state: \"installing\" };\n    this.#mounts.set(plugin.name, record);\n    this.#activeMount = record;\n    try {\n      await plugin.setup(this);\n      record.state = \"mounted\";\n    } catch (error) {\n      this.#rollback(record);\n      this.#mounts.delete(plugin.name);\n      throw error;\n    } finally {\n      this.#activeMount = null;\n    }\n\n    this.emit(\"runtime/plugin-mounted\", { plugin: plugin.name });\n    return once(() => {\n      if (record.state === \"unmounted\") return;\n      this.emit(\"runtime/plugin-unmounting\", { plugin: plugin.name });\n      this.#rollback(record);\n      this.#mounts.delete(plugin.name);\n      this.#relations.splice(\n        0,\n        this.#relations.length,\n        ...this.#relations.filter(\n          (relation) => relation.consumer !== plugin.name && relation.provider !== plugin.name,\n        ),\n      );\n      this.emit(\"runtime/plugin-unmounted\", { plugin: plugin.name });\n    });\n  }\n\n  effect(cleanup: Disposer): Disposer {\n    const mount = this.#requireMount();\n    const dispose = once(cleanup);\n    mount.effects.push(dispose);\n    return dispose;\n  }\n\n  provide<T>(token: ServiceToken<T>, value: T): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#services.has(token.key)) throw new Error(`Service already provided: ${token.name}`);\n    this.#services.set(token.key, { owner, value, token: token as ServiceToken<unknown> });\n    return this.effect(() => {\n      const service = this.#services.get(token.key);\n      if (service?.owner === owner) this.#services.delete(token.key);\n    });\n  }\n\n  use<T>(token: ServiceToken<T>): T {\n    const service = this.#services.get(token.key);\n    if (!service) throw new Error(`Missing service: ${token.name}`);\n    const consumer = this.#activeMount?.name;\n    if (consumer) {\n      const relation = { consumer, service: token.name, provider: service.owner };\n      if (!this.#relations.some((item) => sameRelation(item, relation))) this.#relations.push(relation);\n    }\n    return service.value as T;\n  }\n\n  registerTool(tool: ToolDefinition): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`);\n    this.#tools.set(tool.name, { owner, value: tool });\n    return this.effect(() => {\n      if (this.#tools.get(tool.name)?.owner === owner) this.#tools.delete(tool.name);\n    });\n  }\n\n  contributePrompt(id: string, text: string): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#prompts.has(id)) throw new Error(`Prompt contribution already registered: ${id}`);\n    this.#prompts.set(id, { owner, value: text });\n    return this.effect(() => {\n      if (this.#prompts.get(id)?.owner === owner) this.#prompts.delete(id);\n    });\n  }\n\n  on(event: string, listener: Listener): Disposer {\n    const owner = this.#requireMount().name;\n    const entry = { owner, value: listener };\n    const listeners = this.#listeners.get(event) ?? new Set<Owned<Listener>>();\n    listeners.add(entry);\n    this.#listeners.set(event, listeners);\n    return this.effect(() => {\n      listeners.delete(entry);\n      if (listeners.size === 0) this.#listeners.delete(event);\n    });\n  }\n\n  emit(event: string, payload: unknown): void {\n    for (const listener of [...(this.#listeners.get(event) ?? [])]) listener.value(payload);\n  }\n\n  listTools(): ToolDefinition[] {\n    return [...this.#tools.values()].map((entry) => entry.value);\n  }\n\n  getTool(name: string): ToolDefinition | undefined {\n    return this.#tools.get(name)?.value;\n  }\n\n  compilePrompt(base = \"\"): string {\n    return [base, ...[...this.#prompts.values()].map((entry) => entry.value)]\n      .filter(Boolean)\n      .join(\"\\n\\n\");\n  }\n\n  inspect(): RuntimeInspection {\n    return {\n      plugins: [...this.#mounts.values()]\n        .filter((mount) => mount.state === \"mounted\")\n        .map((mount) => mount.name),\n      services: [...this.#services.values()].map((entry) => ({\n        name: entry.token.name,\n        provider: entry.owner,\n      })),\n      tools: [...this.#tools.entries()].map(([name, entry]) => ({ name, plugin: entry.owner })),\n      prompts: [...this.#prompts.entries()].map(([id, entry]) => ({\n        id,\n        plugin: entry.owner,\n        text: entry.value,\n      })),\n      listeners: [...this.#listeners.entries()].flatMap(([event, entries]) =>\n        [...entries].map((entry) => ({ event, plugin: entry.owner })),\n      ),\n      relations: structuredClone(this.#relations),\n    };\n  }\n\n  #requireMount(): MountRecord {\n    if (!this.#activeMount) throw new Error(\"Runtime contributions must be registered during plugin setup.\");\n    return this.#activeMount;\n  }\n\n  #rollback(record: MountRecord): void {\n    const failures: unknown[] = [];\n    for (const dispose of [...record.effects].reverse()) {\n      try {\n        dispose();\n      } catch (error) {\n        failures.push(error);\n      }\n    }\n    record.state = \"unmounted\";\n    if (failures.length > 0) throw new AggregateError(failures, `Failed to clean up ${record.name}`);\n  }\n}\n\nfunction once(action: Disposer): Disposer {\n  let done = false;\n  return () => {\n    if (done) return;\n    done = true;\n    action();\n  };\n}\n\nfunction sameRelation(\n  left: RuntimeInspection[\"relations\"][number],\n  right: RuntimeInspection[\"relations\"][number],\n): boolean {\n  return (\n    left.consumer === right.consumer &&\n    left.service === right.service &&\n    left.provider === right.provider\n  );\n}\n",
@@ -10568,11 +10568,11 @@
       "question": "DSH 怎么记录和保存 Agent 执行过程?",
       "codeGuide": {
         "title": "Session Log 怎样同时生成请求与 Trace",
-        "description": "日志使用稳定编号追加观察事件。重建请求时，代码定位目标请求头、选择最近的 checkpoint，并把此前事件投影为模型消息。",
+        "description": "Nano DSH 按编号追加 SessionEvent。重建请求时，代码定位目标 Step 的完整请求头、选择最近的上下文检查点，并把此前事件投影为模型消息。",
         "observations": [
           {
             "title": "事件只追加，不就地改写",
-            "text": "append 会克隆事件、分配递增编号并放到末尾。checkpoint 也只是新增事件，而且只能覆盖已经存在的历史。",
+            "text": "append 会复制事件、分配递增编号并放到末尾。上下文检查点也作为新事件加入日志，并引用它概括的既有事件。",
             "lines": [
               84,
               108
@@ -10580,7 +10580,7 @@
           },
           {
             "title": "请求头确定重建范围",
-            "text": "stepId 先定位目标 request/header；该事件之前发生的内容属于本步历史。最近的 checkpoint 决定模型投影从哪里继续。",
+            "text": "Nano DSH 根据 stepId 定位对应的完整 request/header；该事件之前发生的内容组成当前 Step 的历史。最近的上下文检查点决定模型投影从哪里继续。",
             "lines": [
               130,
               153
@@ -10696,16 +10696,16 @@
       },
       "changeStory": {
         "title": "请求与时间线来自同一份记录",
-        "summary": "DSH 把用户消息、请求头、模型回复、工具往返、运行时变化和 Goal 状态写入同一条 append-only（只追加）Session Log。buildRequest() 根据目标 request/header 重建当时的输入，Trace 使用同一批 Event 生成可读的执行过程。",
-        "harnessRole": "记忆与证据层：为请求、回放和审计提供共同来源",
-        "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；本章把这些内容写入同一记录源。第五章的能力实验和第六章的 Goal/Round 也继续追加 Event，所有视图都从明确记录中生成。",
+        "summary": "完整 DSH 把交互事实追加为 SessionEvent，并通过 SessionPersistence 分批写入 JSONL 或 SQLite。Nano DSH 用同一条 Session Log 记录消息、工具往返、请求头和运行时变化；buildRequest() 与 replayTrace() 分别从这些事件生成模型请求和执行过程。",
+        "harnessRole": "记录层：为请求重建、过程回放和会话恢复提供共同来源",
+        "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；本章把这些内容写入同一条 Session Log。第五章的插件实验和第六章的 Goal Round 也继续追加 SessionEvent。",
         "outcomes": [
-          "能说明为什么 request/header 是重建某个 Step 的时间边界",
-          "能解释 checkpoint 只替换模型投影，不删除已经发生的 Event",
-          "能区分 Session Log、Unified Request、Trace 与 Provider payload 四种视图"
+          "能说明 Nano DSH 为什么用完整的 request/header 重建某个 Step",
+          "能解释 context/checkpoint（上下文检查点）只改变模型投影，原始 SessionEvent 仍保留在日志中",
+          "能区分 Session Log、模型请求与 Trace 三种数据形态"
         ]
       },
-      "lesson": "# Session Log 保存事件并生成其他视图\n\n一个 `messages` 数组可以保存对话内容，但通常缺少解释 Agent 运行所需的信息，例如某个 Step 当时使用的系统规则、工具目录和投影设置。它也难以确定插件的安装时间、工具结果对应的调用，以及 Agent 在某处停止的原因。\n\nDSH 把运行中观察到的内容记录为 Event（事件）。用户输入、Step 开始、请求头、模型回复、工具调用、工具结果、上下文检查点和运行时变化，都写入同一条 Session Log（会话日志），并获得事件类型和递增编号。\n\n## Event 负责记录，Trace 负责展示\n\n日志采用 append-only（只追加）约束：新事件只能加入末尾，已经记录的事件不会就地修改。这项约束保留事件的因果顺序。工具结果位于对应调用之后、下一次请求之前，因此可以确定它如何进入后续上下文。\n\n右侧截取一次工具往返所需的六条事件，用于展示用户消息、第一份请求、模型工具调用、工具结果和第二份请求的顺序。完整实现还记录 Turn、Step、checkpoint（上下文检查点）与运行时事件，全部使用同一条 Session Log。\n\n<!-- evidence {\"id\":\"m04-events\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"一次工具往返的事件记录\",\"description\":\"按照六条事件的递增编号，查看工具结果如何记录在调用与下一次模型请求之间。\"} -->\n\n## 任意一步的请求都能从日志重建\n\n为了还原某个 Step，`buildRequest()` 先找到对应的 `request/header`。Header（请求头事件）保存当时的系统规则、Tool Schema、本步说明与投影配置。请求头之前的用户、模型和工具事件会按原顺序还原成消息；工具调用重新归入产生它的模型回复，工具结果继续保留对应的调用编号。\n\n历史中存在 checkpoint 时，请求构建器用摘要表示检查点覆盖的旧事件，再追加检查点之后的新事件。原始 Event 仍保留在 Session Log 中，checkpoint 只改变当前模型请求的投影。第二章提出的完整记录与模型输入分离由此获得可重建的数据结构。\n\n<!-- evidence {\"id\":\"m04-rebuild\",\"tab\":\"source\",\"lines\":[84,194],\"label\":\"从事件日志重建模型请求\",\"description\":\"查看请求头定位、checkpoint 选择、消息还原和工具结果投影如何共同生成模型请求。\"} -->\n\n页面上的 Trace（执行过程视图）也由 Event 生成：事件类型转换为可读标题和说明，原始 payload（事件数据）仍可展开。请求检查、执行时间线和能力变化因此引用同一份记录，无须分别维护可能不一致的副本。\n\n本章重建的是语义一致的 Unified Request（统一请求），不保证与模型服务商的原始请求逐字节相同。回放会把 Event 再次转换为 Trace，不会重新调用模型或执行工具。模型的流式分片、网络重试和服务商请求编号没有进入这份最小日志。\n\n当前 Nano DSH 把 Session Log 保存在内存中，可以演示记录、重建和回放，但进程重启后无法恢复。跨进程保存可以把同一组 Event 追加写入 JSON Lines（JSONL，每行一条 JSON 记录）文件或数据库。存储介质的选择不会改变本章的事件结构。\n\nDSH 通过 Event 记录观察结果，由 Session Log 保存顺序，再从同一份记录生成 Request 和 Trace。checkpoint 只改变模型视图，不删除历史事件。这些机制共同回答运行过程如何记录、保存和检查。\n\n<!-- evidence {\"id\":\"m04-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第四问，从 append、request/header 与消息投影说明共同记录源如何连接六个章节。\"} -->\n",
+      "lesson": "# Session Log 保存事件并生成其他视图\n\nDSH 把 Agent 的完整交互过程保存为一条 Session Log（会话日志）。日志中的每一项称为 SessionEvent（会话事件），例如表示轮次开始的 `turn/start`、表示步骤开始的 `step/start`，以及用户消息、模型回复、工具调用和工具结果。每个 SessionEvent 都有事件类型、连续编号、发生时间和对应数据。\n\n这里的 SessionEvent 表示需要写入会话历史的事实。第三章介绍的 Cordis Event 用于插件之间的运行时通信；需要长期保留的信息，会由事件处理方追加为 SessionEvent。DSH 的插件还可以扩展 SessionEvent 类型，例如加入上下文压缩记录。\n\n## Session Log 按发生顺序追加事件\n\nSession Log 采用 append-only（只追加）结构。新事件写在日志末尾，已经写入的事件保持原样，因此 Turn、Step、模型回复和工具执行之间的先后关系可以从编号直接确定。工具结果位于对应的工具调用之后、下一次模型请求之前，也就说明了这份结果怎样进入后续上下文。\n\nNano DSH 的 `SessionLog.append()` 会复制事件，分配递增的 `id`，再把它加入数组。`sessionPlugin()` 还会监听插件加载和卸载通知，把运行时能力变化写入同一条日志。右侧展示一次工具往返中的六条事件，可以依次查看用户消息、第一次请求、工具调用、工具结果和第二次请求。\n\n<!-- evidence {\"id\":\"m04-events\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"一次工具往返的事件记录\",\"description\":\"按照事件编号查看工具调用、工具结果与下一次模型请求的先后关系。\"} -->\n\n## 同一组事件生成模型请求和执行过程\n\n完整 DSH 从 Session Log 派生模型消息。`user/message`、`assistant/message` 和 `tool/result` 等事件组成模型可见的消息历史；`request/header` 保存模型配置、渲染后的系统 Prompt 和 Tool Schema。当请求头发生变化时，DSH 会追加一份完整快照。读取目标位置之前最近的请求头，再结合当时的消息历史，就可以重建模型请求。\n\nNano DSH 为每个 Step 都记录一条完整的 `request/header`，其中包含 provider（模型服务提供方）、model（模型名称）、系统 Prompt、Tool Schema、动态说明和投影设置。`buildRequest()` 先找到目标 Step 的请求头，再把此前的用户消息、模型回复和工具结果按顺序还原。工具调用会重新归入发起调用的模型回复，工具结果继续使用原来的调用编号。\n\nNano DSH 的 `context/checkpoint` 表示一段较早历史的摘要。重建请求时，`buildRequest()` 先加入摘要，再追加检查点之后的事件。完整 DSH 的上下文压缩也会追加新的 SessionEvent，让摘要替换模型当前看到的一段旧消息；被概括的原始事件仍保留在 Session Log 中。\n\n<!-- evidence {\"id\":\"m04-rebuild\",\"tab\":\"source\",\"lines\":[84,194],\"label\":\"从事件日志重建模型请求\",\"description\":\"查看目标请求头、上下文检查点和消息事件如何共同生成某个 Step 的模型请求。\"} -->\n\nNano DSH 的 `replayTrace()` 读取同一组 SessionEvent，为每条事件生成标题和说明。网站把这个结果称为 Trace（执行过程视图）。Trace 回放只读取已经记录的事件，模型请求重建和执行过程展示因此使用同一份数据。\n\n## 持久化保存 Session Log\n\n完整 DSH 在内存中追加 SessionEvent，并通过 `session/event` 通知持久化插件。持久化插件分批复制这些事件，通过统一的 `SessionPersistence` 服务写入存储。DSH 提供 JSON Lines（JSONL，每行一条 JSON 记录）和 SQLite 两种实现；重新加载会话时，再从持久化记录恢复 Session Log。显式 flush（刷新）会等待当前批次写入完成。\n\nNano DSH 在一次运行中把事件保存在 `SessionLog` 数组里。教程生成器会把这些事件写入网站使用的 `tutorial.json`，页面随后可以根据这份静态记录重建模型请求并回放 Trace。这段最小实现保留了事件记录、请求投影和回放共用同一数据源的关系。\n\nDSH 通过 SessionEvent 记录运行事实，由 Session Log 保存事件顺序，再通过持久化服务写入 JSONL 或 SQLite。模型请求、文本记录和回放视图都从这条日志派生，因此保存下来的事件可以继续用于恢复和检查 Agent 的执行过程。\n\n<!-- evidence {\"id\":\"m04-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第四问，说明 SessionEvent 如何经过 Session Log、持久化存储和投影形成可恢复的执行记录。\"} -->\n",
       "source": {
         "path": "src/session.ts",
         "content": "import { projectMessages, type ProjectionSettings } from \"./context.js\";\nimport type {\n  AssistantMessage,\n  ModelMessage,\n  ToolCall,\n  ToolSchema,\n  UnifiedRequest,\n} from \"./protocol.js\";\nimport { ServiceToken, type Plugin } from \"./runtime.js\";\n\ninterface EventBase {\n  id: number;\n  type: string;\n}\n\nexport type SessionEvent =\n  | (EventBase & { type: \"turn/start\"; turnId: string })\n  | (EventBase & { type: \"user/message\"; turnId: string; content: string })\n  | (EventBase & { type: \"step/start\"; turnId: string; stepId: string; ordinal: number })\n  | (EventBase & {\n      type: \"request/header\";\n      stepId: string;\n      provider: string;\n      model: string;\n      system: string;\n      tools: ToolSchema[];\n      dynamicContext: string;\n      projection: ProjectionSettings;\n    })\n  | (EventBase & { type: \"assistant/message\"; stepId: string; content: string })\n  | (EventBase & { type: \"tool/call\"; stepId: string; call: ToolCall })\n  | (EventBase & {\n      type: \"tool/result\";\n      stepId: string;\n      toolCallId: string;\n      name: string;\n      content: string;\n    })\n  | (EventBase & {\n      type: \"context/checkpoint\";\n      summary: string;\n      coveredThroughEventId: number;\n    })\n  | (EventBase & { type: \"runtime/plugin-mounted\"; plugin: string })\n  | (EventBase & { type: \"runtime/plugin-unmounted\"; plugin: string })\n  | (EventBase & { type: \"step/end\"; stepId: string; outcome: \"tool-calls\" | \"complete\" })\n  | (EventBase & {\n      type: \"turn/end\";\n      turnId: string;\n      outcome: \"completed\" | \"max-steps\" | \"failed\";\n    })\n  | (EventBase & {\n      type: \"goal/created\";\n      goalId: string;\n      objective: string;\n      maxRounds: number;\n    })\n  | (EventBase & {\n      type: \"goal/round-started\";\n      goalId: string;\n      round: number;\n      label: string;\n    })\n  | (EventBase & {\n      type: \"goal/status-changed\";\n      goalId: string;\n      status: \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n      reason: string;\n    });\n\nexport type NewSessionEvent = SessionEvent extends infer Event\n  ? Event extends SessionEvent\n    ? Omit<Event, \"id\">\n    : never\n  : never;\n\nexport interface TraceItem {\n  eventId: number;\n  type: SessionEvent[\"type\"];\n  title: string;\n  detail: string;\n}\n\nexport class SessionLog {\n  readonly #events: SessionEvent[] = [];\n  #nextId = 1;\n  #nextTurn = 1;\n\n  get events(): readonly SessionEvent[] {\n    return this.#events;\n  }\n\n  append(event: NewSessionEvent): SessionEvent {\n    const stored = { ...structuredClone(event), id: this.#nextId++ } as SessionEvent;\n    this.#events.push(stored);\n    return stored;\n  }\n\n  nextTurnId(): string {\n    return `turn-${this.#nextTurn++}`;\n  }\n\n  checkpoint(summary: string, coveredThroughEventId: number): SessionEvent {\n    if (coveredThroughEventId >= this.#nextId) {\n      throw new Error(\"A checkpoint may cover only events that already exist.\");\n    }\n    return this.append({ type: \"context/checkpoint\", summary, coveredThroughEventId });\n  }\n}\n\nexport const SESSION_LOG = new ServiceToken<SessionLog>(\"session-log\");\n\nexport function sessionPlugin(log: SessionLog): Plugin {\n  return {\n    name: \"session-log\",\n    setup(context) {\n      context.provide(SESSION_LOG, log);\n      context.on(\"runtime/plugin-mounted\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-mounted\", plugin });\n      });\n      context.on(\"runtime/plugin-unmounting\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-unmounted\", plugin });\n      });\n    },\n  };\n}\n\nexport function buildRequest(events: readonly SessionEvent[], stepId: string): UnifiedRequest {\n  const headerIndex = events.findIndex(\n    (event) => event.type === \"request/header\" && event.stepId === stepId,\n  );\n  if (headerIndex === -1) throw new Error(`Missing request/header for ${stepId}.`);\n  const header = events[headerIndex];\n  if (header?.type !== \"request/header\") throw new Error(`Invalid request header for ${stepId}.`);\n\n  const prefix = events.slice(0, headerIndex);\n  const checkpoint = [...prefix]\n    .reverse()\n    .find((event): event is Extract<SessionEvent, { type: \"context/checkpoint\" }> =>\n      event.type === \"context/checkpoint\",\n    );\n  const projectedEvents = checkpoint\n    ? prefix.filter((event) => event.id > checkpoint.coveredThroughEventId)\n    : prefix;\n  const messages: ModelMessage[] = [];\n  if (checkpoint) {\n    messages.push({\n      role: \"system\",\n      content: `[Context checkpoint through event ${checkpoint.coveredThroughEventId}]\\n${checkpoint.summary}`,\n    });\n  }\n\n  const callsByStep = new Map<string, ToolCall[]>();\n  for (const event of projectedEvents) {\n    if (event.type === \"tool/call\") {\n      const calls = callsByStep.get(event.stepId) ?? [];\n      calls.push(structuredClone(event.call));\n      callsByStep.set(event.stepId, calls);\n    }\n  }\n  for (const event of projectedEvents) {\n    switch (event.type) {\n      case \"user/message\":\n        messages.push({ role: \"user\", content: event.content });\n        break;\n      case \"assistant/message\":\n        messages.push({\n          role: \"assistant\",\n          content: event.content,\n          toolCalls: callsByStep.get(event.stepId) ?? [],\n        });\n        break;\n      case \"tool/result\":\n        messages.push({\n          role: \"tool\",\n          toolCallId: event.toolCallId,\n          name: event.name,\n          content: event.content,\n        });\n        break;\n      default:\n        break;\n    }\n  }\n\n  return {\n    system: header.system,\n    tools: structuredClone(header.tools),\n    messages: projectMessages(messages, header.projection),\n    dynamicContext: header.dynamicContext,\n  };\n}\n\nexport function requestStepIds(events: readonly SessionEvent[]): string[] {\n  return events\n    .filter((event): event is Extract<SessionEvent, { type: \"request/header\" }> =>\n      event.type === \"request/header\",\n    )\n    .map((event) => event.stepId);\n}\n\nexport function replayTrace(events: readonly SessionEvent[]): TraceItem[] {\n  return events.map((event) => ({\n    eventId: event.id,\n    type: event.type,\n    title: traceTitle(event),\n    detail: traceDetail(event),\n  }));\n}\n\nfunction traceTitle(event: SessionEvent): string {\n  switch (event.type) {\n    case \"request/header\":\n      return `${event.stepId} → ${event.provider}/${event.model}`;\n    case \"tool/call\":\n      return `call ${event.call.name}`;\n    case \"tool/result\":\n      return `result ${event.name}`;\n    case \"runtime/plugin-mounted\":\n    case \"runtime/plugin-unmounted\":\n      return event.plugin;\n    case \"goal/round-started\":\n      return `round ${event.round} · ${event.label}`;\n    default:\n      return event.type;\n  }\n}\n\nfunction traceDetail(event: SessionEvent): string {\n  switch (event.type) {\n    case \"user/message\":\n    case \"assistant/message\":\n      return event.content;\n    case \"tool/call\":\n      return JSON.stringify(event.call.arguments);\n    case \"tool/result\":\n      return event.content;\n    case \"context/checkpoint\":\n      return `${event.summary} (covers through #${event.coveredThroughEventId})`;\n    case \"request/header\":\n      return `${event.tools.length} tools · dynamic=${event.dynamicContext}`;\n    case \"turn/end\":\n    case \"step/end\":\n      return event.outcome;\n    case \"goal/created\":\n      return event.objective;\n    case \"goal/status-changed\":\n      return `${event.status}: ${event.reason}`;\n    default:\n      return \"\";\n  }\n}\n\nfunction pluginName(payload: unknown): string {\n  if (\n    typeof payload === \"object\" &&\n    payload !== null &&\n    \"plugin\" in payload &&\n    typeof payload.plugin === \"string\"\n  ) {\n    return payload.plugin;\n  }\n  throw new Error(\"Runtime plugin event is missing its plugin name.\");\n}\n",
@@ -11126,132 +11126,118 @@
       "id": "chapter-5",
       "number": "05",
       "shortTitle": "运行时自进化",
-      "title": "在受控边界内自进化",
+      "title": "编写并运行新的 Cordis 插件",
       "question": "DSH 是如何持续自进化的?",
       "codeGuide": {
-        "title": "Agent 怎样获得受限的运行时变更能力",
-        "description": "Runtime Tools（运行时工具）插件提供检查、安装和移除操作。可信目录限定候选范围，能力变更继续使用 Context 的挂载与回滚流程。",
+        "title": "Agent 怎样定义、运行和移除插件",
+        "description": "Runtime Tools 插件让 Agent 检查当前 Context、提交新的 Cordis 插件代码、运行插件，并停止或删除插件定义。动态插件仍通过 Context 的普通挂载与卸载流程贡献工具和提示词。",
         "observations": [
           {
-            "title": "Prompt 和生命周期共同限制变更",
-            "text": "插件取得可信目录，保存本次实验的卸载函数，并声明只能临时安装目录中的名称；插件卸载时也会清理尚未撤销的实验。",
+            "title": "定义表保存代码和运行状态",
+            "text": "Runtime Tools 为每个动态插件保存标识、用途、代码和卸载函数；自身卸载时会停止仍在运行的插件并清空定义。",
             "lines": [
-              35,
-              49
+              13,
+              28
             ]
           },
           {
-            "title": "检查与安装都是普通工具",
-            "text": "inspect_runtime 返回当前运行时状态。install_capability 拒绝重复或未知名称，命中后调用 context.mount，并保存 disposer。",
+            "title": "定义和运行是两个动作",
+            "text": "cordis_define 检查并保存 Agent 提交的 JavaScript 插件代码。cordis_run 根据 pluginId 取回代码，得到 Plugin，再通过 context.mount() 挂载。",
             "lines": [
-              50,
-              73
+              29,
+              75
             ]
           },
           {
-            "title": "移除后返回当前能力状态",
-            "text": "remove_capability 找到安装时保存的 disposer，先从实验表删除记录，再完整卸载插件，最后返回当前工具目录供 Agent 检查。",
+            "title": "停止与删除复用卸载函数",
+            "text": "cordis_stop 执行卸载函数但保留定义，cordis_undefine 停止插件并删除定义；插件贡献随 Context 生命周期一起撤销。",
             "lines": [
-              74,
-              90
+              76,
+              102
             ]
           }
         ],
         "fills": [
           {
-            "label": "类型别名与受信任目录类",
+            "label": "动态插件定义",
             "kind": "skeleton",
             "ranges": [
               [
-                4,
-                4
-              ],
-              [
-                6,
-                20
+                5,
+                11
               ]
             ]
           },
           {
-            "label": "目录服务令牌",
+            "label": "定义表、清理与检查工具",
             "kind": "body",
             "ranges": [
               [
-                22,
-                24
+                13,
+                34
               ]
             ]
           },
           {
-            "label": "注册目录服务",
-            "kind": "body",
-            "ranges": [
-              [
-                26,
-                33
-              ]
-            ]
-          },
-          {
-            "label": "实验边界提示词与检查工具",
+            "label": "登记插件代码",
             "kind": "body",
             "ranges": [
               [
                 35,
-                49
+                56
               ]
             ]
           },
           {
-            "label": "安装能力工具",
+            "label": "运行动态插件",
             "kind": "body",
             "ranges": [
               [
-                50,
-                73
+                57,
+                75
               ]
             ]
           },
           {
-            "label": "移除能力工具",
+            "label": "停止与删除插件",
             "kind": "body",
             "ranges": [
               [
-                74,
-                90
+                76,
+                102
               ]
             ]
           },
           {
-            "label": "参数 Schema 与名称读取",
+            "label": "编译、实例化与参数读取",
             "kind": "body",
             "ranges": [
               [
-                95,
-                106
+                107,
+                144
               ]
             ]
           }
         ]
       },
       "changeStory": {
-        "title": "Agent 可以做可验证、可撤销的能力实验",
-        "summary": "DSH 把 inspect、install 与 remove 封装成普通 Tool，并让 Agent 从可信目录选择 Plugin。安装结果从后续请求开始生效。Agent 调用新工具并取得实际结果后，才能据此保留能力或通过 disposer 撤销安装。",
-        "harnessRole": "适配层：让 Agent 在运行中试验并更换能力",
-        "connection": "这项流程同时使用前四章的机制：Agent Loop 执行运行时工具，请求投影加入新的 Tool/Prompt，Plugin 提供可逆生命周期，Session Log 记录挂载、调用和卸载。这里的自进化指这些机制共同完成的运行时适配。",
+        "title": "Agent 可以编写并验证新的运行时能力",
+        "summary": "Nano DSH 把 cordis_inspect、cordis_define、cordis_run、cordis_stop 与 cordis_undefine 封装成普通 Tool。Agent 提交 Cordis 插件代码，运行插件并调用新增工具，再根据结果停止或移除插件。工具和提示词的变化从后续模型请求开始生效。",
+        "harnessRole": "能力演化层：让 Agent 在执行任务期间编写、运行和验证新的插件",
+        "connection": "这项流程同时使用前四章的机制：Agent Loop 执行 Cordis 工具，请求投影加入新的 Tool 和 Prompt，Plugin 提供可撤销的生命周期，Session Log 记录定义、挂载、调用和移除。Agent 因此可以编写完成当前任务所需的新能力。",
         "outcomes": [
-          "能按照 inspect、install、use、remove 的顺序说明一次能力实验的完整证据",
-          "能说明安装完成与能力有效之间的差别",
-          "能指出新 Tool/Prompt 从哪次请求开始可见，以及卸载后怎样验证无残留"
+          "能按照 cordis_inspect、cordis_define、cordis_run、调用新工具、cordis_stop／cordis_undefine 的顺序说明一次能力实验",
+          "能说明插件成功挂载与新增工具有效之间的差别",
+          "能指出新 Tool 和 Prompt 从哪次请求开始可见，以及停止后怎样验证贡献已经移除"
         ]
       },
-      "lesson": "# 自进化通过受控的运行时能力变更实现\n\n本教程把运行时自进化定义为一组可检查、可验证、可撤销的能力变更。Agent 先检查当前运行时，确定能力缺口，再从受信任目录安装候选插件。实际调用结果用于决定保留当前选择或撤销安装。Agent 无法通过这套流程下载任意代码或永久修改自身。\n\n这里不涉及模型参数学习，也不会绕过既有权限。第三章已经让运行时能够安装和卸载插件，本章把这些操作封装为模型可以调用且 Session Log 可以记录的工具。\n\n## 变更前记录运行时基线\n\n实验开始前，Agent 先调用 `inspect_runtime`。基线状态列出已经挂载的插件、工具、Prompt（系统提示内容）、Service（运行时服务）和依赖关系。后续对比可以确定新增工具来自哪次安装，也可以验证卸载后是否仍有残留。\n\n<!-- evidence {\"id\":\"m05-before\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"运行时基线\",\"description\":\"变更能力之前记录当前插件、工具与提示词，为后续安装和撤销提供对照。\"} -->\n\n## 目录限制候选能力\n\n`install_capability` 只接受 Trusted Capability Catalog（受信任能力目录）中已经登记的名称，不接收任意代码或文件路径。未知名称和重复安装会返回明确错误。命中目录后，能力仍通过普通的 `context.mount()` 安装；安装工具保存对应的 disposer，供后续卸载使用。\n\n<!-- evidence {\"id\":\"m05-install-path\",\"tab\":\"source\",\"lines\":[35,90],\"label\":\"受信任目录与普通挂载\",\"description\":\"检查目录限制、重复安装、插件挂载、卸载函数保存和能力移除的完整流程。\"} -->\n\n安装完成后，新增能力从下一次模型请求开始生效。Tool Schema 会增加新操作；插件贡献的 Prompt 也会进入系统规则。Session Log 同时记录插件挂载事件，因此可以确定模型从哪次请求开始接收这项能力。\n\n<!-- evidence {\"id\":\"m05-installed\",\"tab\":\"graph\",\"requestStep\":2,\"label\":\"能力进入当前 Context\",\"description\":\"安装后的运行时状态列出 word_count 能力插件及其新增工具。\"} -->\n\n## 实际结果用于验证能力\n\n挂载成功只说明插件已经进入运行时，无法证明它能够完成当前任务。Agent 还要调用新工具，并根据可观察结果判断能力缺口是否解决。这个最小样本调用 `word_count` 后得到 `words: 3`；对应的 Tool Result 提供了能力有效的证据。\n\n<!-- evidence {\"id\":\"m05-verified\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"实际调用与验证结果\",\"description\":\"在挂载事件之后调用 word_count，并以 words: 3 的结果验证这项能力。\"} -->\n\n实验无效、任务结束或能力仅供临时使用时，Agent 调用 `remove_capability`。插件提供的 Tool、Prompt 与其他贡献会通过同一个 disposer 一并移除。卸载后的运行时状态与基线对比，可以检查工具目录是否已经恢复。\n\n<!-- evidence {\"id\":\"m05-removed\",\"tab\":\"graph\",\"requestStep\":3,\"label\":\"卸载后的运行时基线\",\"description\":\"对照初始状态，检查临时插件及其全部贡献是否已经移除。\"} -->\n\n新的能力缺口出现时，Agent 可以重复执行以下过程：检查现状，从受信任目录选择候选，临时安装，实际调用，再根据结果保留或撤销。每次变更都复用插件系统，写入 Session Log，并从后续请求开始生效。\n\nNano DSH 只演示这条最小且可解释的流程。生产系统还需要权限审批、代码签名、隔离环境和持久化策略。当前实现证明 Agent 可以进行受控的运行时适配，其能力范围仍由可信目录和现有权限限定。\n\n<!-- evidence {\"id\":\"m05-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第五问，按照 inspect、install、use、remove 的证据顺序说明前四章如何组成运行时适配流程。\"} -->\n",
+      "lesson": "# Agent 编写并挂载新的 Cordis 插件\n\n本教程所说的“运行时自进化”，是指 Agent 在执行任务期间获得新的插件和工具，让自己能够在执行任务期间获得新能力，并完成原本无法完成的任务。Agent 先检查当前插件组成，确认能力缺口，再编写一个新的 Cordis 插件，把插件挂载到当前 Context（插件上下文），并实际调用它提供的工具。\n\n本章把这条过程浓缩为五个普通工具：`cordis_inspect` 查看当前插件组成，`cordis_define` 登记 Agent 编写的插件代码，`cordis_run` 挂载插件，`cordis_stop` 停止插件，`cordis_undefine` 停止插件并删除定义。Agent Loop 负责调用这些工具，Context 负责插件生命周期，Session Log 记录定义、挂载、调用和移除过程。\n\n右侧代码使用 `DynamicPluginDefinition` 保存插件标识、名称、用途、代码和卸载函数。每个定义先存在 `definitions` 中；只有调用 `cordis_run` 以后，它才会成为当前 Context 中正在运行的插件。\n\n## 先列出当前插件提供的能力\n\n`cordis_inspect` 列出当前 Context 中已经挂载的 Plugin（插件），以及这些插件提供的 Tool（工具）、Prompt（系统提示内容）、Service（运行时服务）、事件监听器和依赖关系。Agent 根据这份结果判断现有工具能否完成任务，以及新的插件需要提供什么。\n\n实验开始时，过程日志和 Cordis 工具已经挂载，`word_count` 还不存在。Agent 先调用 `cordis_inspect` 保存当前列表，后面就能比较运行插件前后增加了什么，并确认插件停止以后，它提供的内容是否已经移除。下图是三次列表对照的起点：先确认插件列里没有 `dynamic:word_count`，工具列里也没有 `word_count`。\n\n<!-- evidence {\"id\":\"m05-before\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"当前 Context 尚无 word_count\",\"description\":\"这是变化前的对照基线：当前 Context 里还没有 dynamic:word_count 和 word_count。\"} -->\n\n## Agent 定义并运行新的插件\n\n`cordis_define` 接收插件名称、用途和一段返回 Cordis Plugin 的 JavaScript 函数体。它先检查代码能否编译，再生成 `dyn-<n>` 形式的插件标识，把代码保存在定义表中。定义完成并不会改变当前工具列表。\n\n`cordis_run` 根据插件标识取出代码，在 Node.js 内置的 `node:vm` 代码执行环境中得到带有 `apply(context)` 的 Cordis Plugin，再转换为 Nano DSH 的 Plugin，并通过普通的 `context.mount()` 挂载。`apply` 可以注册 Tool、Prompt 和其他 Context 内容；`context.mount()` 返回的卸载函数保存在插件定义中，供停止或移除时使用。\n\n<!-- evidence {\"id\":\"m05-install-path\",\"tab\":\"source\",\"lines\":[29,102],\"label\":\"定义、运行、停止与移除\",\"description\":\"查看插件代码怎样登记为定义、通过 context.mount() 进入当前 Context，并使用同一个卸载函数撤销贡献。\"} -->\n\n插件运行以后，它提供的工具和 Prompt 会从下一次模型请求开始出现，因为新请求会重新读取当前 Context。Session Log 同时记录 `cordis_define`、`cordis_run` 和插件挂载事件，因此可以确定模型从哪次请求开始看到新增能力。对照下图与前面的基线，可以直接看到插件列新增 `dynamic:word_count`，工具列新增 `word_count`。\n\n<!-- evidence {\"id\":\"m05-installed\",\"tab\":\"graph\",\"requestStep\":2,\"label\":\"word_count 已加入当前 Context\",\"description\":\"与基线相比，dynamic:word_count 已向当前 Context 注册 word_count。\"} -->\n\n## 调用新增工具以后再判断它是否有效\n\n插件成功挂载只说明 `apply` 已经执行，不能证明新工具可以解决任务。Agent 还要调用插件提供的工具，并根据 Tool Result 判断能力缺口是否已经补足。这个最小样本调用 `word_count` 后得到 `words: 3`，证明 Agent 刚刚定义的工具已经进入 Agent Loop 并正常执行。\n\n<!-- evidence {\"id\":\"m05-verified\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":4,\"label\":\"实际调用与验证结果\",\"description\":\"动态插件运行后调用 word_count，并以 words: 3 的结果验证新增能力。\"} -->\n\n实验完成以后，`cordis_stop` 执行挂载时保存的卸载函数，移除插件提供的 Tool、Prompt 和其他内容，同时保留插件定义，之后可以再次运行。`cordis_undefine` 会先停止仍在运行的插件，再从定义表中删除它。最后一张图重新使用同一份列表结构；把它与第一张图对照，`dynamic:word_count` 和 `word_count` 都已消失，说明插件贡献已经撤销。\n\n<!-- evidence {\"id\":\"m05-removed\",\"tab\":\"graph\",\"requestStep\":3,\"label\":\"word_count 已从当前 Context 移除\",\"description\":\"插件及其工具都已移除，当前 Context 的能力数量重新回到基线。\"} -->\n\n这五个工具组成一次完整的能力变化：列出现有能力，编写插件，挂载插件，调用新增工具，再停止或移除插件。新增工具进入后续模型请求，所有调用和生命周期事件进入 Session Log，Agent 因此可以用自己刚刚编写的插件继续完成任务。\n\n<!-- evidence {\"id\":\"m05-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第五问，按照 cordis_inspect、cordis_define、cordis_run、调用新工具、cordis_stop／cordis_undefine 的顺序说明 Agent 怎样获得并验证新能力。\"} -->\n",
       "source": {
         "path": "src/runtime-tools.ts",
-        "content": "import type { JsonValue } from \"./protocol.js\";\nimport { ServiceToken, type Context, type Plugin } from \"./runtime.js\";\n\nexport type CapabilityFactory = () => Plugin;\n\nexport class TrustedCapabilityCatalog {\n  readonly #factories: Map<string, CapabilityFactory>;\n\n  constructor(entries: Record<string, CapabilityFactory>) {\n    this.#factories = new Map(Object.entries(entries));\n  }\n\n  names(): string[] {\n    return [...this.#factories.keys()].sort();\n  }\n\n  create(name: string): Plugin | undefined {\n    return this.#factories.get(name)?.();\n  }\n}\n\nexport const CAPABILITY_CATALOG = new ServiceToken<TrustedCapabilityCatalog>(\n  \"trusted-capability-catalog\",\n);\n\nexport function capabilityCatalogPlugin(catalog: TrustedCapabilityCatalog): Plugin {\n  return {\n    name: \"trusted-capability-catalog\",\n    setup(context) {\n      context.provide(CAPABILITY_CATALOG, catalog);\n    },\n  };\n}\n\nexport function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const catalog = context.use(CAPABILITY_CATALOG);\n      const installed = new Map<string, () => void>();\n      context.effect(() => {\n        for (const dispose of [...installed.values()].reverse()) dispose();\n        installed.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-experiment-boundary\",\n        `You may inspect this runtime and temporarily install only trusted capabilities: ${catalog.names().join(\", \")}. Remove experiments after use.`,\n      );\n      context.registerTool({\n        name: \"inspect_runtime\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"install_capability\",\n        description: \"Temporarily mount one named capability from the trusted in-process catalog.\",\n        inputSchema: capabilityNameSchema(catalog),\n        async execute(input) {\n          const name = readName(input);\n          if (installed.has(name)) return { ok: false, error: `${name} is already installed.` };\n          const plugin = catalog.create(name);\n          if (!plugin) return { ok: false, error: `${name} is not in the trusted catalog.` };\n          const dispose = await context.mount(plugin);\n          installed.set(name, dispose);\n          return {\n            ok: true,\n            installed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"remove_capability\",\n        description: \"Unmount a capability previously installed by install_capability.\",\n        inputSchema: capabilityNameSchema(catalog),\n        execute(input) {\n          const name = readName(input);\n          const dispose = installed.get(name);\n          if (!dispose) return { ok: false, error: `${name} is not installed.` };\n          installed.delete(name);\n          dispose();\n          return {\n            ok: true,\n            removed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n    },\n  };\n}\n\nfunction capabilityNameSchema(catalog: TrustedCapabilityCatalog): Record<string, unknown> {\n  return {\n    type: \"object\",\n    properties: { name: { type: \"string\", enum: catalog.names() } },\n    required: [\"name\"],\n    additionalProperties: false,\n  };\n}\n\nfunction readName(input: JsonValue): string {\n  return (input as { name: string }).name;\n}\n",
-        "excerpt": "export function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const catalog = context.use(CAPABILITY_CATALOG);\n      const installed = new Map<string, () => void>();\n      context.effect(() => {\n        for (const dispose of [...installed.values()].reverse()) dispose();\n        installed.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-experiment-boundary\",\n        `You may inspect this runtime and temporarily install only trusted capabilities: ${catalog.names().join(\", \")}. Remove experiments after use.`,\n      );\n      context.registerTool({\n        name: \"inspect_runtime\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"install_capability\",\n        description: \"Temporarily mount one named capability from the trusted in-process catalog.\",\n        inputSchema: capabilityNameSchema(catalog),\n        async execute(input) {\n          const name = readName(input);\n          if (installed.has(name)) return { ok: false, error: `${name} is already installed.` };\n          const plugin = catalog.create(name);\n          if (!plugin) return { ok: false, error: `${name} is not in the trusted catalog.` };\n          const dispose = await context.mount(plugin);\n          installed.set(name, dispose);\n          return {\n            ok: true,\n            installed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"remove_capability\",\n        description: \"Unmount a capability previously installed by install_capability.\",\n        inputSchema: capabilityNameSchema(catalog),\n        execute(input) {\n          const name = readName(input);\n          const dispose = installed.get(name);\n          if (!dispose) return { ok: false, error: `${name} is not installed.` };\n          installed.delete(name);\n          dispose();\n          return {\n            ok: true,\n            removed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });",
-        "startLine": 35,
-        "endLine": 90
+        "content": "import { Script, createContext } from \"node:vm\";\nimport type { JsonValue } from \"./protocol.js\";\nimport type { Context, Plugin } from \"./runtime.js\";\n\ninterface DynamicPluginDefinition {\n  pluginId: string;\n  name: string;\n  purpose: string;\n  code: string;\n  dispose?: () => void;\n}\n\nexport function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const definitions = new Map<string, DynamicPluginDefinition>();\n      let nextPluginId = 1;\n\n      context.effect(() => {\n        for (const definition of [...definitions.values()].reverse()) definition.dispose?.();\n        definitions.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-evolution-guide\",\n        \"Inspect the current Context, define a small Cordis Plugin when the task needs a new capability, run it, use its tools, then stop or undefine it after the experiment.\",\n      );\n      context.registerTool({\n        name: \"cordis_inspect\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"cordis_define\",\n        description: \"Define a new Cordis Plugin from a JavaScript function body that returns the Plugin.\",\n        inputSchema: {\n          type: \"object\",\n          properties: {\n            name: { type: \"string\", minLength: 1 },\n            purpose: { type: \"string\", minLength: 1 },\n            code: { type: \"string\", minLength: 1 },\n          },\n          required: [\"name\", \"purpose\", \"code\"],\n          additionalProperties: false,\n        },\n        execute(input) {\n          const { name, purpose, code } = readDefinition(input);\n          compilePlugin(code);\n          const pluginId = `dyn-${nextPluginId}`;\n          nextPluginId += 1;\n          definitions.set(pluginId, { pluginId, name, purpose, code });\n          return { ok: true, pluginId, name, status: \"defined\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_run\",\n        description: \"Run one previously defined Cordis Plugin in the current Context.\",\n        inputSchema: pluginIdSchema(),\n        async execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (definition.dispose) return { ok: false, error: `${pluginId} is already running.` };\n          const plugin = instantiatePlugin(definition);\n          definition.dispose = await context.mount(plugin);\n          return {\n            ok: true,\n            pluginId,\n            status: \"running\",\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_stop\",\n        description: \"Stop a running dynamic Plugin while retaining its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (!definition.dispose) return { ok: false, error: `${pluginId} is not running.` };\n          definition.dispose();\n          delete definition.dispose;\n          return { ok: true, pluginId, status: \"stopped\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_undefine\",\n        description: \"Stop a dynamic Plugin if needed and remove its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          definition.dispose?.();\n          definitions.delete(pluginId);\n          return { ok: true, pluginId, status: \"undefined\" };\n        },\n      });\n    },\n  };\n}\n\nfunction compilePlugin(code: string): Script {\n  return new Script(`(() => {\\n\"use strict\";\\n${code}\\n})()`);\n}\n\nfunction instantiatePlugin(definition: DynamicPluginDefinition): Plugin {\n  const value = compilePlugin(definition.code).runInContext(createContext(Object.create(null)), {\n    timeout: 100,\n  }) as unknown;\n  if (\n    typeof value !== \"object\" ||\n    value === null ||\n    typeof (value as { apply?: unknown }).apply !== \"function\"\n  ) {\n    throw new Error(\"Dynamic code must return a Cordis Plugin with apply(context).\");\n  }\n  const dynamic = value as { apply(context: Context): void | Promise<void> };\n  return {\n    name: `dynamic:${definition.name}`,\n    setup: (context) => dynamic.apply(context),\n  };\n}\n\nfunction pluginIdSchema(): Record<string, unknown> {\n  return {\n    type: \"object\",\n    properties: { pluginId: { type: \"string\", pattern: \"^dyn-[1-9][0-9]*$\" } },\n    required: [\"pluginId\"],\n    additionalProperties: false,\n  };\n}\n\nfunction readDefinition(input: JsonValue): { name: string; purpose: string; code: string } {\n  return input as { name: string; purpose: string; code: string };\n}\n\nfunction readPluginId(input: JsonValue): string {\n  return (input as { pluginId: string }).pluginId;\n}\n",
+        "excerpt": "export function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const definitions = new Map<string, DynamicPluginDefinition>();\n      let nextPluginId = 1;\n\n      context.effect(() => {\n        for (const definition of [...definitions.values()].reverse()) definition.dispose?.();\n        definitions.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-evolution-guide\",\n        \"Inspect the current Context, define a small Cordis Plugin when the task needs a new capability, run it, use its tools, then stop or undefine it after the experiment.\",\n      );\n      context.registerTool({\n        name: \"cordis_inspect\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"cordis_define\",\n        description: \"Define a new Cordis Plugin from a JavaScript function body that returns the Plugin.\",\n        inputSchema: {\n          type: \"object\",\n          properties: {\n            name: { type: \"string\", minLength: 1 },\n            purpose: { type: \"string\", minLength: 1 },\n            code: { type: \"string\", minLength: 1 },\n          },\n          required: [\"name\", \"purpose\", \"code\"],\n          additionalProperties: false,\n        },\n        execute(input) {\n          const { name, purpose, code } = readDefinition(input);\n          compilePlugin(code);\n          const pluginId = `dyn-${nextPluginId}`;\n          nextPluginId += 1;\n          definitions.set(pluginId, { pluginId, name, purpose, code });\n          return { ok: true, pluginId, name, status: \"defined\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_run\",\n        description: \"Run one previously defined Cordis Plugin in the current Context.\",\n        inputSchema: pluginIdSchema(),\n        async execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (definition.dispose) return { ok: false, error: `${pluginId} is already running.` };\n          const plugin = instantiatePlugin(definition);\n          definition.dispose = await context.mount(plugin);\n          return {\n            ok: true,\n            pluginId,\n            status: \"running\",\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_stop\",\n        description: \"Stop a running dynamic Plugin while retaining its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (!definition.dispose) return { ok: false, error: `${pluginId} is not running.` };\n          definition.dispose();\n          delete definition.dispose;\n          return { ok: true, pluginId, status: \"stopped\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_undefine\",\n        description: \"Stop a dynamic Plugin if needed and remove its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          definition.dispose?.();\n          definitions.delete(pluginId);\n          return { ok: true, pluginId, status: \"undefined\" };\n        },\n      });\n    },\n  };\n}\n\nfunction compilePlugin(code: string): Script {\n  return new Script(`(() => {\\n\"use strict\";\\n${code}\\n})()`);\n}\n\nfunction instantiatePlugin(definition: DynamicPluginDefinition): Plugin {\n  const value = compilePlugin(definition.code).runInContext(createContext(Object.create(null)), {\n    timeout: 100,\n  }) as unknown;\n  if (\n    typeof value !== \"object\" ||\n    value === null ||\n    typeof (value as { apply?: unknown }).apply !== \"function\"\n  ) {\n    throw new Error(\"Dynamic code must return a Cordis Plugin with apply(context).\");\n  }\n  const dynamic = value as { apply(context: Context): void | Promise<void> };\n  return {\n    name: `dynamic:${definition.name}`,\n    setup: (context) => dynamic.apply(context),\n  };\n}",
+        "startLine": 13,
+        "endLine": 127
       },
       "extraFiles": [
         {
@@ -11271,15 +11257,15 @@
           "content": "import { projectMessages, type ProjectionSettings } from \"./context.js\";\nimport type {\n  AssistantMessage,\n  ModelMessage,\n  ToolCall,\n  ToolSchema,\n  UnifiedRequest,\n} from \"./protocol.js\";\nimport { ServiceToken, type Plugin } from \"./runtime.js\";\n\ninterface EventBase {\n  id: number;\n  type: string;\n}\n\nexport type SessionEvent =\n  | (EventBase & { type: \"turn/start\"; turnId: string })\n  | (EventBase & { type: \"user/message\"; turnId: string; content: string })\n  | (EventBase & { type: \"step/start\"; turnId: string; stepId: string; ordinal: number })\n  | (EventBase & {\n      type: \"request/header\";\n      stepId: string;\n      provider: string;\n      model: string;\n      system: string;\n      tools: ToolSchema[];\n      dynamicContext: string;\n      projection: ProjectionSettings;\n    })\n  | (EventBase & { type: \"assistant/message\"; stepId: string; content: string })\n  | (EventBase & { type: \"tool/call\"; stepId: string; call: ToolCall })\n  | (EventBase & {\n      type: \"tool/result\";\n      stepId: string;\n      toolCallId: string;\n      name: string;\n      content: string;\n    })\n  | (EventBase & {\n      type: \"context/checkpoint\";\n      summary: string;\n      coveredThroughEventId: number;\n    })\n  | (EventBase & { type: \"runtime/plugin-mounted\"; plugin: string })\n  | (EventBase & { type: \"runtime/plugin-unmounted\"; plugin: string })\n  | (EventBase & { type: \"step/end\"; stepId: string; outcome: \"tool-calls\" | \"complete\" })\n  | (EventBase & {\n      type: \"turn/end\";\n      turnId: string;\n      outcome: \"completed\" | \"max-steps\" | \"failed\";\n    })\n  | (EventBase & {\n      type: \"goal/created\";\n      goalId: string;\n      objective: string;\n      maxRounds: number;\n    })\n  | (EventBase & {\n      type: \"goal/round-started\";\n      goalId: string;\n      round: number;\n      label: string;\n    })\n  | (EventBase & {\n      type: \"goal/status-changed\";\n      goalId: string;\n      status: \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n      reason: string;\n    });\n\nexport type NewSessionEvent = SessionEvent extends infer Event\n  ? Event extends SessionEvent\n    ? Omit<Event, \"id\">\n    : never\n  : never;\n\nexport interface TraceItem {\n  eventId: number;\n  type: SessionEvent[\"type\"];\n  title: string;\n  detail: string;\n}\n\nexport class SessionLog {\n  readonly #events: SessionEvent[] = [];\n  #nextId = 1;\n  #nextTurn = 1;\n\n  get events(): readonly SessionEvent[] {\n    return this.#events;\n  }\n\n  append(event: NewSessionEvent): SessionEvent {\n    const stored = { ...structuredClone(event), id: this.#nextId++ } as SessionEvent;\n    this.#events.push(stored);\n    return stored;\n  }\n\n  nextTurnId(): string {\n    return `turn-${this.#nextTurn++}`;\n  }\n\n  checkpoint(summary: string, coveredThroughEventId: number): SessionEvent {\n    if (coveredThroughEventId >= this.#nextId) {\n      throw new Error(\"A checkpoint may cover only events that already exist.\");\n    }\n    return this.append({ type: \"context/checkpoint\", summary, coveredThroughEventId });\n  }\n}\n\nexport const SESSION_LOG = new ServiceToken<SessionLog>(\"session-log\");\n\nexport function sessionPlugin(log: SessionLog): Plugin {\n  return {\n    name: \"session-log\",\n    setup(context) {\n      context.provide(SESSION_LOG, log);\n      context.on(\"runtime/plugin-mounted\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-mounted\", plugin });\n      });\n      context.on(\"runtime/plugin-unmounting\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-unmounted\", plugin });\n      });\n    },\n  };\n}\n\nexport function buildRequest(events: readonly SessionEvent[], stepId: string): UnifiedRequest {\n  const headerIndex = events.findIndex(\n    (event) => event.type === \"request/header\" && event.stepId === stepId,\n  );\n  if (headerIndex === -1) throw new Error(`Missing request/header for ${stepId}.`);\n  const header = events[headerIndex];\n  if (header?.type !== \"request/header\") throw new Error(`Invalid request header for ${stepId}.`);\n\n  const prefix = events.slice(0, headerIndex);\n  const checkpoint = [...prefix]\n    .reverse()\n    .find((event): event is Extract<SessionEvent, { type: \"context/checkpoint\" }> =>\n      event.type === \"context/checkpoint\",\n    );\n  const projectedEvents = checkpoint\n    ? prefix.filter((event) => event.id > checkpoint.coveredThroughEventId)\n    : prefix;\n  const messages: ModelMessage[] = [];\n  if (checkpoint) {\n    messages.push({\n      role: \"system\",\n      content: `[Context checkpoint through event ${checkpoint.coveredThroughEventId}]\\n${checkpoint.summary}`,\n    });\n  }\n\n  const callsByStep = new Map<string, ToolCall[]>();\n  for (const event of projectedEvents) {\n    if (event.type === \"tool/call\") {\n      const calls = callsByStep.get(event.stepId) ?? [];\n      calls.push(structuredClone(event.call));\n      callsByStep.set(event.stepId, calls);\n    }\n  }\n  for (const event of projectedEvents) {\n    switch (event.type) {\n      case \"user/message\":\n        messages.push({ role: \"user\", content: event.content });\n        break;\n      case \"assistant/message\":\n        messages.push({\n          role: \"assistant\",\n          content: event.content,\n          toolCalls: callsByStep.get(event.stepId) ?? [],\n        });\n        break;\n      case \"tool/result\":\n        messages.push({\n          role: \"tool\",\n          toolCallId: event.toolCallId,\n          name: event.name,\n          content: event.content,\n        });\n        break;\n      default:\n        break;\n    }\n  }\n\n  return {\n    system: header.system,\n    tools: structuredClone(header.tools),\n    messages: projectMessages(messages, header.projection),\n    dynamicContext: header.dynamicContext,\n  };\n}\n\nexport function requestStepIds(events: readonly SessionEvent[]): string[] {\n  return events\n    .filter((event): event is Extract<SessionEvent, { type: \"request/header\" }> =>\n      event.type === \"request/header\",\n    )\n    .map((event) => event.stepId);\n}\n\nexport function replayTrace(events: readonly SessionEvent[]): TraceItem[] {\n  return events.map((event) => ({\n    eventId: event.id,\n    type: event.type,\n    title: traceTitle(event),\n    detail: traceDetail(event),\n  }));\n}\n\nfunction traceTitle(event: SessionEvent): string {\n  switch (event.type) {\n    case \"request/header\":\n      return `${event.stepId} → ${event.provider}/${event.model}`;\n    case \"tool/call\":\n      return `call ${event.call.name}`;\n    case \"tool/result\":\n      return `result ${event.name}`;\n    case \"runtime/plugin-mounted\":\n    case \"runtime/plugin-unmounted\":\n      return event.plugin;\n    case \"goal/round-started\":\n      return `round ${event.round} · ${event.label}`;\n    default:\n      return event.type;\n  }\n}\n\nfunction traceDetail(event: SessionEvent): string {\n  switch (event.type) {\n    case \"user/message\":\n    case \"assistant/message\":\n      return event.content;\n    case \"tool/call\":\n      return JSON.stringify(event.call.arguments);\n    case \"tool/result\":\n      return event.content;\n    case \"context/checkpoint\":\n      return `${event.summary} (covers through #${event.coveredThroughEventId})`;\n    case \"request/header\":\n      return `${event.tools.length} tools · dynamic=${event.dynamicContext}`;\n    case \"turn/end\":\n    case \"step/end\":\n      return event.outcome;\n    case \"goal/created\":\n      return event.objective;\n    case \"goal/status-changed\":\n      return `${event.status}: ${event.reason}`;\n    default:\n      return \"\";\n  }\n}\n\nfunction pluginName(payload: unknown): string {\n  if (\n    typeof payload === \"object\" &&\n    payload !== null &&\n    \"plugin\" in payload &&\n    typeof payload.plugin === \"string\"\n  ) {\n    return payload.plugin;\n  }\n  throw new Error(\"Runtime plugin event is missing its plugin name.\");\n}\n"
         }
       ],
-      "diff": "diff --git a/src/runtime-tools.ts b/src/runtime-tools.ts\nnew file mode 100644\nindex 0000000..9d89063\n--- /dev/null\n+++ b/src/runtime-tools.ts\n@@ -0,0 +1,106 @@\n+import type { JsonValue } from \"./protocol.js\";\n+import { ServiceToken, type Context, type Plugin } from \"./runtime.js\";\n+\n+export type CapabilityFactory = () => Plugin;\n+\n+export class TrustedCapabilityCatalog {\n+  readonly #factories: Map<string, CapabilityFactory>;\n+\n+  constructor(entries: Record<string, CapabilityFactory>) {\n+    this.#factories = new Map(Object.entries(entries));\n+  }\n+\n+  names(): string[] {\n+    return [...this.#factories.keys()].sort();\n+  }\n+\n+  create(name: string): Plugin | undefined {\n+    return this.#factories.get(name)?.();\n+  }\n+}\n+\n+export const CAPABILITY_CATALOG = new ServiceToken<TrustedCapabilityCatalog>(\n+  \"trusted-capability-catalog\",\n+);\n+\n+export function capabilityCatalogPlugin(catalog: TrustedCapabilityCatalog): Plugin {\n+  return {\n+    name: \"trusted-capability-catalog\",\n+    setup(context) {\n+      context.provide(CAPABILITY_CATALOG, catalog);\n+    },\n+  };\n+}\n+\n+export function runtimeToolsPlugin(): Plugin {\n+  return {\n+    name: \"runtime-tools\",\n+    setup(context) {\n+      const catalog = context.use(CAPABILITY_CATALOG);\n+      const installed = new Map<string, () => void>();\n+      context.effect(() => {\n+        for (const dispose of [...installed.values()].reverse()) dispose();\n+        installed.clear();\n+      });\n+\n+      context.contributePrompt(\n+        \"runtime-experiment-boundary\",\n+        `You may inspect this runtime and temporarily install only trusted capabilities: ${catalog.names().join(\", \")}. Remove experiments after use.`,\n+      );\n+      context.registerTool({\n+        name: \"inspect_runtime\",\n+        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n+        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n+        execute: () => context.inspect() as unknown as JsonValue,\n+      });\n+      context.registerTool({\n+        name: \"install_capability\",\n+        description: \"Temporarily mount one named capability from the trusted in-process catalog.\",\n+        inputSchema: capabilityNameSchema(catalog),\n+        async execute(input) {\n+          const name = readName(input);\n+          if (installed.has(name)) return { ok: false, error: `${name} is already installed.` };\n+          const plugin = catalog.create(name);\n+          if (!plugin) return { ok: false, error: `${name} is not in the trusted catalog.` };\n+          const dispose = await context.mount(plugin);\n+          installed.set(name, dispose);\n+          return {\n+            ok: true,\n+            installed: name,\n+            tools: context.inspect().tools.map((tool) => tool.name),\n+          };\n+        },\n+      });\n+      context.registerTool({\n+        name: \"remove_capability\",\n+        description: \"Unmount a capability previously installed by install_capability.\",\n+        inputSchema: capabilityNameSchema(catalog),\n+        execute(input) {\n+          const name = readName(input);\n+          const dispose = installed.get(name);\n+          if (!dispose) return { ok: false, error: `${name} is not installed.` };\n+          installed.delete(name);\n+          dispose();\n+          return {\n+            ok: true,\n+            removed: name,\n+            tools: context.inspect().tools.map((tool) => tool.name),\n+          };\n+        },\n+      });\n+    },\n+  };\n+}\n+\n+function capabilityNameSchema(catalog: TrustedCapabilityCatalog): Record<string, unknown> {\n+  return {\n+    type: \"object\",\n+    properties: { name: { type: \"string\", enum: catalog.names() } },\n+    required: [\"name\"],\n+    additionalProperties: false,\n+  };\n+}\n+\n+function readName(input: JsonValue): string {\n+  return (input as { name: string }).name;\n+}\n",
+      "diff": "diff --git a/src/runtime-tools.ts b/src/runtime-tools.ts\nnew file mode 100644\nindex 0000000..c0cde24\n--- /dev/null\n+++ b/src/runtime-tools.ts\n@@ -0,0 +1,144 @@\n+import { Script, createContext } from \"node:vm\";\n+import type { JsonValue } from \"./protocol.js\";\n+import type { Context, Plugin } from \"./runtime.js\";\n+\n+interface DynamicPluginDefinition {\n+  pluginId: string;\n+  name: string;\n+  purpose: string;\n+  code: string;\n+  dispose?: () => void;\n+}\n+\n+export function runtimeToolsPlugin(): Plugin {\n+  return {\n+    name: \"runtime-tools\",\n+    setup(context) {\n+      const definitions = new Map<string, DynamicPluginDefinition>();\n+      let nextPluginId = 1;\n+\n+      context.effect(() => {\n+        for (const definition of [...definitions.values()].reverse()) definition.dispose?.();\n+        definitions.clear();\n+      });\n+\n+      context.contributePrompt(\n+        \"runtime-evolution-guide\",\n+        \"Inspect the current Context, define a small Cordis Plugin when the task needs a new capability, run it, use its tools, then stop or undefine it after the experiment.\",\n+      );\n+      context.registerTool({\n+        name: \"cordis_inspect\",\n+        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n+        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n+        execute: () => context.inspect() as unknown as JsonValue,\n+      });\n+      context.registerTool({\n+        name: \"cordis_define\",\n+        description: \"Define a new Cordis Plugin from a JavaScript function body that returns the Plugin.\",\n+        inputSchema: {\n+          type: \"object\",\n+          properties: {\n+            name: { type: \"string\", minLength: 1 },\n+            purpose: { type: \"string\", minLength: 1 },\n+            code: { type: \"string\", minLength: 1 },\n+          },\n+          required: [\"name\", \"purpose\", \"code\"],\n+          additionalProperties: false,\n+        },\n+        execute(input) {\n+          const { name, purpose, code } = readDefinition(input);\n+          compilePlugin(code);\n+          const pluginId = `dyn-${nextPluginId}`;\n+          nextPluginId += 1;\n+          definitions.set(pluginId, { pluginId, name, purpose, code });\n+          return { ok: true, pluginId, name, status: \"defined\" };\n+        },\n+      });\n+      context.registerTool({\n+        name: \"cordis_run\",\n+        description: \"Run one previously defined Cordis Plugin in the current Context.\",\n+        inputSchema: pluginIdSchema(),\n+        async execute(input) {\n+          const pluginId = readPluginId(input);\n+          const definition = definitions.get(pluginId);\n+          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n+          if (definition.dispose) return { ok: false, error: `${pluginId} is already running.` };\n+          const plugin = instantiatePlugin(definition);\n+          definition.dispose = await context.mount(plugin);\n+          return {\n+            ok: true,\n+            pluginId,\n+            status: \"running\",\n+            tools: context.inspect().tools.map((tool) => tool.name),\n+          };\n+        },\n+      });\n+      context.registerTool({\n+        name: \"cordis_stop\",\n+        description: \"Stop a running dynamic Plugin while retaining its definition.\",\n+        inputSchema: pluginIdSchema(),\n+        execute(input) {\n+          const pluginId = readPluginId(input);\n+          const definition = definitions.get(pluginId);\n+          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n+          if (!definition.dispose) return { ok: false, error: `${pluginId} is not running.` };\n+          definition.dispose();\n+          delete definition.dispose;\n+          return { ok: true, pluginId, status: \"stopped\" };\n+        },\n+      });\n+      context.registerTool({\n+        name: \"cordis_undefine\",\n+        description: \"Stop a dynamic Plugin if needed and remove its definition.\",\n+        inputSchema: pluginIdSchema(),\n+        execute(input) {\n+          const pluginId = readPluginId(input);\n+          const definition = definitions.get(pluginId);\n+          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n+          definition.dispose?.();\n+          definitions.delete(pluginId);\n+          return { ok: true, pluginId, status: \"undefined\" };\n+        },\n+      });\n+    },\n+  };\n+}\n+\n+function compilePlugin(code: string): Script {\n+  return new Script(`(() => {\\n\"use strict\";\\n${code}\\n})()`);\n+}\n+\n+function instantiatePlugin(definition: DynamicPluginDefinition): Plugin {\n+  const value = compilePlugin(definition.code).runInContext(createContext(Object.create(null)), {\n+    timeout: 100,\n+  }) as unknown;\n+  if (\n+    typeof value !== \"object\" ||\n+    value === null ||\n+    typeof (value as { apply?: unknown }).apply !== \"function\"\n+  ) {\n+    throw new Error(\"Dynamic code must return a Cordis Plugin with apply(context).\");\n+  }\n+  const dynamic = value as { apply(context: Context): void | Promise<void> };\n+  return {\n+    name: `dynamic:${definition.name}`,\n+    setup: (context) => dynamic.apply(context),\n+  };\n+}\n+\n+function pluginIdSchema(): Record<string, unknown> {\n+  return {\n+    type: \"object\",\n+    properties: { pluginId: { type: \"string\", pattern: \"^dyn-[1-9][0-9]*$\" } },\n+    required: [\"pluginId\"],\n+    additionalProperties: false,\n+  };\n+}\n+\n+function readDefinition(input: JsonValue): { name: string; purpose: string; code: string } {\n+  return input as { name: string; purpose: string; code: string };\n+}\n+\n+function readPluginId(input: JsonValue): string {\n+  return (input as { pluginId: string }).pluginId;\n+}\n",
       "diffStats": {
         "filesChanged": 1,
-        "additions": 106,
+        "additions": 144,
         "deletions": 0,
         "files": [
           {
             "path": "src/runtime-tools.ts",
-            "additions": 106,
+            "additions": 144,
             "deletions": 0
           }
         ]
@@ -11288,11 +11274,11 @@
         {
           "step": 1,
           "request": {
-            "system": "只使用当前已安装的能力。",
+            "system": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
             "tools": [
               {
-                "name": "inspect_runtime",
-                "description": "查看当前已安装的能力。",
+                "name": "cordis_inspect",
+                "description": "查看当前 Context 中的插件及其能力。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11300,8 +11286,8 @@
                 }
               },
               {
-                "name": "install_capability",
-                "description": "从受信任目录临时安装一项能力。",
+                "name": "cordis_define",
+                "description": "登记 Agent 编写的 Cordis 插件代码。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11309,8 +11295,26 @@
                 }
               },
               {
-                "name": "remove_capability",
-                "description": "移除先前临时安装的能力。",
+                "name": "cordis_run",
+                "description": "运行已经定义的 Cordis 插件。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_stop",
+                "description": "停止插件并保留定义。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_undefine",
+                "description": "停止插件并删除定义。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11324,7 +11328,7 @@
                 "content": "统计 ‘one two three’ 的单词数；完成后恢复原能力。"
               }
             ],
-            "dynamicContext": "检查当前能力。"
+            "dynamicContext": "检查当前能力并定义 word_count 插件。"
           },
           "parts": [
             {
@@ -11332,8 +11336,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "只使用当前已安装的能力。",
-              "approximateTokens": 3
+              "value": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
+              "approximateTokens": 12
             },
             {
               "id": "tools",
@@ -11342,8 +11346,8 @@
               "label": "Tool schemas",
               "value": [
                 {
-                  "name": "inspect_runtime",
-                  "description": "查看当前已安装的能力。",
+                  "name": "cordis_inspect",
+                  "description": "查看当前 Context 中的插件及其能力。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11351,8 +11355,8 @@
                   }
                 },
                 {
-                  "name": "install_capability",
-                  "description": "从受信任目录临时安装一项能力。",
+                  "name": "cordis_define",
+                  "description": "登记 Agent 编写的 Cordis 插件代码。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11360,8 +11364,26 @@
                   }
                 },
                 {
-                  "name": "remove_capability",
-                  "description": "移除先前临时安装的能力。",
+                  "name": "cordis_run",
+                  "description": "运行已经定义的 Cordis 插件。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_stop",
+                  "description": "停止插件并保留定义。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_undefine",
+                  "description": "停止插件并删除定义。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11369,7 +11391,7 @@
                   }
                 }
               ],
-              "approximateTokens": 102
+              "approximateTokens": 170
             },
             {
               "id": "message-0",
@@ -11387,11 +11409,11 @@
               "kind": "dynamic",
               "stability": "step-variable",
               "label": "Step context",
-              "value": "检查当前能力。",
-              "approximateTokens": 2
+              "value": "检查当前能力并定义 word_count 插件。",
+              "approximateTokens": 6
             }
           ],
-          "totalApproximateTokens": 123,
+          "totalApproximateTokens": 204,
           "prefix": {
             "sharedParts": 0,
             "sharedApproximateTokens": 0,
@@ -11404,11 +11426,11 @@
         {
           "step": 2,
           "request": {
-            "system": "只使用当前已安装的能力。",
+            "system": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
             "tools": [
               {
-                "name": "inspect_runtime",
-                "description": "查看当前已安装的能力。",
+                "name": "cordis_inspect",
+                "description": "查看当前 Context 中的插件及其能力。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11416,8 +11438,8 @@
                 }
               },
               {
-                "name": "install_capability",
-                "description": "从受信任目录临时安装一项能力。",
+                "name": "cordis_define",
+                "description": "登记 Agent 编写的 Cordis 插件代码。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11425,8 +11447,26 @@
                 }
               },
               {
-                "name": "remove_capability",
-                "description": "移除先前临时安装的能力。",
+                "name": "cordis_run",
+                "description": "运行已经定义的 Cordis 插件。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_stop",
+                "description": "停止插件并保留定义。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_undefine",
+                "description": "停止插件并删除定义。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11456,7 +11496,7 @@
                 "content": "统计 ‘one two three’ 的单词数；完成后恢复原能力。"
               }
             ],
-            "dynamicContext": "试用临时分词统计能力。"
+            "dynamicContext": "调用刚刚定义的 word_count 工具。"
           },
           "parts": [
             {
@@ -11464,8 +11504,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "只使用当前已安装的能力。",
-              "approximateTokens": 3
+              "value": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
+              "approximateTokens": 12
             },
             {
               "id": "tools",
@@ -11474,8 +11514,8 @@
               "label": "Tool schemas",
               "value": [
                 {
-                  "name": "inspect_runtime",
-                  "description": "查看当前已安装的能力。",
+                  "name": "cordis_inspect",
+                  "description": "查看当前 Context 中的插件及其能力。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11483,8 +11523,8 @@
                   }
                 },
                 {
-                  "name": "install_capability",
-                  "description": "从受信任目录临时安装一项能力。",
+                  "name": "cordis_define",
+                  "description": "登记 Agent 编写的 Cordis 插件代码。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11492,8 +11532,26 @@
                   }
                 },
                 {
-                  "name": "remove_capability",
-                  "description": "移除先前临时安装的能力。",
+                  "name": "cordis_run",
+                  "description": "运行已经定义的 Cordis 插件。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_stop",
+                  "description": "停止插件并保留定义。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_undefine",
+                  "description": "停止插件并删除定义。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11517,7 +11575,7 @@
                   }
                 }
               ],
-              "approximateTokens": 146
+              "approximateTokens": 214
             },
             {
               "id": "message-0",
@@ -11535,14 +11593,14 @@
               "kind": "dynamic",
               "stability": "step-variable",
               "label": "Step context",
-              "value": "试用临时分词统计能力。",
-              "approximateTokens": 3
+              "value": "调用刚刚定义的 word_count 工具。",
+              "approximateTokens": 6
             }
           ],
-          "totalApproximateTokens": 168,
+          "totalApproximateTokens": 248,
           "prefix": {
             "sharedParts": 1,
-            "sharedApproximateTokens": 3,
+            "sharedApproximateTokens": 12,
             "previousParts": 4,
             "currentParts": 4,
             "firstInvalidation": "Tool schemas",
@@ -11552,11 +11610,11 @@
         {
           "step": 3,
           "request": {
-            "system": "只使用当前已安装的能力。",
+            "system": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
             "tools": [
               {
-                "name": "inspect_runtime",
-                "description": "查看当前已安装的能力。",
+                "name": "cordis_inspect",
+                "description": "查看当前 Context 中的插件及其能力。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11564,8 +11622,8 @@
                 }
               },
               {
-                "name": "install_capability",
-                "description": "从受信任目录临时安装一项能力。",
+                "name": "cordis_define",
+                "description": "登记 Agent 编写的 Cordis 插件代码。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11573,8 +11631,26 @@
                 }
               },
               {
-                "name": "remove_capability",
-                "description": "移除先前临时安装的能力。",
+                "name": "cordis_run",
+                "description": "运行已经定义的 Cordis 插件。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_stop",
+                "description": "停止插件并保留定义。",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": false
+                }
+              },
+              {
+                "name": "cordis_undefine",
+                "description": "停止插件并删除定义。",
                 "inputSchema": {
                   "type": "object",
                   "properties": {},
@@ -11588,7 +11664,7 @@
                 "content": "统计 ‘one two three’ 的单词数；完成后恢复原能力。"
               }
             ],
-            "dynamicContext": "能力已撤回。"
+            "dynamicContext": "动态插件已经移除。"
           },
           "parts": [
             {
@@ -11596,8 +11672,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "只使用当前已安装的能力。",
-              "approximateTokens": 3
+              "value": "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。",
+              "approximateTokens": 12
             },
             {
               "id": "tools",
@@ -11606,8 +11682,8 @@
               "label": "Tool schemas",
               "value": [
                 {
-                  "name": "inspect_runtime",
-                  "description": "查看当前已安装的能力。",
+                  "name": "cordis_inspect",
+                  "description": "查看当前 Context 中的插件及其能力。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11615,8 +11691,8 @@
                   }
                 },
                 {
-                  "name": "install_capability",
-                  "description": "从受信任目录临时安装一项能力。",
+                  "name": "cordis_define",
+                  "description": "登记 Agent 编写的 Cordis 插件代码。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11624,8 +11700,26 @@
                   }
                 },
                 {
-                  "name": "remove_capability",
-                  "description": "移除先前临时安装的能力。",
+                  "name": "cordis_run",
+                  "description": "运行已经定义的 Cordis 插件。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_stop",
+                  "description": "停止插件并保留定义。",
+                  "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": false
+                  }
+                },
+                {
+                  "name": "cordis_undefine",
+                  "description": "停止插件并删除定义。",
                   "inputSchema": {
                     "type": "object",
                     "properties": {},
@@ -11633,7 +11727,7 @@
                   }
                 }
               ],
-              "approximateTokens": 102
+              "approximateTokens": 170
             },
             {
               "id": "message-0",
@@ -11651,14 +11745,14 @@
               "kind": "dynamic",
               "stability": "step-variable",
               "label": "Step context",
-              "value": "能力已撤回。",
-              "approximateTokens": 2
+              "value": "动态插件已经移除。",
+              "approximateTokens": 3
             }
           ],
-          "totalApproximateTokens": 123,
+          "totalApproximateTokens": 201,
           "prefix": {
             "sharedParts": 1,
-            "sharedApproximateTokens": 3,
+            "sharedApproximateTokens": 12,
             "previousParts": 4,
             "currentParts": 4,
             "firstInvalidation": "Tool schemas",
@@ -11669,11 +11763,71 @@
       "events": [
         {
           "id": 1,
-          "type": "runtime/plugin-mounted",
-          "plugin": "capability:word_count"
+          "type": "tool/call",
+          "stepId": "inspect-step",
+          "call": {
+            "id": "call-inspect",
+            "name": "cordis_inspect",
+            "arguments": {}
+          }
         },
         {
           "id": 2,
+          "type": "tool/result",
+          "stepId": "inspect-step",
+          "toolCallId": "call-inspect",
+          "name": "cordis_inspect",
+          "content": "{\"plugins\":[\"session-log\",\"runtime-tools\"],\"tools\":[\"cordis_inspect\",\"cordis_define\",\"cordis_run\",\"cordis_stop\",\"cordis_undefine\"],\"prompts\":[\"runtime-evolution-guide\"],\"services\":[\"session-log\"],\"relations\":[]}"
+        },
+        {
+          "id": 3,
+          "type": "tool/call",
+          "stepId": "define-step",
+          "call": {
+            "id": "call-define",
+            "name": "cordis_define",
+            "arguments": {
+              "name": "word_count",
+              "purpose": "统计单词",
+              "code": "return {\n  apply(context) {\n    context.registerTool({\n      name: \"word_count\",\n      description: \"Count Unicode-aware whitespace-separated words in one supplied string.\",\n      inputSchema: {\n        type: \"object\",\n        properties: { text: { type: \"string\" } },\n        required: [\"text\"],\n        additionalProperties: false,\n      },\n      execute(input) {\n        const text = input.text.trim();\n        return { words: text === \"\" ? 0 : text.split(/\\s+/u).length };\n      },\n    });\n  },\n};"
+            }
+          }
+        },
+        {
+          "id": 4,
+          "type": "tool/result",
+          "stepId": "define-step",
+          "toolCallId": "call-define",
+          "name": "cordis_define",
+          "content": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"defined\"}"
+        },
+        {
+          "id": 5,
+          "type": "tool/call",
+          "stepId": "run-step",
+          "call": {
+            "id": "call-run",
+            "name": "cordis_run",
+            "arguments": {
+              "pluginId": "dyn-1"
+            }
+          }
+        },
+        {
+          "id": 6,
+          "type": "runtime/plugin-mounted",
+          "plugin": "dynamic:word_count"
+        },
+        {
+          "id": 7,
+          "type": "tool/result",
+          "stepId": "run-step",
+          "toolCallId": "call-run",
+          "name": "cordis_run",
+          "content": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"running\"}"
+        },
+        {
+          "id": 8,
           "type": "tool/call",
           "stepId": "experiment-step",
           "call": {
@@ -11685,7 +11839,7 @@
           }
         },
         {
-          "id": 3,
+          "id": 9,
           "type": "tool/result",
           "stepId": "experiment-step",
           "toolCallId": "call-count",
@@ -11693,61 +11847,148 @@
           "content": "{\"words\":3}"
         },
         {
-          "id": 4,
+          "id": 10,
+          "type": "tool/call",
+          "stepId": "remove-step",
+          "call": {
+            "id": "call-undefine",
+            "name": "cordis_undefine",
+            "arguments": {
+              "pluginId": "dyn-1"
+            }
+          }
+        },
+        {
+          "id": 11,
           "type": "runtime/plugin-unmounted",
-          "plugin": "capability:word_count"
+          "plugin": "dynamic:word_count"
+        },
+        {
+          "id": 12,
+          "type": "tool/result",
+          "stepId": "remove-step",
+          "toolCallId": "call-undefine",
+          "name": "cordis_undefine",
+          "content": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"undefined\"}"
         }
       ],
       "trace": [
         {
           "eventId": 1,
-          "type": "runtime/plugin-mounted",
-          "title": "capability:word_count",
-          "detail": ""
+          "type": "tool/call",
+          "title": "call cordis_inspect",
+          "detail": "{}"
         },
         {
           "eventId": 2,
+          "type": "tool/result",
+          "title": "result cordis_inspect",
+          "detail": "{\"plugins\":[\"session-log\",\"runtime-tools\"],\"tools\":[\"cordis_inspect\",\"cordis_define\",\"cordis_run\",\"cordis_stop\",\"cordis_undefine\"],\"prompts\":[\"runtime-evolution-guide\"],\"services\":[\"session-log\"],\"relations\":[]}"
+        },
+        {
+          "eventId": 3,
+          "type": "tool/call",
+          "title": "call cordis_define",
+          "detail": "{\"name\":\"word_count\",\"purpose\":\"统计单词\",\"code\":\"return {\\n  apply(context) {\\n    context.registerTool({\\n      name: \\\"word_count\\\",\\n      description: \\\"Count Unicode-aware whitespace-separated words in one supplied string.\\\",\\n      inputSchema: {\\n        type: \\\"object\\\",\\n        properties: { text: { type: \\\"string\\\" } },\\n        required: [\\\"text\\\"],\\n        additionalProperties: false,\\n      },\\n      execute(input) {\\n        const text = input.text.trim();\\n        return { words: text === \\\"\\\" ? 0 : text.split(/\\\\s+/u).length };\\n      },\\n    });\\n  },\\n};\"}"
+        },
+        {
+          "eventId": 4,
+          "type": "tool/result",
+          "title": "result cordis_define",
+          "detail": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"defined\"}"
+        },
+        {
+          "eventId": 5,
+          "type": "tool/call",
+          "title": "call cordis_run",
+          "detail": "{\"pluginId\":\"dyn-1\"}"
+        },
+        {
+          "eventId": 6,
+          "type": "runtime/plugin-mounted",
+          "title": "dynamic:word_count",
+          "detail": ""
+        },
+        {
+          "eventId": 7,
+          "type": "tool/result",
+          "title": "result cordis_run",
+          "detail": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"running\"}"
+        },
+        {
+          "eventId": 8,
           "type": "tool/call",
           "title": "call word_count",
           "detail": "{\"text\":\"one two three\"}"
         },
         {
-          "eventId": 3,
+          "eventId": 9,
           "type": "tool/result",
           "title": "result word_count",
           "detail": "{\"words\":3}"
         },
         {
-          "eventId": 4,
+          "eventId": 10,
+          "type": "tool/call",
+          "title": "call cordis_undefine",
+          "detail": "{\"pluginId\":\"dyn-1\"}"
+        },
+        {
+          "eventId": 11,
           "type": "runtime/plugin-unmounted",
-          "title": "capability:word_count",
+          "title": "dynamic:word_count",
           "detail": ""
+        },
+        {
+          "eventId": 12,
+          "type": "tool/result",
+          "title": "result cordis_undefine",
+          "detail": "{\"ok\":true,\"pluginId\":\"dyn-1\",\"status\":\"undefined\"}"
         }
       ],
       "graphs": [
         {
           "stepId": "before-install",
-          "eventId": 0,
+          "eventId": 2,
           "plugins": [
             "session-log",
             "runtime-tools"
           ],
           "tools": [
             {
-              "name": "inspect_runtime",
+              "name": "cordis_inspect",
               "owner": "runtime-tools"
             },
             {
-              "name": "install_capability",
+              "name": "cordis_define",
               "owner": "runtime-tools"
             },
             {
-              "name": "remove_capability",
+              "name": "cordis_run",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_stop",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_undefine",
               "owner": "runtime-tools"
             }
           ],
-          "prompts": [],
-          "services": [],
+          "prompts": [
+            {
+              "id": "runtime-evolution-guide",
+              "text": "检查当前 Context，定义并运行任务需要的 Cordis 插件，验证后停止或移除。",
+              "owner": "runtime-tools"
+            }
+          ],
+          "services": [
+            {
+              "name": "session-log",
+              "provider": "session-log"
+            }
+          ],
           "relations": [],
           "nodes": [
             {
@@ -11761,67 +12002,116 @@
               "kind": "plugin"
             },
             {
-              "id": "tool:inspect_runtime",
-              "label": "inspect_runtime",
+              "id": "tool:cordis_inspect",
+              "label": "cordis_inspect",
               "kind": "tool"
             },
             {
-              "id": "tool:install_capability",
-              "label": "install_capability",
+              "id": "tool:cordis_define",
+              "label": "cordis_define",
               "kind": "tool"
             },
             {
-              "id": "tool:remove_capability",
-              "label": "remove_capability",
+              "id": "tool:cordis_run",
+              "label": "cordis_run",
               "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_stop",
+              "label": "cordis_stop",
+              "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_undefine",
+              "label": "cordis_undefine",
+              "kind": "tool"
+            },
+            {
+              "id": "runtime-evolution-guide",
+              "label": "Prompt",
+              "kind": "prompt"
             }
           ],
           "edges": [
             {
               "from": "runtime-tools",
-              "to": "tool:inspect_runtime",
+              "to": "tool:cordis_inspect",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:install_capability",
+              "to": "tool:cordis_define",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:remove_capability",
+              "to": "tool:cordis_run",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "tool:cordis_stop",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "tool:cordis_undefine",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "runtime-evolution-guide",
               "label": "contributes"
             }
           ]
         },
         {
           "stepId": "after-install",
-          "eventId": 1,
+          "eventId": 6,
           "plugins": [
             "session-log",
             "runtime-tools",
-            "capability:word_count"
+            "dynamic:word_count"
           ],
           "tools": [
             {
-              "name": "inspect_runtime",
+              "name": "cordis_inspect",
               "owner": "runtime-tools"
             },
             {
-              "name": "install_capability",
+              "name": "cordis_define",
               "owner": "runtime-tools"
             },
             {
-              "name": "remove_capability",
+              "name": "cordis_run",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_stop",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_undefine",
               "owner": "runtime-tools"
             },
             {
               "name": "word_count",
-              "owner": "capability:word_count"
+              "owner": "dynamic:word_count"
             }
           ],
-          "prompts": [],
-          "services": [],
+          "prompts": [
+            {
+              "id": "runtime-evolution-guide",
+              "text": "检查当前 Context，定义并运行任务需要的 Cordis 插件，验证后停止或移除。",
+              "owner": "runtime-tools"
+            }
+          ],
+          "services": [
+            {
+              "name": "session-log",
+              "provider": "session-log"
+            }
+          ],
           "relations": [],
           "nodes": [
             {
@@ -11835,77 +12125,126 @@
               "kind": "plugin"
             },
             {
-              "id": "capability:word_count",
-              "label": "capability:word_count",
+              "id": "dynamic:word_count",
+              "label": "dynamic:word_count",
               "kind": "plugin"
             },
             {
-              "id": "tool:inspect_runtime",
-              "label": "inspect_runtime",
+              "id": "tool:cordis_inspect",
+              "label": "cordis_inspect",
               "kind": "tool"
             },
             {
-              "id": "tool:install_capability",
-              "label": "install_capability",
+              "id": "tool:cordis_define",
+              "label": "cordis_define",
               "kind": "tool"
             },
             {
-              "id": "tool:remove_capability",
-              "label": "remove_capability",
+              "id": "tool:cordis_run",
+              "label": "cordis_run",
+              "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_stop",
+              "label": "cordis_stop",
+              "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_undefine",
+              "label": "cordis_undefine",
               "kind": "tool"
             },
             {
               "id": "tool:word_count",
               "label": "word_count",
               "kind": "tool"
+            },
+            {
+              "id": "runtime-evolution-guide",
+              "label": "Prompt",
+              "kind": "prompt"
             }
           ],
           "edges": [
             {
               "from": "runtime-tools",
-              "to": "tool:inspect_runtime",
+              "to": "tool:cordis_inspect",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:install_capability",
+              "to": "tool:cordis_define",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:remove_capability",
+              "to": "tool:cordis_run",
               "label": "contributes"
             },
             {
-              "from": "capability:word_count",
+              "from": "runtime-tools",
+              "to": "tool:cordis_stop",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "tool:cordis_undefine",
+              "label": "contributes"
+            },
+            {
+              "from": "dynamic:word_count",
               "to": "tool:word_count",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "runtime-evolution-guide",
               "label": "contributes"
             }
           ]
         },
         {
           "stepId": "after-remove",
-          "eventId": 4,
+          "eventId": 11,
           "plugins": [
             "session-log",
             "runtime-tools"
           ],
           "tools": [
             {
-              "name": "inspect_runtime",
+              "name": "cordis_inspect",
               "owner": "runtime-tools"
             },
             {
-              "name": "install_capability",
+              "name": "cordis_define",
               "owner": "runtime-tools"
             },
             {
-              "name": "remove_capability",
+              "name": "cordis_run",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_stop",
+              "owner": "runtime-tools"
+            },
+            {
+              "name": "cordis_undefine",
               "owner": "runtime-tools"
             }
           ],
-          "prompts": [],
-          "services": [],
+          "prompts": [
+            {
+              "id": "runtime-evolution-guide",
+              "text": "检查当前 Context，定义并运行任务需要的 Cordis 插件，验证后停止或移除。",
+              "owner": "runtime-tools"
+            }
+          ],
+          "services": [
+            {
+              "name": "session-log",
+              "provider": "session-log"
+            }
+          ],
           "relations": [],
           "nodes": [
             {
@@ -11919,35 +12258,65 @@
               "kind": "plugin"
             },
             {
-              "id": "tool:inspect_runtime",
-              "label": "inspect_runtime",
+              "id": "tool:cordis_inspect",
+              "label": "cordis_inspect",
               "kind": "tool"
             },
             {
-              "id": "tool:install_capability",
-              "label": "install_capability",
+              "id": "tool:cordis_define",
+              "label": "cordis_define",
               "kind": "tool"
             },
             {
-              "id": "tool:remove_capability",
-              "label": "remove_capability",
+              "id": "tool:cordis_run",
+              "label": "cordis_run",
               "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_stop",
+              "label": "cordis_stop",
+              "kind": "tool"
+            },
+            {
+              "id": "tool:cordis_undefine",
+              "label": "cordis_undefine",
+              "kind": "tool"
+            },
+            {
+              "id": "runtime-evolution-guide",
+              "label": "Prompt",
+              "kind": "prompt"
             }
           ],
           "edges": [
             {
               "from": "runtime-tools",
-              "to": "tool:inspect_runtime",
+              "to": "tool:cordis_inspect",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:install_capability",
+              "to": "tool:cordis_define",
               "label": "contributes"
             },
             {
               "from": "runtime-tools",
-              "to": "tool:remove_capability",
+              "to": "tool:cordis_run",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "tool:cordis_stop",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "tool:cordis_undefine",
+              "label": "contributes"
+            },
+            {
+              "from": "runtime-tools",
+              "to": "runtime-evolution-guide",
               "label": "contributes"
             }
           ]
@@ -11961,7 +12330,7 @@
       "title": "用 Goal 与 Round 推进长程任务",
       "question": "DSH 是如何持续完成长程任务的？",
       "codeGuide": {
-        "title": "Goal 状态机怎样管理多个 Agent Turn",
+        "title": "LongTaskRunner 怎样管理多个 Agent Turn",
         "description": "LongTaskRunner 保存目标并依次启动 Round。每个 Round 仍使用普通 Agent Loop，外层根据结构化结果决定完成、受阻、继续或到达上限。",
         "observations": [
           {
@@ -11974,7 +12343,7 @@
           },
           {
             "title": "每个 Round 都有编号和明确输入",
-            "text": "外循环只在 active 时运行。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部注入的 runRound。组合层决定 runRound 是否启动 Agent Turn。",
+            "text": "LongTaskRunner 只在 Goal 为 active 时继续。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部传入的 runRound 函数。runRound 负责执行这一轮，在本教程中会启动普通的 Agent Turn。",
             "lines": [
               62,
               82
@@ -12088,16 +12457,16 @@
       },
       "changeStory": {
         "title": "Turn 可以停止，Goal 再决定是否续行",
-        "summary": "DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，协调器依据可观察的 progressed、completed 与 blocked 结果决定继续、完成、受阻或到达上限。",
+        "summary": "Nano DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，LongTaskRunner 依据 progressed、completed 与 blockedReason 决定继续、完成、受阻或到达上限。完整 DeepSeek Harness 则由持久 Goal 与 Goal Round Driver 在同一个 Session 中驱动续行。",
         "harnessRole": "协调层：让有限 Turn 共同推进一个长期 Goal",
-        "connection": "每个 Round 都使用完整 Harness：第一章执行 Step，第二章构造请求，第三章提供能力，第四章延续记录，第五章允许运行中适配。第六章用 Goal 状态机协调这些机制，使 DeepSeek Harness 能够分轮推进长期目标。",
+        "connection": "每个 Round 都使用前五章组成的 Harness：第一章执行 Step，第二章构造请求，第三章提供插件生命周期，第四章延续记录，第五章允许 Agent 编写新能力。第六章再用 Goal 和 Round 协调多个普通 Turn。",
         "outcomes": [
           "能按照 Goal、Round、Turn、Step 的顺序解释四层控制结构",
           "能说明协调器怎样根据可观察结果决定是否续行",
           "能指出 completed、blocked、no progress 与 max-rounds 的明确出口"
         ]
       },
-      "lesson": "# Goal 和 Round 在多个 Turn 之间保存任务状态\n\n第一章的 Agent Loop 管理一个 Turn 内的行动。模型停止调用工具时，当前 Turn 随之结束，整个目标可能仍未完成。研究、迁移或多阶段交付通常需要分段推进，并在一次自然停顿后再次启动 Agent。\n\nDSH 在 Agent Loop 外增加 Goal（长期目标）与 Round（阶段轮次）。Goal 保存相对稳定的目标和整体状态；Round 表示针对该目标进行的一次阶段性推进；Round 内运行普通的 Agent Turn，而 Turn 由若干 Step 组成。这四个层级分别管理不同时间尺度的状态和停止条件。\n\n## 外循环决定是否启动下一轮\n\nGoal 至少保存 objective（目标内容）、status（状态）、已启动轮数、最大轮数和最近一次状态理由。协调器只在状态为 active（进行中）时继续。每轮开始前记录 Round 编号与阶段说明，再调用内层 Agent。文件读取、工具调用和结果反馈仍由前五章的机制处理。\n\n协调器接收一份结构化 RoundResult（单轮结果），其中分别记录是否取得可观察进展、是否已经完成以及是否遇到阻塞。外循环据此把状态设置为 completed（已完成）、blocked（受阻）、active，或在轮数边界设置为 max-rounds（达到轮数上限）。\n\n<!-- evidence {\"id\":\"m06-runner\",\"tab\":\"source\",\"lines\":[33,114],\"label\":\"Goal 外层的有界续行循环\",\"description\":\"按照 Goal 状态、Round 启动、进展判断和四类停止条件，查看外循环的执行顺序。\"} -->\n\n## 续行复用目标、运行时和会话日志\n\nLongTaskRunner 只接收一个 `runRound` 回调，不强制回调启动 Agent。本教程的组合层在回调中复用同一个 Goal、运行时 Context 和 Session Log，再启动普通的 Agent Turn。稳定目标不会被上一轮的临时说明覆盖，前一轮产生的消息和工具结果继续保留。\n\n右侧比较两份请求。第二份保留第一轮的目标和进展记录 `已找到两项，仍缺一项`，随后追加第二轮任务。这段连续历史说明下一轮会使用已有进展继续处理目标。\n\n<!-- evidence {\"id\":\"m06-round-history\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"上一轮进展进入下一轮\",\"description\":\"比较两轮请求，确认稳定目标、第一轮回复与第二轮任务依次进入新请求。\"} -->\n\n外层事件只记录 Runner 直接观察到的状态变化：Goal 创建、两次 Round 启动和最终 completed。第一轮的具体进展保存在请求历史中；Goal 事件记录协调器停止的原因。两类记录描述不同层级的事实。\n\n<!-- evidence {\"id\":\"m06-completed\",\"tab\":\"events\",\"eventType\":\"goal/status-changed\",\"eventOccurrence\":1,\"label\":\"完成条件关闭 Goal\",\"description\":\"查看 Goal 事件，确认两轮的启动顺序，以及 completed 状态和停止理由。\"} -->\n\n## 续行需要明确的停止条件\n\n长程运行如果在没有进展时继续，会反复消耗资源。任意一轮没有可观察进展、返回阻塞原因、达到最大轮数或已经完成时，协调器都应停止，并把原因写回 Goal 与 Session Log。下一轮只能在当前轮取得进展且目标仍未完成时启动。\n\n当前 Nano DSH 在单个进程中演示跨 Round 续行，没有实现进程重启后的 Goal 恢复、定时唤醒、后台 Job（任务）或 Subagent（子智能体）。跨越这些边界还需要持久化 Goal 与 Session Log，并由调度器重新启动任务。\n\nDSH 保存长期目标和每轮进展，在每个有界 Round 结束后检查完成、受阻、无进展和轮数上限四类条件。条件允许时，协调器使用已有状态启动下一轮；达到任一停止条件时记录原因并结束 Goal。\n\n<!-- evidence {\"id\":\"m06-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第六问，用 Goal 状态机说明层级与停止条件，并标出前五章在每个 Round 中的作用。\"} -->\n",
+      "lesson": "# 用 Goal 在同一个 Session 中持续推进任务\n\n第一章的 Agent Loop 管理一个 Turn：接收本轮输入，反复请求模型并执行工具，直到模型不再调用工具。Turn 结束表示这次执行已经停下来，但一个长期目标可能仍然需要继续处理。\n\nDeepSeek Harness 把 Goal（目标）作为同一个 Session（会话）中可持续保存的状态。Goal 记录 `objective`（目标内容）、`phase`（阶段）、已经开始的 Goal Round（目标续行轮次）数量和轮数上限。Goal Round Driver（目标续行驱动器）在 Agent 空闲时检查 Goal：`phase` 为 `active`、续行已经启用且仍有剩余轮数时，它会向同一个 Session 追加一条带目标和轮次编号的 `<goal_round>` 消息，再启动一个普通 Turn。新的 Turn 继续使用当前工作区、工具结果和会话历史。\n\nNano DSH 用 `LongTaskRunner` 浓缩这套关系。本章使用一个整理三条发布说明的任务：第一轮收集两条已有信息，第二轮补全最后一条并交付。`LongTaskRunner` 把目标、状态和轮数保存在 `LongTaskState` 中，用两个 `RoundDefinition` 保存每轮的名称和输入，再通过 `runRound` 启动普通的 Agent Turn。这个最小样本展示一个 Goal 怎样跨越多个 Turn，以及每轮结束后由谁决定继续或停止。\n\n## LongTaskRunner 保存目标并启动 Round\n\n`LongTaskState` 保存 `objective`、`status`、已经启动的轮数、最大轮数和最近一次状态变化的原因。`LongTaskRunner` 在开始时写入 Goal 创建事件；状态为 active 且仍有可用 Round 时，它取出下一份 `RoundDefinition`，记录 Round 编号与名称，再调用 `runRound`。\n\n每轮结束后，`runRound` 返回 `RoundResult`（单轮结果）。`progressed` 表示这一轮是否产生了预期工具结果或工作区变化，`completed` 表示整个 Goal 是否完成，`blockedReason` 记录无法继续的原因。Nano DSH 根据这三个字段把状态更新为 `completed`、`blocked` 或 `max-rounds`；取得进展但尚未完成时，状态保持 `active` 并启动下一轮。\n\n完整 DeepSeek Harness 使用 `active`、`paused`、`blocked` 和 `complete` 表示 Goal 的 `phase`，并由 Goal Round Driver 根据 `phase`、续行启用状态和轮数上限决定是否准入下一轮。Nano DSH 的 `LongTaskState` 与 `RoundResult` 把同一组继续／停止判断集中到一段便于阅读的控制流中。\n\n<!-- evidence {\"id\":\"m06-runner\",\"tab\":\"source\",\"lines\":[33,114],\"label\":\"LongTaskRunner 的续行循环\",\"description\":\"按照 Goal 状态、Round 启动、结果判断和停止条件，查看 Nano DSH 怎样连续启动多个 Turn。\"} -->\n\n## 下一轮沿用同一个 Session 的已有记录\n\n`LongTaskRunner` 不直接请求模型，也不执行工具。它在每轮开始时调用外部传入的 `runRound` 函数。本教程的 `runRound` 使用同一个 Agent、Context 和 Session Log 启动新的 Agent Turn，因此前一轮的插件、消息、工具结果和工作区变化都会继续保留。\n\n完整 DeepSeek Harness 的 Goal Round Driver 也在同一个 Session 中续行。它为每轮追加目标和轮次编号，让模型根据已有历史判断下一步。Nano DSH 为确定性演示准备了收集已有信息、补全并交付两份阶段说明，使程序可以自动检查每一轮的预期结果。\n\n右侧比较两份模型请求。第二份请求先保留长期目标和第一轮的进展记录 `已找到两项，仍缺一项`，然后追加第二轮任务。第二轮因此沿用已有进展，不需要重新建立一份对话历史。\n\n<!-- evidence {\"id\":\"m06-round-history\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"上一轮进展进入下一轮\",\"description\":\"比较两轮请求，确认目标、第一轮回复与第二轮输入依次进入同一个 Session 的历史。\"} -->\n\nNano DSH 把 Goal 创建、Round 启动和最终状态变化写入 Session Log；每轮使用的 Tool、Prompt、模型回复和工具结果也写入同一份日志。Goal 事件解释协调器为什么继续或停止，Turn 和 Step 事件记录 Agent 实际完成了什么。\n\n完整 DeepSeek Harness 使用 `goal/change` 保存 Goal 快照和 `revision`（版本号），并用带 Goal 来源的 `user/message` 记录已经准入的 Goal Round。目标状态与执行历史仍然以同一份 Session Log 为准。\n\n<!-- evidence {\"id\":\"m06-completed\",\"tab\":\"events\",\"eventType\":\"goal/status-changed\",\"eventOccurrence\":1,\"label\":\"完成条件关闭 Goal\",\"description\":\"查看 Nano DSH 的 Goal 事件，确认 Round 启动顺序、completed 状态和停止理由。\"} -->\n\n## 每轮结束后检查是否继续\n\n完整 DeepSeek Harness 在 Agent 空闲时检查 Goal。模型已经把 `phase` 更新为 `complete`、`blocked` 或 `paused` 时，驱动器停止续行；Goal 保持 `active`、续行已经启用且还有剩余轮数时，驱动器启动下一轮。模型通过 `update_goal` 报告完成或阻塞，Session Log 保存每次状态变化。\n\nNano DSH 把这项检查写成 `LongTaskRunner` 中的一组明确分支：整个目标已经完成、当前轮没有产生预期进展、执行函数返回阻塞原因、缺少下一阶段或达到最大轮数时停止；当前轮取得进展且 Goal 尚未完成时继续。发布说明样本先记录已经找到的两条信息，再启动第二个 Round 补全第三条，并把 Goal 更新为 `completed`。\n\n第六章增加的是 Agent Loop 外面的续行机制：Goal 保存跨 Turn 的目标状态，Round 表示一次续行，Session Log 保存已有进展，驱动器在每轮结束后决定是否再启动一个 Turn。\n\n<!-- evidence {\"id\":\"m06-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第六问，说明 Goal、Round、Turn、Step 的分工，以及同一个 Session 怎样在停止条件允许时继续。\"} -->\n",
       "source": {
         "path": "src/long-task.ts",
         "content": "import type { SessionLog } from \"./session.js\";\n\nexport type LongTaskStatus = \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n\nexport interface LongTaskState {\n  goalId: string;\n  objective: string;\n  status: LongTaskStatus;\n  roundsStarted: number;\n  maxRounds: number;\n  reason: string;\n}\n\nexport interface RoundDefinition {\n  label: string;\n  input: string;\n}\n\nexport interface RoundResult {\n  progressed: boolean;\n  completed?: boolean;\n  blockedReason?: string;\n}\n\nexport interface LongTaskOptions {\n  objective: string;\n  rounds: RoundDefinition[];\n  maxRounds: number;\n  session: SessionLog;\n  runRound(round: RoundDefinition, roundNumber: number): Promise<RoundResult>;\n}\n\nexport class LongTaskRunner {\n  readonly state: LongTaskState;\n  readonly #rounds: RoundDefinition[];\n  readonly #session: SessionLog;\n  readonly #runRound: LongTaskOptions[\"runRound\"];\n\n  constructor(options: LongTaskOptions) {\n    if (options.maxRounds < 1) throw new Error(\"maxRounds must be at least 1.\");\n    this.state = {\n      goalId: \"goal-1\",\n      objective: options.objective,\n      status: \"active\",\n      roundsStarted: 0,\n      maxRounds: options.maxRounds,\n      reason: \"Ready to start.\",\n    };\n    this.#rounds = options.rounds;\n    this.#session = options.session;\n    this.#runRound = options.runRound;\n  }\n\n  async run(): Promise<LongTaskState> {\n    this.#session.append({\n      type: \"goal/created\",\n      goalId: this.state.goalId,\n      objective: this.state.objective,\n      maxRounds: this.state.maxRounds,\n    });\n\n    while (this.state.status === \"active\") {\n      if (this.state.roundsStarted >= this.state.maxRounds) {\n        return this.#finish(\n          \"max-rounds\",\n          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n        );\n      }\n      const definition = this.#rounds[this.state.roundsStarted];\n      if (!definition) {\n        return this.#finish(\"blocked\", \"No next round is defined for the active goal.\");\n      }\n\n      this.state.roundsStarted += 1;\n      this.#session.append({\n        type: \"goal/round-started\",\n        goalId: this.state.goalId,\n        round: this.state.roundsStarted,\n        label: definition.label,\n      });\n      const result = await this.#runRound(definition, this.state.roundsStarted);\n\n      if (result.completed) {\n        return this.#finish(\"completed\", `Completed in round ${this.state.roundsStarted}.`);\n      }\n      if (result.blockedReason) return this.#finish(\"blocked\", result.blockedReason);\n      if (!result.progressed) {\n        return this.#finish(\n          \"blocked\",\n          `Round ${this.state.roundsStarted} produced no observable progress.`,\n        );\n      }\n      if (this.state.roundsStarted >= this.state.maxRounds) {\n        return this.#finish(\n          \"max-rounds\",\n          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n        );\n      }\n      this.state.reason = `Round ${this.state.roundsStarted} made progress; continuing.`;\n    }\n    return structuredClone(this.state);\n  }\n\n  #finish(status: Exclude<LongTaskStatus, \"active\">, reason: string): LongTaskState {\n    this.state.status = status;\n    this.state.reason = reason;\n    this.#session.append({\n      type: \"goal/status-changed\",\n      goalId: this.state.goalId,\n      status,\n      reason,\n    });\n    return structuredClone(this.state);\n  }\n}\n",
@@ -12124,7 +12493,7 @@
         },
         {
           "path": "src/runtime-tools.ts",
-          "content": "import type { JsonValue } from \"./protocol.js\";\nimport { ServiceToken, type Context, type Plugin } from \"./runtime.js\";\n\nexport type CapabilityFactory = () => Plugin;\n\nexport class TrustedCapabilityCatalog {\n  readonly #factories: Map<string, CapabilityFactory>;\n\n  constructor(entries: Record<string, CapabilityFactory>) {\n    this.#factories = new Map(Object.entries(entries));\n  }\n\n  names(): string[] {\n    return [...this.#factories.keys()].sort();\n  }\n\n  create(name: string): Plugin | undefined {\n    return this.#factories.get(name)?.();\n  }\n}\n\nexport const CAPABILITY_CATALOG = new ServiceToken<TrustedCapabilityCatalog>(\n  \"trusted-capability-catalog\",\n);\n\nexport function capabilityCatalogPlugin(catalog: TrustedCapabilityCatalog): Plugin {\n  return {\n    name: \"trusted-capability-catalog\",\n    setup(context) {\n      context.provide(CAPABILITY_CATALOG, catalog);\n    },\n  };\n}\n\nexport function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const catalog = context.use(CAPABILITY_CATALOG);\n      const installed = new Map<string, () => void>();\n      context.effect(() => {\n        for (const dispose of [...installed.values()].reverse()) dispose();\n        installed.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-experiment-boundary\",\n        `You may inspect this runtime and temporarily install only trusted capabilities: ${catalog.names().join(\", \")}. Remove experiments after use.`,\n      );\n      context.registerTool({\n        name: \"inspect_runtime\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"install_capability\",\n        description: \"Temporarily mount one named capability from the trusted in-process catalog.\",\n        inputSchema: capabilityNameSchema(catalog),\n        async execute(input) {\n          const name = readName(input);\n          if (installed.has(name)) return { ok: false, error: `${name} is already installed.` };\n          const plugin = catalog.create(name);\n          if (!plugin) return { ok: false, error: `${name} is not in the trusted catalog.` };\n          const dispose = await context.mount(plugin);\n          installed.set(name, dispose);\n          return {\n            ok: true,\n            installed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"remove_capability\",\n        description: \"Unmount a capability previously installed by install_capability.\",\n        inputSchema: capabilityNameSchema(catalog),\n        execute(input) {\n          const name = readName(input);\n          const dispose = installed.get(name);\n          if (!dispose) return { ok: false, error: `${name} is not installed.` };\n          installed.delete(name);\n          dispose();\n          return {\n            ok: true,\n            removed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n    },\n  };\n}\n\nfunction capabilityNameSchema(catalog: TrustedCapabilityCatalog): Record<string, unknown> {\n  return {\n    type: \"object\",\n    properties: { name: { type: \"string\", enum: catalog.names() } },\n    required: [\"name\"],\n    additionalProperties: false,\n  };\n}\n\nfunction readName(input: JsonValue): string {\n  return (input as { name: string }).name;\n}\n"
+          "content": "import { Script, createContext } from \"node:vm\";\nimport type { JsonValue } from \"./protocol.js\";\nimport type { Context, Plugin } from \"./runtime.js\";\n\ninterface DynamicPluginDefinition {\n  pluginId: string;\n  name: string;\n  purpose: string;\n  code: string;\n  dispose?: () => void;\n}\n\nexport function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const definitions = new Map<string, DynamicPluginDefinition>();\n      let nextPluginId = 1;\n\n      context.effect(() => {\n        for (const definition of [...definitions.values()].reverse()) definition.dispose?.();\n        definitions.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-evolution-guide\",\n        \"Inspect the current Context, define a small Cordis Plugin when the task needs a new capability, run it, use its tools, then stop or undefine it after the experiment.\",\n      );\n      context.registerTool({\n        name: \"cordis_inspect\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"cordis_define\",\n        description: \"Define a new Cordis Plugin from a JavaScript function body that returns the Plugin.\",\n        inputSchema: {\n          type: \"object\",\n          properties: {\n            name: { type: \"string\", minLength: 1 },\n            purpose: { type: \"string\", minLength: 1 },\n            code: { type: \"string\", minLength: 1 },\n          },\n          required: [\"name\", \"purpose\", \"code\"],\n          additionalProperties: false,\n        },\n        execute(input) {\n          const { name, purpose, code } = readDefinition(input);\n          compilePlugin(code);\n          const pluginId = `dyn-${nextPluginId}`;\n          nextPluginId += 1;\n          definitions.set(pluginId, { pluginId, name, purpose, code });\n          return { ok: true, pluginId, name, status: \"defined\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_run\",\n        description: \"Run one previously defined Cordis Plugin in the current Context.\",\n        inputSchema: pluginIdSchema(),\n        async execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (definition.dispose) return { ok: false, error: `${pluginId} is already running.` };\n          const plugin = instantiatePlugin(definition);\n          definition.dispose = await context.mount(plugin);\n          return {\n            ok: true,\n            pluginId,\n            status: \"running\",\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_stop\",\n        description: \"Stop a running dynamic Plugin while retaining its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          if (!definition.dispose) return { ok: false, error: `${pluginId} is not running.` };\n          definition.dispose();\n          delete definition.dispose;\n          return { ok: true, pluginId, status: \"stopped\" };\n        },\n      });\n      context.registerTool({\n        name: \"cordis_undefine\",\n        description: \"Stop a dynamic Plugin if needed and remove its definition.\",\n        inputSchema: pluginIdSchema(),\n        execute(input) {\n          const pluginId = readPluginId(input);\n          const definition = definitions.get(pluginId);\n          if (!definition) return { ok: false, error: `Unknown dynamic Plugin: ${pluginId}` };\n          definition.dispose?.();\n          definitions.delete(pluginId);\n          return { ok: true, pluginId, status: \"undefined\" };\n        },\n      });\n    },\n  };\n}\n\nfunction compilePlugin(code: string): Script {\n  return new Script(`(() => {\\n\"use strict\";\\n${code}\\n})()`);\n}\n\nfunction instantiatePlugin(definition: DynamicPluginDefinition): Plugin {\n  const value = compilePlugin(definition.code).runInContext(createContext(Object.create(null)), {\n    timeout: 100,\n  }) as unknown;\n  if (\n    typeof value !== \"object\" ||\n    value === null ||\n    typeof (value as { apply?: unknown }).apply !== \"function\"\n  ) {\n    throw new Error(\"Dynamic code must return a Cordis Plugin with apply(context).\");\n  }\n  const dynamic = value as { apply(context: Context): void | Promise<void> };\n  return {\n    name: `dynamic:${definition.name}`,\n    setup: (context) => dynamic.apply(context),\n  };\n}\n\nfunction pluginIdSchema(): Record<string, unknown> {\n  return {\n    type: \"object\",\n    properties: { pluginId: { type: \"string\", pattern: \"^dyn-[1-9][0-9]*$\" } },\n    required: [\"pluginId\"],\n    additionalProperties: false,\n  };\n}\n\nfunction readDefinition(input: JsonValue): { name: string; purpose: string; code: string } {\n  return input as { name: string; purpose: string; code: string };\n}\n\nfunction readPluginId(input: JsonValue): string {\n  return (input as { pluginId: string }).pluginId;\n}\n"
         }
       ],
       "diff": "diff --git a/src/long-task.ts b/src/long-task.ts\nnew file mode 100644\nindex 0000000..2a36c38\n--- /dev/null\n+++ b/src/long-task.ts\n@@ -0,0 +1,115 @@\n+import type { SessionLog } from \"./session.js\";\n+\n+export type LongTaskStatus = \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n+\n+export interface LongTaskState {\n+  goalId: string;\n+  objective: string;\n+  status: LongTaskStatus;\n+  roundsStarted: number;\n+  maxRounds: number;\n+  reason: string;\n+}\n+\n+export interface RoundDefinition {\n+  label: string;\n+  input: string;\n+}\n+\n+export interface RoundResult {\n+  progressed: boolean;\n+  completed?: boolean;\n+  blockedReason?: string;\n+}\n+\n+export interface LongTaskOptions {\n+  objective: string;\n+  rounds: RoundDefinition[];\n+  maxRounds: number;\n+  session: SessionLog;\n+  runRound(round: RoundDefinition, roundNumber: number): Promise<RoundResult>;\n+}\n+\n+export class LongTaskRunner {\n+  readonly state: LongTaskState;\n+  readonly #rounds: RoundDefinition[];\n+  readonly #session: SessionLog;\n+  readonly #runRound: LongTaskOptions[\"runRound\"];\n+\n+  constructor(options: LongTaskOptions) {\n+    if (options.maxRounds < 1) throw new Error(\"maxRounds must be at least 1.\");\n+    this.state = {\n+      goalId: \"goal-1\",\n+      objective: options.objective,\n+      status: \"active\",\n+      roundsStarted: 0,\n+      maxRounds: options.maxRounds,\n+      reason: \"Ready to start.\",\n+    };\n+    this.#rounds = options.rounds;\n+    this.#session = options.session;\n+    this.#runRound = options.runRound;\n+  }\n+\n+  async run(): Promise<LongTaskState> {\n+    this.#session.append({\n+      type: \"goal/created\",\n+      goalId: this.state.goalId,\n+      objective: this.state.objective,\n+      maxRounds: this.state.maxRounds,\n+    });\n+\n+    while (this.state.status === \"active\") {\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      const definition = this.#rounds[this.state.roundsStarted];\n+      if (!definition) {\n+        return this.#finish(\"blocked\", \"No next round is defined for the active goal.\");\n+      }\n+\n+      this.state.roundsStarted += 1;\n+      this.#session.append({\n+        type: \"goal/round-started\",\n+        goalId: this.state.goalId,\n+        round: this.state.roundsStarted,\n+        label: definition.label,\n+      });\n+      const result = await this.#runRound(definition, this.state.roundsStarted);\n+\n+      if (result.completed) {\n+        return this.#finish(\"completed\", `Completed in round ${this.state.roundsStarted}.`);\n+      }\n+      if (result.blockedReason) return this.#finish(\"blocked\", result.blockedReason);\n+      if (!result.progressed) {\n+        return this.#finish(\n+          \"blocked\",\n+          `Round ${this.state.roundsStarted} produced no observable progress.`,\n+        );\n+      }\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      this.state.reason = `Round ${this.state.roundsStarted} made progress; continuing.`;\n+    }\n+    return structuredClone(this.state);\n+  }\n+\n+  #finish(status: Exclude<LongTaskStatus, \"active\">, reason: string): LongTaskState {\n+    this.state.status = status;\n+    this.state.reason = reason;\n+    this.#session.append({\n+      type: \"goal/status-changed\",\n+      goalId: this.state.goalId,\n+      status,\n+      reason,\n+    });\n+    return structuredClone(this.state);\n+  }\n+}\n",
