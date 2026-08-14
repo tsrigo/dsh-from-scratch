@@ -1574,7 +1574,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   .mobile-switcher { background: rgba(255, 254, 252, 0.99); }
 }
 
-/* Light code theme: porcelain and ice-blue technical surfaces. */
+/* Light code theme: paper-white editor with an ice-blue active range. */
 .primer-cards pre,
 .ptc-example pre,
 .request-parts pre,
@@ -1582,27 +1582,54 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 .telemetry-view,
 .tool-call-card code,
 .code-lines {
-  color: #243969;
-  background: #f7faff;
-  border-color: #c7dcf5;
+  color: #0b1f5b;
+  background: #fff;
+  border-color: #c3d8f4;
 }
 
+.code-dock,
+.code-dock-shell { color: #0b1f5b; background: #fff; }
+.code-dock { border-left-color: #c3d8f4; }
+.code-tabs {
+  background: #edf3fc;
+  border-bottom-color: #c3d8f4;
+}
+.code-tab {
+  color: #61769b;
+  border-right-color: #d2e1f5;
+}
+.code-tab:hover { color: #173878; background: #e2edfb; }
+.code-tab.is-active {
+  color: #173878;
+  background: #f7faff;
+  box-shadow: inset 0 -2px #356aca;
+}
 .file-label {
-  color: #405987;
-  background: #e4effc;
-  border-bottom-color: #c2d9f4;
+  color: #41577d;
+  background: #edf3fc;
+  border-bottom-color: #c3d8f4;
 }
-.file-label button { color: #315fba; }
-.file-label button:hover { color: #0a1b57; }
-.line-no { color: #8aa0c2; }
-.code-lines .code-line { color: #243969; }
-.code-lines.has-line-focus .code-line { opacity: 0.34; }
+.file-label button { color: #2f65c4; }
+.file-label button:hover { color: #123c8c; }
+.code-dock-hint {
+  color: #6b80a6;
+  background: #edf3fc;
+  border-top-color: #c3d8f4;
+}
+.line-no { color: #7890b6; }
+.code-lines .code-line { color: #0b1f5b; }
+.code-lines.has-line-focus .code-line { opacity: 0.3; }
 .code-lines.has-line-focus .code-line.highlighted {
-  color: #0a1b57;
-  background: #dceafb;
-  box-shadow: inset 3px 0 #4e78c9;
+  color: #0b1f5b;
+  background: #edf4fe;
+  box-shadow: inset 4px 0 #356aca;
 }
-.code-lines.has-line-focus .code-line.highlighted .line-no { color: #315fba; }
+.code-lines.has-line-focus .code-line.highlighted .line-no { color: #2f65c4; }
+.code-lines .code-line.is-new {
+  background: #edf4fe;
+  box-shadow: inset 4px 0 #356aca;
+}
+.code-lines .code-line.is-new .line-no { color: #2f65c4; }
 .code-lines .added { color: #245c60; background: #edf7f5; }
 .code-lines .removed { color: #846238; background: #fbf5e9; }
 .code-lines .hunk { color: #315fba; background: #e8f1fc; }
@@ -1611,16 +1638,16 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 .removed .diff-marker { color: #a27c45; }
 .diff-meta { color: #5b73a0; }
 
-.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #7d8da8; }
-.token.punctuation { color: #536584; }
-.token.namespace { color: #687997; }
-.token.property, .token.tag, .token.constant, .token.symbol { color: #2f67b8; }
-.token.boolean, .token.number { color: #7655a4; }
-.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #39796d; }
-.token.operator, .token.entity, .token.url, .token.variable { color: #334b78; }
-.token.atrule, .token.attr-value, .token.function, .token.class-name { color: #95651e; }
-.token.keyword { color: #4f55aa; }
-.token.regex, .token.important { color: #a15e4d; }
+.token.comment, .token.prolog, .token.doctype, .token.cdata { color: #7f8faa; }
+.token.punctuation { color: #526585; }
+.token.namespace { color: #687a99; }
+.token.property, .token.tag, .token.constant, .token.symbol { color: #245faf; }
+.token.boolean, .token.number { color: #7252a2; }
+.token.selector, .token.attr-name, .token.string, .token.char, .token.builtin, .token.inserted { color: #317d70; }
+.token.operator, .token.entity, .token.url, .token.variable { color: #263f73; }
+.token.atrule, .token.attr-value, .token.function, .token.class-name { color: #965f17; }
+.token.keyword { color: #4e55b2; }
+.token.regex, .token.important { color: #9e5949; }
 .token.deleted { color: #9b5260; }
 
 .request-parts pre,
