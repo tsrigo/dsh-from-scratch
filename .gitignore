@@ -24,3 +24,7 @@ goal.md
 !.env.example
 .tutorial-checkpoint-*/
 .playwright-mcp/
+
+# Local pnpm/corepack caches
+.corepack/
+.pnpm-store/

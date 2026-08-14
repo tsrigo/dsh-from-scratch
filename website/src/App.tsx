@@ -1427,8 +1427,10 @@ const ChapterContent = memo(function ChapterContent({
 function CodeGuideCard({ chapter }: { chapter: Chapter }) {
   return (
     <section className="code-guide-card" aria-label="本章源码导览">
-      <span>本章源码导览</span>
-      <h3>{chapter.codeGuide.title}</h3>
+      <div className="card-heading">
+        <span>本章源码导览</span>
+        <h3>{chapter.codeGuide.title}</h3>
+      </div>
       <p>{chapter.codeGuide.description}</p>
     </section>
   );
@@ -1461,8 +1463,10 @@ function FillCard({
       data-chapter={chapter.id}
       data-fill-cp={fillIndex}
     >
-      <span className="fill-card-index">{fillIndex === 0 ? "结构" : `代码 ${fillIndex}`}</span>
-      <h4>{fill.label}</h4>
+      <div className="fill-card-heading">
+        <span className="fill-card-index">{fillIndex === 0 ? "结构" : `代码 ${fillIndex}`}</span>
+        <h4>{fill.label}</h4>
+      </div>
       {observation && <p>{observation.text}</p>}
     </div>
   );
@@ -1490,8 +1494,10 @@ function ChapterSummaryCard({ chapter }: { chapter: Chapter }) {
   const { changeStory } = chapter;
   return (
     <section className="chapter-summary-card" aria-label="本章总结">
-      <span>本章总结</span>
-      <h3>{changeStory.title}</h3>
+      <div className="card-heading">
+        <span>本章总结</span>
+        <h3>{changeStory.title}</h3>
+      </div>
       <p>{changeStory.summary}</p>
       <dl>
         <div><dt>Harness 的角色</dt><dd>{changeStory.harnessRole}</dd></div>
@@ -1739,23 +1745,34 @@ function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTa
   const evidence = chapter.requests[step] ?? chapter.requests[0]!;
   return (
     <div className="evidence-card-body request-card">
-      <p className="request-step-title">第 {evidence.step} 次模型请求</p>
-      <div className="request-metrics">
-        <div><small>完整模型请求</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
-        <div><small>与上次相同的开头</small><b>约 {evidence.prefix.sharedApproximateTokens}</b><span>token</span></div>
+      <div className="request-head">
+        <span className="request-step-title">第 {evidence.step} 次模型请求</span>
+        <span className="request-total">约 {evidence.totalApproximateTokens} token</span>
       </div>
-      <div className="request-anatomy">
-        <div className="stable"><b>固定区</b><span>系统规则、工具说明</span></div>
-        <div className="append-only"><b>累积区</b><span>用户、模型与工具记录</span></div>
-        <div className="step-variable"><b>本步区</b><span>只服务于当前步骤的说明</span></div>
+      <div className="request-bar" aria-label="请求结构比例">
+        {evidence.parts.map((part) => (
+          <span
+            key={part.id}
+            className={part.stability}
+            style={{ flexGrow: part.approximateTokens }}
+            title={`${requestPartLabel(part)}：约 ${part.approximateTokens} token`}
+          />
+        ))}
+      </div>
+      <div className="request-legend">
+        <span><i className="stable" />固定区</span>
+        <span><i className="append-only" />累积区</span>
+        <span><i className="step-variable" />本步区</span>
+        <span className="request-shared">与上次相同开头约 {evidence.prefix.sharedApproximateTokens} token</span>
       </div>
       <div className="invalidation">
         <span>相同开头从这里发生变化</span>
         <b>{invalidationLabel(evidence.prefix.firstInvalidation)}</b>
       </div>
-      <details className="technical-details">
+      <details className="technical-details" open>
         <summary><span>查看请求组成</span><b>各部分内容与估算</b></summary>
-        <div className="details-body">
+        <p className="details-note">点击每个部分，可展开查看具体内容与估算。</p>
+        <div className="request-parts">
           {evidence.parts.map((part) => (
             <details key={part.id} className={part.stability}>
               <summary>
