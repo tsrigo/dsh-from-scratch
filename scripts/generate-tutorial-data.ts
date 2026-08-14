@@ -82,6 +82,7 @@ for (const config of configs) {
     };
   });
   const sourceLines = source.split(/\r?\n/u);
+  verifyCodeGuideCoverage(config, sourceLines.length);
   chapters.push({
     id: `chapter-${Number(config.number)}`,
     number: config.number,
@@ -102,7 +103,6 @@ for (const config of configs) {
     },
     diff: sanitizePublicText(diff),
     diffStats: summarizeDiff(diff),
-    verdict: evidence.verdict,
     requests,
     events: evidence.events,
     trace: evidence.trace,
@@ -137,6 +137,29 @@ await writeFile(resolve(outDir, "tutorial.json"), `${JSON.stringify(output, null
 console.log(
   `generated ${chapters.length} chapters · ${chapters.reduce((sum, chapter) => sum + chapter.events.length, 0)} events · ${chapters.reduce((sum, chapter) => sum + chapter.requests.length, 0)} requests`,
 );
+
+function verifyCodeGuideCoverage(config: CheckpointConfig, sourceLineCount: number): void {
+  const { start, end } = config.sourceRange;
+  assert(start >= 1 && start <= end, `${config.id}: invalid source range ${start}-${end}`);
+  assert(end <= sourceLineCount, `${config.id}: source range ends after line ${sourceLineCount}`);
+
+  const covered = new Set<number>();
+  for (const observation of config.codeGuide.observations) {
+    const [observationStart, observationEnd] = observation.lines;
+    assert(
+      observationStart >= start && observationStart <= observationEnd && observationEnd <= end,
+      `${config.id}: observation range ${observationStart}-${observationEnd} falls outside ${start}-${end}`,
+    );
+    for (let line = observationStart; line <= observationEnd; line += 1) covered.add(line);
+  }
+
+  const expected = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  assert.deepEqual(
+    [...covered].sort((left, right) => left - right),
+    expected,
+    `${config.id}: observation ranges must cover the complete source excerpt`,
+  );
+}
 
 function summarizeDiff(diff: string): {
   filesChanged: number;

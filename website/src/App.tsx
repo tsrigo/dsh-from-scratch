@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -32,6 +33,18 @@ const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
 
 type MobileTab = "article" | PanelTab | "more";
 
+interface ExerciseTarget {
+  tab: PanelTab;
+  step?: number;
+  lines?: [number, number];
+  note: string;
+}
+
+interface EvidenceSync extends ExerciseTarget {
+  chapterId: string;
+  version: number;
+}
+
 const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
   { id: "article", label: "正文" },
   { id: "source", label: "跟着写" },
@@ -45,6 +58,7 @@ export function App() {
   const [tab, setTab] = useState<PanelTab>("source");
   const [mobileTabs, setMobileTabs] = useState<Record<string, MobileTab>>({});
   const [step, setStep] = useState(0);
+  const [evidenceSync, setEvidenceSync] = useState<EvidenceSync | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
 
   useEffect(() => {
@@ -92,6 +106,7 @@ export function App() {
     setActiveChapterId(chapter.id);
     setMobileTabs({});
     setStep(0);
+    setEvidenceSync(null);
     const compact = window.matchMedia("(max-width: 960px)").matches;
     const scroll = () => sectionRefs.current.get(chapter.id)?.scrollIntoView({
       behavior: compact ? "auto" : "smooth",
@@ -106,8 +121,8 @@ export function App() {
       <Header data={data} activeId={activeChapter.id} onNavigate={navigateTo} />
       <main>
         <Hero data={data} onStart={() => navigateTo(data.chapters[0]!)} />
-        <TypeScriptPrimer markdown={data.project.primer ?? ""} />
         <BuildPrelude chapters={data.chapters} onStart={() => navigateTo(data.chapters[0]!)} />
+        <TypeScriptPrimer markdown={data.project.primer ?? ""} />
         <div className="learning-layout">
           <article className="chapters" aria-label="渐进教程">
             {data.chapters.map((chapter, index) => (
@@ -123,13 +138,26 @@ export function App() {
                 onOpenPanel={(nextTab) => {
                   setActiveChapterId(chapter.id);
                   setTab(nextTab);
+                  setEvidenceSync(null);
                   setMobileTabs((current) => ({ ...current, [chapter.id]: nextTab }));
                 }}
                 onMobileTab={(nextTab) => {
                   setActiveChapterId(chapter.id);
+                  setEvidenceSync(null);
                   setMobileTabs((current) => ({ ...current, [chapter.id]: nextTab }));
-                  if (nextTab !== "article") setTab(nextTab);
+                  if (nextTab !== "article" && nextTab !== "more") setTab(nextTab);
                 }}
+                onSync={(target) => {
+                  setActiveChapterId(chapter.id);
+                  setTab(target.tab);
+                  if (target.step !== undefined) setStep(target.step);
+                  setEvidenceSync((current) => ({
+                    ...target,
+                    chapterId: chapter.id,
+                    version: (current?.version ?? 0) + 1,
+                  }));
+                }}
+                evidenceSync={evidenceSync?.chapterId === chapter.id ? evidenceSync : null}
                 step={step}
                 onStep={setStep}
               />
@@ -140,8 +168,9 @@ export function App() {
               chapter={activeChapter}
               tab={tab}
               step={step}
-              onTab={setTab}
-              onStep={setStep}
+              onTab={(nextTab) => { setTab(nextTab); setEvidenceSync(null); }}
+              onStep={(nextStep) => { setStep(nextStep); setEvidenceSync(null); }}
+              sync={evidenceSync?.chapterId === activeChapter.id ? evidenceSync : null}
             />
           </aside>
         </div>
@@ -157,26 +186,31 @@ export function App() {
 function TypeScriptPrimer({ markdown }: { markdown: string }) {
   const sections = parsePrimer(markdown);
   return (
-    <section className="typescript-primer" aria-labelledby="typescript-primer-title">
-      <div className="primer-heading">
-        <p className="eyebrow">阅读预检 · 约 3 分钟</p>
-        <h2 id="typescript-primer-title">TypeScript 不熟？先认四个路标。</h2>
-        <p>{sections.intro}</p>
+    <details className="typescript-primer">
+      <summary className="primer-summary">
+        <div>
+          <p className="eyebrow">阅读补充 · 约 3 分钟</p>
+          <h2 id="typescript-primer-title">TypeScript 不熟？先认四个路标。</h2>
+        </div>
+        <span aria-hidden="true" />
+      </summary>
+      <div className="primer-body" aria-labelledby="typescript-primer-title">
+        <p className="primer-intro">{sections.intro}</p>
+        <div className="primer-cards">
+          {sections.cards.map((card, index) => (
+            <article key={card.title}>
+              <span>路标 {index + 1}</span>
+              <h3>{card.title}</h3>
+              <pre><SyntaxCode code={card.code} language="typescript" /></pre>
+              <p>{renderInlineCode(card.body)}</p>
+            </article>
+          ))}
+        </div>
+        <div className="primer-flow" aria-label="一次模型步骤的阅读顺序">
+          <span>用户目标</span><i>→</i><span>模型请求</span><i>→</i><span>工具动作</span><i>→</i><span>过程事件</span><i>→</i><span>下一步</span>
+        </div>
       </div>
-      <div className="primer-cards">
-        {sections.cards.map((card, index) => (
-          <article key={card.title}>
-            <span>路标 {index + 1}</span>
-            <h3>{card.title}</h3>
-            <pre><SyntaxCode code={card.code} language="typescript" /></pre>
-            <p>{renderInlineCode(card.body)}</p>
-          </article>
-        ))}
-      </div>
-      <div className="primer-flow" aria-label="一次模型步骤的阅读顺序">
-        <span>用户目标</span><i>→</i><span>模型请求</span><i>→</i><span>工具动作</span><i>→</i><span>过程事件</span><i>→</i><span>下一步</span>
-      </div>
-    </section>
+    </details>
   );
 }
 
@@ -203,7 +237,10 @@ function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () 
           <div key={chapter.id} style={{ "--file-index": index } as CSSProperties}>
             <i>{scaffolded ? "✓" : ""}</i>
             <code>{chapter.source.path.replace(/^src\//u, "")}</code>
-            <span>第{chapterNumeral(chapter.number)}章 · {chapter.shortTitle}</span>
+            <span className="scaffold-chapter">
+              <strong>第{chapterNumeral(chapter.number)}章 · {chapter.shortTitle}</strong>
+              <small>{chapter.question}</small>
+            </span>
           </div>
         ))}
       </div>
@@ -323,6 +360,8 @@ function ChapterArticle({
   sectionRef,
   onOpenPanel,
   onMobileTab,
+  onSync,
+  evidenceSync,
   step,
   onStep,
 }: {
@@ -333,6 +372,8 @@ function ChapterArticle({
   sectionRef: (node: HTMLElement | null) => void;
   onOpenPanel: (tab: PanelTab) => void;
   onMobileTab: (tab: MobileTab) => void;
+  onSync: (target: ExerciseTarget) => void;
+  evidenceSync: EvidenceSync | null;
   step: number;
   onStep: (step: number) => void;
 }) {
@@ -362,7 +403,7 @@ function ChapterArticle({
           <div className="reading-order" aria-label="推荐阅读顺序">
             <span><b>1</b>读本章说明</span><i>→</i>
             <span><b>2</b>跟三处代码</span><i>→</i>
-            <span><b>3</b>运行固定样本</span>
+            <span><b>3</b>操作并看右侧变化</span>
           </div>
         </div>
         <div className="mobile-switcher" role="tablist" aria-label="移动端章节视图">
@@ -398,7 +439,7 @@ function ChapterArticle({
           {chapter.number === "03" && <PresetAssembly />}
           {chapter.number === "05" && <ExperimentSequence />}
           {chapter.number === "06" && <RoundSequence />}
-          <ChapterRun chapter={chapter} onOpenPanel={onOpenPanel} />
+          <ChapterRun chapter={chapter} onOpenPanel={onOpenPanel} onSync={onSync} />
         </div>
         <div className={`mobile-panel ${mobileTab !== "article" ? "mobile-active" : ""}`}>
           {mobileTab === "more" && <MoreEvidence chapter={chapter} onSelect={onMobileTab} />}
@@ -409,6 +450,7 @@ function ChapterArticle({
               step={step}
               onTab={onOpenPanel}
               onStep={onStep}
+              sync={evidenceSync}
               compact
             />
           )}
@@ -418,54 +460,335 @@ function ChapterArticle({
   );
 }
 
-function ChapterRun({ chapter, onOpenPanel }: { chapter: Chapter; onOpenPanel: (tab: PanelTab) => void }) {
-  const narrative = runNarrative(chapter.number);
-  const [phase, setPhase] = useState(0);
-  const complete = phase > narrative.steps.length;
-  const activeStep = complete ? null : narrative.steps[phase - 1];
-  const buttonLabel = complete
-    ? "重新运行"
-    : phase === 0
-      ? "开始运行"
-      : phase === narrative.steps.length
-        ? "查看结果"
-        : "下一步";
-  const advance = () => setPhase((current) => current > narrative.steps.length ? 1 : current + 1);
+function ChapterRun({
+  chapter,
+  onOpenPanel,
+  onSync,
+}: {
+  chapter: Chapter;
+  onOpenPanel: (tab: PanelTab) => void;
+  onSync: (target: ExerciseTarget) => void;
+}) {
+  if (chapter.number === "01") return <AgentLoopExercise chapter={chapter} onOpen={() => onOpenPanel("request")} onSync={onSync} />;
+  if (chapter.number === "02") return <ContextExercise onOpen={() => onOpenPanel("request")} onSync={onSync} />;
+  if (chapter.number === "03") return <PluginExercise onOpen={() => onOpenPanel("source")} onSync={onSync} />;
+  if (chapter.number === "04") return <SessionExercise chapter={chapter} onOpen={() => onOpenPanel("events")} onSync={onSync} />;
+  if (chapter.number === "05") return <CapabilityExercise chapter={chapter} onOpen={() => onOpenPanel("graph")} onSync={onSync} />;
+  return <LongTaskExercise onOpen={() => onOpenPanel("events")} onSync={onSync} />;
+}
 
+function ExerciseFrame({
+  title,
+  status,
+  actionLabel,
+  actionDisabled = false,
+  onAction,
+  detailLabel,
+  onOpen,
+  children,
+}: {
+  title: string;
+  status: string;
+  actionLabel: string;
+  actionDisabled?: boolean;
+  onAction: () => void;
+  detailLabel: string;
+  onOpen: () => void;
+  children: ReactNode;
+}) {
   return (
-    <section className={`chapter-run ${phase > 0 ? "started" : ""} ${complete ? "complete" : ""}`}>
-      <div className="run-heading">
-        <div>
-          <small>动手检查</small>
-          <h3>{narrative.title}</h3>
-        </div>
-        <span>固定样本 · 不调用模型服务</span>
-      </div>
-      <ol>
-        {narrative.steps.map((item, index) => (
-          <li
-            key={item.label}
-            className={complete || index < phase - 1 ? "done" : index === phase - 1 ? "current" : ""}
-          >
-            <i>{complete || index < phase - 1 ? "✓" : index + 1}</i>
-            <span>{item.label}</span>
-          </li>
-        ))}
-      </ol>
-      <p className="run-message" aria-live="polite">
-        {complete
-          ? <><b>{narrative.result}</b><span>{narrative.resultDetail}</span></>
-          : activeStep
-            ? <><b>{activeStep.label}</b><span>{activeStep.detail}</span></>
-            : <span>点击“开始运行”，按顺序查看输入、执行动作和结果。</span>}
-      </p>
-      <div className="run-actions">
-        <button className="run-primary" onClick={advance}>{buttonLabel}</button>
-        <button className="run-secondary" onClick={() => onOpenPanel(chapter.events.length ? "events" : "request")}>
-          {chapter.events.length ? "打开这次运行的时间线" : "查看这次模型输入"}
-        </button>
+    <section className="chapter-exercise">
+      <header>
+        <div><small>动手检查</small><h3>{title}</h3><span>{status}</span></div>
+        <button className="exercise-primary" onClick={onAction} disabled={actionDisabled}>{actionLabel}</button>
+      </header>
+      <div className="exercise-stage">{children}</div>
+      <div className="exercise-footer">
+        <button onClick={onOpen}>{detailLabel} →</button>
+        <span>固定样本 · 操作会同步右侧</span>
       </div>
     </section>
+  );
+}
+
+const ROUTE_OPTIONS = [
+  { name: "BOREAL", latency: 42, loss: 6.5, energy: 4, valid: false, reason: "丢包率超过 2%" },
+  { name: "ASTER", latency: 58, loss: 1.2, energy: 3, valid: true, reason: "三项都符合" },
+  { name: "CRATER", latency: 75, loss: 0.5, energy: 8, valid: false, reason: "延迟和能耗超过上限" },
+] as const;
+
+function AgentLoopExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [phase, setPhase] = useState<0 | 1 | 2>(0);
+  const [selected, setSelected] = useState<string | null>(null);
+  const selectedRoute = ROUTE_OPTIONS.find((route) => route.name === selected);
+  const requestIndex = phase === 0 ? 0 : phase === 2 && selectedRoute?.valid ? 2 : 1;
+  const request = chapter.requests[requestIndex] ?? chapter.requests[0];
+  const actionLabel = phase === 0
+    ? "读取事故包"
+    : phase === 1
+      ? selectedRoute ? `提交 ${selectedRoute.name}` : "先选择一条路线"
+      : selectedRoute?.valid ? "重新开始" : "换一条路线";
+  const status = phase === 0
+    ? "模型只有任务说明，还没有事故数据"
+    : phase === 1
+      ? selectedRoute ? `已选择 ${selectedRoute.name}` : "请选择一条符合三项约束的路线"
+      : selectedRoute?.valid ? "提交通过" : `提交被拒绝：${selectedRoute?.reason ?? "不符合约束"}`;
+  const advance = () => {
+    if (phase === 0) {
+      setPhase(1);
+      onSync({ tab: "request", step: 1, note: "工具结果已加入第 2 次模型输入" });
+      return;
+    }
+    if (phase === 1 && selectedRoute) {
+      setPhase(2);
+      onSync(selectedRoute.valid
+        ? { tab: "request", step: 2, note: "提交结果已加入第 3 次模型输入" }
+        : { tab: "source", lines: [83, 91], note: "右侧突出工具执行与结果写入" });
+      return;
+    }
+    if (phase === 2) {
+      if (selectedRoute?.valid) {
+        setPhase(0);
+        onSync({ tab: "request", step: 0, note: "回到第 1 次模型输入" });
+      } else {
+        setPhase(1);
+        onSync({ tab: "request", step: 1, note: "保留读取结果，重新选择路线" });
+      }
+      setSelected(null);
+    }
+  };
+  const records = phase === 0
+    ? ["用户要求检查火星中继站"]
+    : phase === 1
+      ? ["用户要求检查火星中继站", "模型调用：读取事故包", "工具返回：3 条候选路线"]
+      : ["用户要求检查火星中继站", "模型调用：读取事故包", "工具返回：3 条候选路线", `模型提交：${selectedRoute?.name ?? ""}`, selectedRoute?.valid ? "工具返回：方案通过" : `工具返回：${selectedRoute?.reason ?? "不符合约束"}`];
+  return (
+    <ExerciseFrame
+      title="读取数据，选择路线，再提交"
+      status={status}
+      actionLabel={actionLabel}
+      actionDisabled={phase === 1 && !selectedRoute}
+      onAction={advance}
+      detailLabel="查看完整模型输入"
+      onOpen={onOpen}
+    >
+      <div className="exercise-grid agent-exercise">
+        <section className="request-state">
+          <div className="exercise-card-title"><b>模型输入</b><span>第 {requestIndex + 1} 份</span></div>
+          <dl>
+            <div><dt>用户记录</dt><dd>{request?.request.messages.length ?? 1} 条</dd></div>
+            <div><dt>可用动作</dt><dd>{request?.request.tools.length ?? 2} 个</dd></div>
+            <div><dt>本次目标</dt><dd>检查并提交恢复方案</dd></div>
+          </dl>
+        </section>
+        <section key={phase} className="exercise-output exercise-flash" aria-live="polite">
+          {phase === 0 && <ToolCallCard label="下一步需要真实事故数据" name="读取事故包" code="read_incident_packet" />}
+          {phase === 1 && <RouteTable selected={selected} onSelect={setSelected} />}
+          {phase === 2 && (
+            selectedRoute?.valid
+              ? <div className="accepted-card"><i>✓</i><b>ASTER 方案通过</b><span>没有新的工具调用，本轮结束。</span></div>
+              : <div className="rejected-card"><i>×</i><b>{selectedRoute?.name} 没有通过</b><span>{selectedRoute?.reason}</span></div>
+          )}
+        </section>
+      </div>
+      <section className="record-strip">
+        <div className="exercise-card-title"><b>运行记录</b><span>{records.length} 条</span></div>
+        <ol>{records.map((item, index) => <li key={`${index}-${item}`} className={index === records.length - 1 ? "new" : ""}><i>{index + 1}</i>{item}</li>)}</ol>
+      </section>
+    </ExerciseFrame>
+  );
+}
+
+function ContextExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [projected, setProjected] = useState(false);
+  const telemetry = Array.from({ length: 36 }, (_, index) => {
+    const temperature = index < 30 ? 41 + (index % 4) : 74 + index - 30;
+    return `T+${String(index).padStart(2, "0")}  RELAY-7  ${temperature}°C`;
+  });
+  const visible = projected
+    ? [...telemetry.slice(0, 3), "… 省略 30 行 …", ...telemetry.slice(-3)]
+    : telemetry;
+  const toggle = () => {
+    const next = !projected;
+    setProjected(next);
+    onSync(next
+      ? { tab: "request", step: 1, note: "右侧显示裁剪后实际发送的模型输入" }
+      : { tab: "source", lines: [49, 66], note: "右侧突出裁剪这段文本的代码" });
+  };
+  return (
+    <ExerciseFrame
+      title="切换完整记录和模型看到的版本"
+      status={projected ? "正在查看模型输入" : "正在查看完整记录"}
+      actionLabel={projected ? "查看完整记录" : "查看模型输入"}
+      onAction={toggle}
+      detailLabel="拆开完整模型输入"
+      onOpen={onOpen}
+    >
+      <div className="projection-metrics">
+        <div className={!projected ? "active" : ""}><small>完整记录</small><b>36</b><span>行遥测</span></div>
+        <div className={projected ? "active" : ""}><small>模型输入</small><b>7</b><span>行内容</span></div>
+      </div>
+      <pre key={String(projected)} className="telemetry-view exercise-flash">{visible.join("\n")}</pre>
+    </ExerciseFrame>
+  );
+}
+
+function PluginExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [phase, setPhase] = useState<0 | 1 | 2>(0);
+  const additions = [["工具", "读取事故包"], ["规则", "事故处理规则"], ["监听", "记录运行变化"]];
+  const advance = () => {
+    if (phase === 0) {
+      setPhase(1);
+      onSync({ tab: "source", lines: [45, 53], note: "右侧突出安装与登记过程" });
+    } else if (phase === 1) {
+      setPhase(2);
+      onSync({ tab: "source", lines: [54, 57], note: "右侧突出报错后的回滚" });
+    } else {
+      setPhase(0);
+      onSync({ tab: "source", lines: [45, 50], note: "安装状态已经重置" });
+    }
+  };
+  return (
+    <ExerciseFrame
+      title="看看安装失败后留下什么"
+      status={phase === 0 ? "准备开始" : phase === 1 ? "三项内容已登记，安装即将报错" : "回滚完成，没有残留"}
+      actionLabel={phase === 0 ? "开始安装" : phase === 1 ? "触发错误" : "重新检查"}
+      onAction={advance}
+      detailLabel="查看回滚代码"
+      onOpen={onOpen}
+    >
+      <div className="plugin-summary"><b>{phase === 1 ? 3 : 0}</b><span>{phase === 2 ? "项残留" : "项内容已登记"}</span></div>
+      <div key={phase} className="plugin-slots exercise-flash">
+        {additions.map(([kind, label]) => (
+          <div key={label} className={phase === 1 ? "present" : phase === 2 ? "cleared" : "empty"}>
+            <small>{kind}</small><b>{label}</b><span>{phase === 1 ? "已登记" : phase === 2 ? "已清理" : "等待登记"}</span>
+          </div>
+        ))}
+      </div>
+      <div className={`install-failure phase-${phase}`}><b>setup()</b><span>{phase === 0 ? "等待执行" : phase === 1 ? "下一步返回错误" : "错误已交给回滚处理"}</span></div>
+    </ExerciseFrame>
+  );
+}
+
+function SessionExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [selected, setSelected] = useState(0);
+  const request = chapter.requests[selected] ?? chapter.requests[0]!;
+  const select = (index: number) => {
+    setSelected(index);
+    onSync({ tab: "request", step: index, note: `右侧已切换到第 ${index + 1} 次模型输入` });
+  };
+  const next = () => select((selected + 1) % chapter.requests.length);
+  return (
+    <ExerciseFrame
+      title="选择一步，还原当时的模型输入"
+      status={`正在查看第 ${selected + 1} 次输入`}
+      actionLabel={`查看第 ${(selected + 1) % chapter.requests.length + 1} 次`}
+      onAction={next}
+      detailLabel="打开全部事件"
+      onOpen={onOpen}
+    >
+      <div className="request-choice">
+        {chapter.requests.map((item, index) => <button key={item.step} className={selected === index ? "active" : ""} onClick={() => select(index)}>第 {index + 1} 次</button>)}
+      </div>
+      <div key={selected} className="rebuild-grid exercise-flash">
+        <section>
+          <div className="exercise-card-title"><b>已有记录</b><span>{request.request.messages.length} 条</span></div>
+          {request.request.messages.length === 0 ? <p>还没有记录</p> : request.request.messages.map((message, index) => <p key={index}><i>{messageRoleLabel(message.role)}</i>{messagePreview(message)}</p>)}
+        </section>
+        <section>
+          <div className="exercise-card-title"><b>还原结果</b><span>第 {selected + 1} 次</span></div>
+          <dl><div><dt>系统规则</dt><dd>1 份</dd></div><div><dt>可用动作</dt><dd>{request.request.tools.length} 个</dd></div><div><dt>过程记录</dt><dd>{request.request.messages.length} 条</dd></div></dl>
+        </section>
+      </div>
+    </ExerciseFrame>
+  );
+}
+
+function CapabilityExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [phase, setPhase] = useState(0);
+  const requestIndexes = [0, 2, 3, 4];
+  const request = chapter.requests[requestIndexes[phase] ?? 0] ?? chapter.requests[0]!;
+  const actions = ["安装评分工具", "执行路线评分", "移除评分工具", "重新开始"];
+  const statuses = ["评分工具未安装", "评分工具已经出现", "评分已经完成", "评分工具已经移除"];
+  const advance = () => {
+    const next = phase >= 3 ? 0 : phase + 1;
+    setPhase(next);
+    const graphStep = requestIndexes[next] ?? 0;
+    onSync({ tab: "graph", step: graphStep, note: next === 1 ? "右侧已经出现路线评分工具" : next === 3 ? "右侧已经移除路线评分工具" : next === 2 ? "右侧保留评分时的能力状态" : "右侧回到安装前" });
+  };
+  return (
+    <ExerciseFrame
+      title="观察模型输入怎样增减一个工具"
+      status={statuses[phase] ?? ""}
+      actionLabel={actions[phase] ?? "继续"}
+      onAction={advance}
+      detailLabel="查看能力关系"
+      onOpen={onOpen}
+    >
+      <section key={phase} className="tool-catalog exercise-flash">
+        <div className="exercise-card-title"><b>当前可用动作</b><span>{request.request.tools.length} 个</span></div>
+        <div>{request.request.tools.map((tool) => <span key={tool.name} className={tool.name === "score_routes" ? "new" : ""}>{toolNameLabel(tool.name)}</span>)}</div>
+      </section>
+      {phase === 2 && <RouteTable />}
+      {phase === 3 && <p className="removed-note">评分工具已从下一次模型输入中移除。</p>}
+    </ExerciseFrame>
+  );
+}
+
+function LongTaskExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
+  const [round, setRound] = useState(0);
+  const actions = ["开始调查", "进入评分", "进入提交", "重新开始"];
+  const statuses = ["任务尚未开始", "调查完成", "评分完成", "任务完成"];
+  const requestSteps = [0, 1, 4, 6];
+  const advance = () => {
+    const next = round >= 3 ? 0 : round + 1;
+    setRound(next);
+    onSync({ tab: "request", step: requestSteps[next] ?? 0, note: next === 0 ? "右侧回到任务开始前" : `右侧已切换到第 ${next} 轮结束时的模型输入` });
+  };
+  return (
+    <ExerciseFrame
+      title="比较三轮结束时的模型输入"
+      status={statuses[round] ?? ""}
+      actionLabel={actions[round] ?? "继续"}
+      onAction={advance}
+      detailLabel="打开全部事件"
+      onOpen={onOpen}
+    >
+      <div className="round-progress">
+        {["调查", "评分", "提交"].map((label, index) => <div key={label} className={round > index + 1 ? "done" : round === index + 1 ? "current" : ""}><i>{round > index + 1 ? "✓" : index + 1}</i><span>{label}</span></div>)}
+      </div>
+      <section key={round} className="round-result exercise-flash">
+        {round === 0 && <div className="exercise-empty"><b>目标已经保存</b><span>恢复火星中继站，并提交通过约束的方案。</span></div>}
+        {round === 1 && <div className="survey-result"><b>调查结果</b><span>RELAY-7 最高温度 79°C</span><span>共有 3 条候选路线</span></div>}
+        {round === 2 && <RouteTable />}
+        {round === 3 && <div className="accepted-card"><i>✓</i><b>第三轮完成</b><span>评分工具已移除，ASTER 已提交。</span></div>}
+      </section>
+    </ExerciseFrame>
+  );
+}
+
+function ToolCallCard({ label, name, code }: { label: string; name: string; code: string }) {
+  return <div className="tool-call-card"><span>{label}</span><b>{name}</b><code>{code}</code></div>;
+}
+
+function RouteTable({ selected = null, onSelect }: { selected?: string | null; onSelect?: (name: string) => void }) {
+  return (
+    <div className={`route-table ${onSelect ? "selectable" : ""}`}>
+      <div className="exercise-card-title"><b>{onSelect ? "选择要提交的路线" : "路线评分"}</b><span>3 条路线</span></div>
+      <p className="route-limits">上限：延迟 65 ms · 丢包 2% · 能耗 5</p>
+      {ROUTE_OPTIONS.map((route) => (
+        <button
+          type="button"
+          key={route.name}
+          disabled={!onSelect}
+          onClick={() => onSelect?.(route.name)}
+          className={`route-row ${!onSelect && route.valid ? "valid" : ""} ${selected === route.name ? "selected" : ""}`}
+        >
+          <span><b>{route.name}</b><i>{onSelect ? selected === route.name ? "已选择" : "选择" : route.valid ? "符合约束" : "不符合"}</i></span>
+          <span>延迟 {route.latency} ms</span><span>丢包 {route.loss}%</span><span>能耗 {route.energy}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -482,7 +805,7 @@ function MoreEvidence({ chapter, onSelect }: { chapter: Chapter; onSelect: (tab:
       <h3>这些内容不影响主线阅读</h3>
       <p>先完成正文和“跟着写”。需要核对实现时，再从下面选一项。</p>
       <div>
-        {PANEL_TABS.slice(1).map((item) => (
+        {PANEL_TABS.slice(1).filter((item) => isPanelAvailable(chapter, item.id)).map((item) => (
           <button key={item.id} onClick={() => onSelect(item.id)}>
             <b>{item.label}</b>
             <span>{descriptions[item.id as Exclude<PanelTab, "source">]}</span>
@@ -561,6 +884,7 @@ function EvidencePanel({
   step,
   onTab,
   onStep,
+  sync = null,
   compact = false,
 }: {
   chapter: Chapter;
@@ -568,31 +892,40 @@ function EvidencePanel({
   step: number;
   onTab: (tab: PanelTab) => void;
   onStep: (step: number) => void;
+  sync?: EvidenceSync | null;
   compact?: boolean;
 }) {
   const maxSteps = Math.max(chapter.requests.length, chapter.graphs.length, 1);
   const safeStep = Math.min(step, maxSteps - 1);
   return (
     <div className={`panel-shell ${compact ? "compact" : ""}`}>
+      {sync && <div key={sync.version} className="panel-sync-note"><i />{sync.note}</div>}
       <div className="panel-topline">
-        <div><i /> 本章可核验样本</div>
+        <div><i /> 本章练习区</div>
         <span>{chapterName(chapter.number)}</span>
       </div>
       <div className="panel-tabs" role="tablist">
-        {PANEL_TABS.map((item) => {
-          const unavailable = (item.id === "events" && chapter.events.length === 0) || (item.id === "graph" && chapter.graphs.length === 0);
+        <button
+          className={`primary-tab ${tab === "source" ? "active" : ""}`}
+          onClick={() => onTab("source")}
+          aria-selected={tab === "source"}
+        >
+          跟着写
+        </button>
+        <div className="secondary-tabs">
+          {PANEL_TABS.slice(1).filter((item) => isPanelAvailable(chapter, item.id)).map((item) => {
           return (
             <button
               key={item.id}
               className={tab === item.id ? "active" : ""}
               onClick={() => onTab(item.id)}
               aria-selected={tab === item.id}
-              title={unavailable ? "这项机制会在后续章节加入" : undefined}
             >
-              {item.label}{unavailable ? " ·" : ""}
+              {item.label}
             </button>
           );
-        })}
+          })}
+        </div>
       </div>
       {(tab === "request" || tab === "graph") && maxSteps > 1 && (
         <div className="step-picker">
@@ -603,7 +936,7 @@ function EvidencePanel({
         </div>
       )}
       <div className="panel-content">
-        {tab === "source" && <SourceView chapter={chapter} />}
+        {tab === "source" && <SourceView chapter={chapter} externalRange={sync?.lines ?? null} />}
         {tab === "diff" && <DiffView chapter={chapter} />}
         {tab === "request" && <RequestView evidence={chapter.requests[safeStep] ?? chapter.requests[0]!} />}
         {tab === "events" && <TraceView chapter={chapter} />}
@@ -613,24 +946,72 @@ function EvidencePanel({
   );
 }
 
-function SourceView({ chapter }: { chapter: Chapter }) {
+function SourceView({ chapter, externalRange = null }: { chapter: Chapter; externalRange?: [number, number] | null }) {
   const lineCount = chapter.source.content.trimEnd().split("\n").length;
+  const [hoveredObservation, setHoveredObservation] = useState<number | null>(null);
+  const [pinnedObservation, setPinnedObservation] = useState<number | null>(null);
+  const focusCodeRef = useRef<HTMLDivElement>(null);
+  const activeObservation = hoveredObservation ?? pinnedObservation;
+  const activeRange = activeObservation === null
+    ? externalRange
+    : chapter.codeGuide.observations[activeObservation]?.lines ?? externalRange;
+  useEffect(() => {
+    if (pinnedObservation === null) return;
+    const line = chapter.codeGuide.observations[pinnedObservation]?.lines[0];
+    if (!line) return;
+    const frame = requestAnimationFrame(() => {
+      focusCodeRef.current
+        ?.querySelector<HTMLElement>(`[data-line="${line}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [chapter.codeGuide.observations, pinnedObservation]);
+  useEffect(() => {
+    if (!externalRange) return;
+    const frame = requestAnimationFrame(() => {
+      focusCodeRef.current
+        ?.querySelector<HTMLElement>(`[data-line="${externalRange[0]}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [externalRange]);
   return (
     <div className="source-view">
       <section className="panel-intro">
-        <span>先看它带来的变化</span>
+        <span>本章只跟一个主文件</span>
         <h3>{chapter.codeGuide.title}</h3>
         <p>{chapter.codeGuide.description}</p>
+        <small className="hover-hint">将鼠标移到说明上；手机可点按。对应代码会突出显示。</small>
         <ol>
-          {chapter.codeGuide.observations.map((observation) => <li key={observation}>{observation}</li>)}
+          {chapter.codeGuide.observations.map((observation, index) => (
+            <li key={observation.text} className={activeObservation === index ? "active" : ""}>
+              <button
+                type="button"
+                aria-pressed={pinnedObservation === index}
+                onMouseEnter={() => setHoveredObservation(index)}
+                onMouseLeave={() => setHoveredObservation(null)}
+                onFocus={() => setHoveredObservation(index)}
+                onBlur={() => setHoveredObservation(null)}
+                onClick={() => setPinnedObservation((current) => current === index ? null : index)}
+              >
+                <span>{observation.text}</span>
+                <small>{formatLineRange(observation.lines)}</small>
+              </button>
+            </li>
+          ))}
         </ol>
       </section>
-      <div className="focus-code">
+      <div ref={focusCodeRef} className="focus-code">
         <div className="file-label">
           <span>{chapter.source.path} · 第 {chapter.source.startLine}–{chapter.source.endLine} 行</span>
           <button onClick={() => navigator.clipboard?.writeText(chapter.source.excerpt)}>复制片段</button>
         </div>
-        <CodeBlock code={chapter.source.excerpt} startLine={chapter.source.startLine} language={languageForPath(chapter.source.path)} />
+        <CodeBlock
+          code={chapter.source.excerpt}
+          startLine={chapter.source.startLine}
+          language={languageForPath(chapter.source.path)}
+          highlightedRange={activeRange}
+        />
       </div>
       <details className="technical-details full-source">
         <summary><span>完整源文件</span><b>{lineCount} 行 · 按需展开</b></summary>
@@ -688,24 +1069,36 @@ function CodeBlock({
   startLine = 1,
   diff = false,
   language = "typescript",
+  highlightedRange = null,
 }: {
   code: string;
   startLine?: number;
   diff?: boolean;
   language?: string;
+  highlightedRange?: [number, number] | null;
 }) {
   const lines = code.trimEnd().split("\n");
   const languages = diffLanguages(lines, language);
   return (
-    <div className="code-lines" role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
-      {lines.map((line, index) => (
-        <div key={index} className={diff ? diffClass(line) : ""}>
-          <span className="line-no">{String(startLine + index).padStart(3, "0")}</span>
+    <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
+      {lines.map((line, index) => {
+        const lineNumber = startLine + index;
+        const highlighted = highlightedRange !== null
+          && lineNumber >= highlightedRange[0]
+          && lineNumber <= highlightedRange[1];
+        return (
+        <div
+          key={index}
+          data-line={lineNumber}
+          className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""}`.trim()}
+        >
+          <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
           {diff
             ? <DiffCodeLine line={line} language={languages[index] ?? language} />
             : <SyntaxCode code={line || " "} language={language} />}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -928,77 +1321,44 @@ function isMobileTabActive(current: MobileTab, item: MobileTab): boolean {
   return current === item;
 }
 
-interface RunNarrative {
-  title: string;
-  steps: Array<{ label: string; detail: string }>;
-  result: string;
-  resultDetail: string;
+function isPanelAvailable(chapter: Chapter, tab: PanelTab): boolean {
+  if (tab === "events") return chapter.events.length > 0;
+  if (tab === "graph") return chapter.graphs.length > 0;
+  return true;
 }
 
-function runNarrative(number: string): RunNarrative {
-  const narratives: Record<string, RunNarrative> = {
-    "01": {
-      title: "跑一次“读取—提交—收尾”",
-      steps: [
-        { label: "读取事故包", detail: "模型选择 read_incident_packet，运行框架执行这个工具。" },
-        { label: "提交恢复方案", detail: "工具结果回到下一次模型输入，模型据此提交 ASTER 路线。" },
-        { label: "结束本轮", detail: "模型不再调用工具，循环返回最后一条回复。" },
-      ],
-      result: "ASTER 路线通过校验",
-      resultDetail: "这里原先显示的“3 model steps”，指上面的三次模型输入。",
-    },
-    "02": {
-      title: "把一段长遥测送进上下文投影",
-      steps: [
-        { label: "保存完整结果", detail: "工具返回的遥测原文进入执行记录，供回看和核对。" },
-        { label: "裁剪模型副本", detail: "发送给模型的版本只保留开头、结尾和省略说明。" },
-        { label: "比较相邻输入", detail: "页面计算两次模型输入从开头起有多少内容相同。" },
-      ],
-      result: "模型输入缩短，完整遥测仍在记录中",
-      resultDetail: "请求面板可以展开查看两种文本各自放在哪里。",
-    },
-    "03": {
-      title: "安装一次插件，再完整卸载",
-      steps: [
-        { label: "建立影响清单", detail: "安装期登记插件带来的工具、服务、提示词和监听器。" },
-        { label: "完成挂载", detail: "安装成功后，这些能力进入当前运行环境。" },
-        { label: "反向清理", detail: "卸载函数按相反顺序撤回登记过的影响。" },
-      ],
-      result: "插件离场后没有残留能力",
-      resultDetail: "能力关系视图可以核对挂载后的归属。",
-    },
-    "04": {
-      title: "从事件记录还原一次模型输入",
-      steps: [
-        { label: "找到请求头", detail: "stepId 定位到当时的规则、工具目录与投影设置。" },
-        { label: "收集此前事件", detail: "用户消息、模型回复与工具结果按发生顺序进入历史。" },
-        { label: "应用摘要点", detail: "若已有摘要，就从摘要和之后的新事件继续拼装。" },
-      ],
-      result: "当时发送给模型的内容可以被重建",
-      resultDetail: "时间线和请求视图来自同一组只追加记录。",
-    },
-    "05": {
-      title: "临时加入路线评分能力",
-      steps: [
-        { label: "检查受信任目录", detail: "安装动作只接受目录中登记过的能力名称。" },
-        { label: "挂载评分插件", detail: "下一次模型输入会多出 score_routes 工具与对应规则。" },
-        { label: "使用后卸载", detail: "评分结束后，临时工具和规则一起移除。" },
-      ],
-      result: "评分能力只在实验期间出现",
-      resultDetail: "切换模型步骤，可以看到工具目录随安装状态变化。",
-    },
-    "06": {
-      title: "让同一任务走完调查、评分和提交",
-      steps: [
-        { label: "第一轮 · 调查", detail: "读取事故包并检查当前运行环境。" },
-        { label: "第二轮 · 评分", detail: "安装临时评分能力，比较三条候选路线。" },
-        { label: "第三轮 · 提交", detail: "移除临时能力，提交通过约束的 ASTER 路线。" },
-      ],
-      result: "任务在第三轮完成",
-      resultDetail: "每轮的继续与停止原因都写入时间线。",
-    },
-  };
-  return narratives[number] ?? narratives["01"]!;
+function formatLineRange(range: [number, number]): string {
+  return range[0] === range[1] ? `第 ${range[0]} 行` : `第 ${range[0]}–${range[1]} 行`;
+}
+
+function messageRoleLabel(role: string): string {
+  if (role === "user") return "用户";
+  if (role === "assistant") return "模型";
+  if (role === "tool") return "工具";
+  if (role === "system") return "摘要";
+  return "记录";
+}
+
+function messagePreview(message: { role: string; content: string; name?: string }): string {
+  if (message.role === "user") return "检查火星中继站并提交恢复方案";
+  if (message.role === "system") return "较早记录的简短摘要";
+  if (message.role === "tool" && message.name === "read_incident_packet") return "3 条候选路线，RELAY-7 温度过高";
+  if (message.role === "tool" && message.name === "submit_recovery_plan") return "ASTER 方案通过";
+  if (message.role === "assistant" && message.content.includes("accepted")) return "方案已经通过，准备结束";
+  if (message.role === "assistant" && message.content.includes("submit")) return "提交 ASTER 恢复方案";
+  if (message.role === "assistant") return "先读取事故包";
+  return truncate(message.content, 54);
+}
+
+function toolNameLabel(name: string): string {
+  return ({
+    read_incident_packet: "读取事故包",
+    submit_recovery_plan: "提交恢复方案",
+    inspect_runtime: "检查运行环境",
+    install_capability: "安装工具",
+    remove_capability: "移除工具",
+    score_routes: "路线评分",
+  } as Record<string, string>)[name] ?? name;
 }
 
 function pressureText(number: string): string {

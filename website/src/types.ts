@@ -78,7 +78,6 @@ export interface Chapter {
   };
   diff: string;
   diffStats: DiffStats;
-  verdict: string;
   requests: RequestEvidence[];
   events: Array<Record<string, unknown> & { id: number; type: string }>;
   trace: TraceItem[];

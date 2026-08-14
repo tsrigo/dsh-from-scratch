@@ -7,16 +7,16 @@
     "scenario": "ordinary-loop",
     "sourcePath": "src/agent.ts",
     "lessonPath": "docs/lessons/m01.md",
-    "shortTitle": "工具循环",
+    "shortTitle": "Agent Loop",
     "title": "从一次工具往返开始",
-    "question": "模型怎样把判断变成可验证的动作？",
+    "question": "DSH 的 Agent Loop 是什么样的？",
     "sourceRange": { "start": 70, "end": 91 },
     "codeGuide": {
       "title": "一次往返怎样接上下一步",
       "description": "模型先返回回复和工具调用。运行框架执行每个工具，再把结果放回对话记录；下一次模型请求因此能接着处理真实结果。",
       "observations": [
-        { "text": "把整理好的请求交给模型，等待它给出下一步。", "lines": [73, 73] },
-        { "text": "如果模型没有调用工具，这次用户交互就在这里结束。", "lines": [78, 81] },
+        { "text": "把整理好的请求交给模型，等待它给出下一步。", "lines": [70, 77] },
+        { "text": "如果模型没有调用工具，这次用户交互就在这里结束。", "lines": [78, 82] },
         { "text": "逐个执行工具，并把结果保存给下一次模型请求。", "lines": [83, 91] }
       ]
     },
@@ -38,17 +38,17 @@
     "scenario": "projected-context",
     "sourcePath": "src/context.ts",
     "lessonPath": "docs/lessons/m02.md",
-    "shortTitle": "上下文",
+    "shortTitle": "上下文与缓存复用",
     "title": "让稳定前缀保持稳定",
-    "question": "完整记录和模型上下文为什么要分开管理？",
+    "question": "上下文是怎样组织的，为缓存复用做了什么优化？",
     "sourceRange": { "start": 49, "end": 67 },
     "codeGuide": {
       "title": "长工具结果怎样变成适合模型阅读的版本",
       "description": "完整结果继续留在执行记录里；发送给模型时，只保留开头、结尾和明确的省略说明，避免一段遥测挤占后续对话空间。",
       "observations": [
-        { "text": "短结果原样通过，不增加额外处理。", "lines": [53, 55] },
+        { "text": "短结果原样通过，不增加额外处理。", "lines": [49, 55] },
         { "text": "省略标记写明删去了多少字符。", "lines": [56, 60] },
-        { "text": "长结果保留头尾，模型仍能看到身份信息和结论。", "lines": [61, 66] }
+        { "text": "长结果保留头尾，模型仍能看到身份信息和结论。", "lines": [61, 67] }
       ]
     },
     "changeStory": {
@@ -69,16 +69,16 @@
     "scenario": "plugin-kernel",
     "sourcePath": "src/runtime.ts",
     "lessonPath": "docs/lessons/m03.md",
-    "shortTitle": "插件组装",
+    "shortTitle": "一切皆插件",
     "title": "给每项能力一个主人",
-    "question": "一项能力怎样完整安装，也完整离场？",
+    "question": "如何实现“一切皆插件”？",
     "sourceRange": { "start": 45, "end": 76 },
     "codeGuide": {
       "title": "安装失败和主动卸载共用一套清理路径",
       "description": "插件安装时登记自己带来的服务、工具、提示词和监听器。安装失败或用户卸载时，登记过的影响会按相反顺序撤回。",
       "observations": [
         { "text": "安装开始时先建立一份影响清单。", "lines": [45, 50] },
-        { "text": "setup 报错会触发回滚，不留下半安装状态。", "lines": [51, 60] },
+        { "text": "setup 报错会触发回滚，不留下半安装状态。", "lines": [51, 61] },
         { "text": "返回的卸载函数只执行一次，并同步清理关联关系。", "lines": [62, 76] }
       ]
     },
@@ -100,15 +100,15 @@
     "scenario": "event-history",
     "sourcePath": "src/session.ts",
     "lessonPath": "docs/lessons/m04.md",
-    "shortTitle": "过程日志",
+    "shortTitle": "让运行有迹可循",
     "title": "只保留一份历史",
-    "question": "怎样从发生过的事件重建任意模型请求？",
+    "question": "DSH 怎么记录和保存 Agent 执行过程？",
     "sourceRange": { "start": 130, "end": 153 },
     "codeGuide": {
       "title": "一份模型请求如何从过程记录中还原",
       "description": "函数先找到目标步骤的请求头，再读取它之前发生的事件。若已有上下文摘要点，就从摘要与后续事件继续拼装。",
       "observations": [
-        { "text": "stepId 指定要回看的模型步骤。", "lines": [130, 136] },
+        { "text": "stepId 指定要回看的模型步骤。", "lines": [130, 137] },
         { "text": "请求头之前的事件构成这一步的历史。", "lines": [138, 143] },
         { "text": "找到摘要点后，从摘要和后续事件继续拼装。", "lines": [144, 153] }
       ]
@@ -131,9 +131,9 @@
     "scenario": "trusted-experiment",
     "sourcePath": "src/runtime-tools.ts",
     "lessonPath": "docs/lessons/m05.md",
-    "shortTitle": "受控实验",
+    "shortTitle": "运行时自进化",
     "title": "先试装，再决定",
-    "question": "创造模式的运行时实验，边界在哪里？",
+    "question": "DSH 是如何持续自进化的？",
     "sourceRange": { "start": 57, "end": 72 },
     "codeGuide": {
       "title": "临时能力只能从受信任目录中选择",
@@ -141,7 +141,7 @@
       "observations": [
         { "text": "输入规则只接受目录中已经登记的名称。", "lines": [57, 60] },
         { "text": "重复安装和未知名称都会返回可读错误。", "lines": [61, 64] },
-        { "text": "安装复用插件挂载流程，并返回更新后的工具目录。", "lines": [65, 71] }
+        { "text": "安装复用插件挂载流程，并返回更新后的工具目录。", "lines": [65, 72] }
       ]
     },
     "changeStory": {
@@ -162,9 +162,9 @@
     "scenario": "long-task",
     "sourcePath": "src/scenario.ts",
     "lessonPath": "docs/lessons/m06.md",
-    "shortTitle": "分轮任务",
+    "shortTitle": "长程任务续行",
     "title": "把同一目标带到下一轮",
-    "question": "长程续行怎样知道该继续，还是该停？",
+    "question": "DSH 是如何持续完成长程任务的？",
     "sourceRange": { "start": 31, "end": 48 },
     "codeGuide": {
       "title": "三轮工作各自有明确任务和边界",
