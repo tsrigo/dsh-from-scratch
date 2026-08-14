@@ -31,6 +31,11 @@ import {
   replayEventGroup,
   replayStageHold,
 } from "./replay-timing.js";
+import {
+  chapterFills,
+  newLineNumbers,
+  snapshotForCheckpoint,
+} from "./scroll-sync.js";
 
 const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
   { id: "source", label: "源码细读" },
@@ -84,23 +89,16 @@ type LessonBlock =
   | { kind: "paragraph"; text: string }
   | LessonEvidenceBlock;
 
-const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
-  { id: "article", label: "正文" },
-  { id: "more", label: "证据" },
-];
-
 export function App() {
   const [language, setLanguage] = useState<TutorialLanguage>(initialLanguage);
   const [data, setData] = useState<TutorialData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState("chapter-1");
-  const [tab, setTab] = useState<PanelTab>("source");
-  const [mobileTabs, setMobileTabs] = useState<Record<string, MobileTab>>({});
-  const [step, setStep] = useState(0);
-  const [evidenceSync, setEvidenceSync] = useState<EvidenceSync | null>(null);
-  const [followingNarrative, setFollowingNarrative] = useState(true);
+  const [checkpoint, setCheckpoint] = useState<number | null>(null);
+  const [locked, setLocked] = useState(false);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
-  const latestNarrativeTargets = useRef(new Map<string, EvidenceTarget>());
+  const activeChapterIdRef = useRef(activeChapterId);
+  useEffect(() => { activeChapterIdRef.current = activeChapterId; }, [activeChapterId]);
 
   useEffect(() => {
     let current = true;
@@ -115,20 +113,9 @@ export function App() {
       .then((nextData) => {
         if (!current) return;
         const firstChapter = nextData.chapters[0];
-        const initialEvidence = chapterDefaultEvidence(firstChapter);
         setData(nextData);
         setActiveChapterId(firstChapter?.id ?? "chapter-1");
-        setTab(initialEvidence.tab);
-        setStep(initialEvidence.step ?? 0);
-        setEvidenceSync(firstChapter ? {
-          ...initialEvidence,
-          chapterId: firstChapter.id,
-          version: 1,
-          origin: "default",
-        } : null);
-        setFollowingNarrative(true);
-        latestNarrativeTargets.current.clear();
-        setMobileTabs({});
+        setCheckpoint(null);
       })
       .catch((reason: unknown) => {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -137,36 +124,74 @@ export function App() {
   }, [language]);
 
   useEffect(() => {
-    if (!data) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
-        const id = visible?.target.getAttribute("data-chapter");
-        if (id) {
-          setActiveChapterId((current) => {
-            if (current !== id) {
-              const chapter = data.chapters.find((item) => item.id === id);
-              const target = chapterDefaultEvidence(chapter);
-              setTab(target.tab);
-              setStep(target.step ?? 0);
-              setEvidenceSync((sync) => ({
-                ...target,
-                chapterId: id,
-                version: (sync?.version ?? 0) + 1,
-                origin: "default",
-              }));
-              setFollowingNarrative(true);
-            }
-            return id;
-          });
+    if (!data || locked) return;
+    // 全局滚动联动（nano-dsh Reader 同款）：遍历所有填充锚点，激活
+    // 「最后一个顶部越过视口 25% 线」的锚点；向上滚动时锚点回退，
+    // 编辑器随之回退（代码段逐段消失）；滚回页面顶部时清空编辑器。
+    // 用 scroll 监听而不是 IntersectionObserver：IO 在快速滚动/拖滚动条
+    // 时会跳过中间帧，锚点从未进入观察带就不会触发回调，编辑器会卡住。
+    const onScroll = () => {
+      const anchors = [...document.querySelectorAll<HTMLElement>("[data-fill-cp]")];
+      if (anchors.length === 0) return;
+      const line = window.innerHeight * 0.25;
+      let current: { chapterId: string; cp: number } | null = null;
+      for (const anchor of anchors) {
+        if (anchor.getBoundingClientRect().top <= line) {
+          const chapterId = anchor.getAttribute("data-chapter");
+          const cp = anchor.getAttribute("data-fill-cp");
+          if (chapterId && cp !== null) {
+            current = { chapterId, cp: Number(cp) };
+          }
         }
-      },
-      { rootMargin: "-22% 0px -54% 0px", threshold: [0.05, 0.3, 0.65] },
-    );
-    for (const section of sectionRefs.current.values()) observer.observe(section);
-    return () => observer.disconnect();
+      }
+      // 末尾兜底：最后一个锚点后面没有足够内容把它顶过 25% 线，
+      // 用户一旦滚到底部（读完了），就激活它。
+      const atBottom =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 8;
+      if (atBottom) {
+        const last = anchors[anchors.length - 1];
+        if (last) {
+          const chapterId = last.getAttribute("data-chapter");
+          const cp = last.getAttribute("data-fill-cp");
+          if (chapterId && cp !== null) {
+            current = { chapterId, cp: Number(cp) };
+          }
+        }
+      }
+      if (!current) {
+        setCheckpoint(null);
+        return;
+      }
+      if (current.chapterId !== activeChapterIdRef.current) {
+        setActiveChapterId(current.chapterId);
+      }
+      setCheckpoint((previous) => previous === current!.cp ? previous : current!.cp);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [data, locked]);
+
+  // URL hash 章节导航：刷新/前进后退保持章节位置；切换章节 = 换文件 + 滚到章首。
+  useEffect(() => {
+    if (!data) return;
+    const fromHash = () => {
+      const hash = window.location.hash.slice(1);
+      const chapter = data.chapters.find((candidate) => candidate.id === hash);
+      if (!chapter) return;
+      setActiveChapterId(chapter.id);
+      setCheckpoint(null);
+      requestAnimationFrame(() => {
+        sectionRefs.current.get(chapter.id)?.scrollIntoView({ behavior: "auto", block: "start" });
+      });
+    };
+    fromHash();
+    window.addEventListener("hashchange", fromHash);
+    return () => window.removeEventListener("hashchange", fromHash);
   }, [data]);
 
   const activeChapter = useMemo(
@@ -177,38 +202,16 @@ export function App() {
   if (error) return <LoadFailure message={error} />;
   if (!data || !activeChapter) return <Loading />;
 
-  const showEvidence = (
-    chapter: Chapter,
-    target: EvidenceTarget,
-    origin: EvidenceSync["origin"],
-    openOnCompact = false,
-  ) => {
-    setActiveChapterId(chapter.id);
-    setTab(target.tab);
-    setStep(target.step ?? 0);
-    setEvidenceSync((current) => ({
-      ...target,
-      chapterId: chapter.id,
-      version: (current?.version ?? 0) + 1,
-      origin,
-    }));
-
-    if (openOnCompact && window.matchMedia("(max-width: 960px)").matches) {
-      setMobileTabs((current) => ({ ...current, [chapter.id]: target.tab }));
-      requestAnimationFrame(() => {
-        sectionRefs.current
-          .get(chapter.id)
-          ?.querySelector<HTMLElement>(".mobile-switcher")
-          ?.scrollIntoView({ behavior: "auto", block: "start" });
-      });
-    }
-  };
+  const fills = chapterFills(activeChapter);
+  // 进度含「空」起始态：锚点总数 = 骨架 + body 段
+  const progress = checkpoint === null || fills.length === 0
+    ? 0
+    : Math.round(((checkpoint + 1) / (fills.length + 1)) * 100);
 
   const navigateTo = (chapter: Chapter) => {
-    const target = chapterDefaultEvidence(chapter);
-    showEvidence(chapter, target, "default");
-    setFollowingNarrative(true);
-    setMobileTabs({});
+    setActiveChapterId(chapter.id);
+    setCheckpoint(null);
+    window.history.pushState(null, "", `#${chapter.id}`);
     const compact = window.matchMedia("(max-width: 960px)").matches;
     const scroll = () => sectionRefs.current.get(chapter.id)?.scrollIntoView({
       behavior: compact ? "auto" : "smooth",
@@ -238,7 +241,16 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <Header data={data} activeId={activeChapter.id} language={language} onLanguage={switchLanguage} onNavigate={navigateTo} />
+      <Header
+        data={data}
+        activeId={activeChapter.id}
+        language={language}
+        onLanguage={switchLanguage}
+        onNavigate={navigateTo}
+        locked={locked}
+        onToggleLock={() => setLocked((current) => !current)}
+        progress={progress}
+      />
       <main>
         <Hero data={data} onStart={navigateToQuestions} />
         <BuildPrelude chapters={data.chapters} onStart={() => navigateTo(data.chapters[0]!)} />
@@ -250,59 +262,16 @@ export function App() {
               <ChapterArticle
                 key={chapter.id}
                 chapter={chapter}
-                chapters={data.chapters}
                 active={activeChapter.id === chapter.id}
-                mobileTab={mobileTabs[chapter.id] ?? "article"}
                 sectionRef={(node) => {
                   if (node) sectionRefs.current.set(chapter.id, node);
                 }}
-                onMobileTab={(nextTab) => {
-                  setActiveChapterId(chapter.id);
-                  setFollowingNarrative(false);
-                  setEvidenceSync(null);
-                  setMobileTabs((current) => ({ ...current, [chapter.id]: nextTab }));
-                  if (nextTab !== "article" && nextTab !== "more") setTab(nextTab);
-                }}
-                onNarrativeFocus={(target) => {
-                  latestNarrativeTargets.current.set(chapter.id, target);
-                  if (followingNarrative) showEvidence(chapter, target, "scroll");
-                }}
-                onNarrativePreview={(target) => {
-                  latestNarrativeTargets.current.set(chapter.id, target);
-                  showEvidence(chapter, target, "hover");
-                }}
-                onNarrativeClick={(target) => {
-                  latestNarrativeTargets.current.set(chapter.id, target);
-                  setFollowingNarrative(true);
-                  showEvidence(chapter, target, "click", true);
-                }}
-                evidenceSync={evidenceSync?.chapterId === chapter.id ? evidenceSync : null}
-                step={step}
+                checkpoint={checkpoint}
               />
             ))}
           </article>
-          <aside className="evidence-dock" aria-label="随章节更新的学习面板">
-            <EvidencePanel
-              chapter={activeChapter}
-              chapters={data.chapters}
-              tab={tab}
-              step={step}
-              following={followingNarrative}
-              onFollowingChange={(nextFollowing) => {
-                setFollowingNarrative(nextFollowing);
-                if (nextFollowing) {
-                  const target = latestNarrativeTargets.current.get(activeChapter.id)
-                    ?? chapterDefaultEvidence(activeChapter);
-                  showEvidence(activeChapter, target, "scroll");
-                }
-              }}
-              onSelect={(target) => {
-                setFollowingNarrative(false);
-                latestNarrativeTargets.current.set(activeChapter.id, target);
-                showEvidence(activeChapter, target, "click");
-              }}
-              sync={evidenceSync?.chapterId === activeChapter.id ? evidenceSync : null}
-            />
+          <aside className="code-dock" aria-label="随正文逐段补全的源码">
+            <CodeDock chapter={activeChapter} checkpoint={checkpoint} />
           </aside>
         </div>
       </main>
@@ -1088,12 +1057,18 @@ function Header({
   language,
   onLanguage,
   onNavigate,
+  locked,
+  onToggleLock,
+  progress,
 }: {
   data: TutorialData;
   activeId: string;
   language: TutorialLanguage;
   onLanguage: (language: TutorialLanguage) => void;
   onNavigate: (chapter: Chapter) => void;
+  locked: boolean;
+  onToggleLock: () => void;
+  progress: number;
 }) {
   return (
     <header className="site-header">
@@ -1116,6 +1091,25 @@ function Header({
         ))}
       </nav>
       <div className="header-actions">
+        <div
+          className="progress-track"
+          role="progressbar"
+          aria-valuenow={progress}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          title="本章代码补全进度"
+        >
+          <div className="progress-bar" style={{ width: `${progress}%` }} />
+        </div>
+        <button
+          type="button"
+          className={`lock-button ${locked ? "active" : ""}`}
+          onClick={onToggleLock}
+          aria-pressed={locked}
+          title={locked ? "已锁定：代码不再随滚动变化" : "解锁：代码随滚动逐段补全"}
+        >
+          {locked ? "🔒" : "🔓"}
+        </button>
         <div className="language-switch" role="group" aria-label="教程实现语言">
           <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
           <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
@@ -1159,33 +1153,43 @@ function Hero({ data, onStart }: { data: TutorialData; onStart: () => void }) {
   );
 }
 
+type LessonFlowItem =
+  | LessonBlock
+  | { kind: "fill"; fillIndex: number };
+
+/** 正文流 = 骨架卡（第一个锚点，checkpoint 0）+ body 填充卡（1..n）按比例交错插入。
+ * 卡片是滚动联动的锚点（data-chapter + data-fill-cp）。 */
+function interleaveFillCards(blocks: LessonBlock[], chapter: Chapter): LessonFlowItem[] {
+  const fills = chapterFills(chapter);
+  const bodyCount = Math.max(fills.length - 1, 0);
+  const result: LessonFlowItem[] = [{ kind: "fill", fillIndex: 0 }];
+  const denominator = blocks.length || 1;
+  let placed = 0;
+  blocks.forEach((block, index) => {
+    result.push(block);
+    const target = Math.round(((index + 1) * bodyCount) / denominator);
+    while (placed < target && placed < bodyCount) {
+      result.push({ kind: "fill", fillIndex: placed + 1 });
+      placed += 1;
+    }
+  });
+  return result;
+}
+
 function ChapterArticle({
   chapter,
-  chapters,
   active,
-  mobileTab,
   sectionRef,
-  onMobileTab,
-  onNarrativeFocus,
-  onNarrativePreview,
-  onNarrativeClick,
-  evidenceSync,
-  step,
+  checkpoint,
 }: {
   chapter: Chapter;
-  chapters: Chapter[];
   active: boolean;
-  mobileTab: MobileTab;
   sectionRef: (node: HTMLElement | null) => void;
-  onMobileTab: (tab: MobileTab) => void;
-  onNarrativeFocus: (target: EvidenceTarget) => void;
-  onNarrativePreview: (target: EvidenceTarget) => void;
-  onNarrativeClick: (target: EvidenceTarget) => void;
-  evidenceSync: EvidenceSync | null;
-  step: number;
+  checkpoint: number | null;
 }) {
   const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
-  const evidenceCount = lesson.filter((block) => block.kind === "evidence").length;
+  const flow = useMemo(() => interleaveFillCards(lesson, chapter), [lesson, chapter]);
+  const fills = chapterFills(chapter);
   return (
     <section
       ref={sectionRef}
@@ -1196,7 +1200,7 @@ function ChapterArticle({
       <div className="chapter-rail">
         <span>{chapterNumeral(chapter.number)}</span><i />
       </div>
-      <div className={`chapter-content ${mobileTab === "article" ? "" : "showing-panel"}`}>
+      <div className="chapter-content">
         <div className="chapter-kicker">
           <span>{chapterName(chapter.number)}</span>
           <span>本章主题 · {chapter.shortTitle}</span>
@@ -1208,418 +1212,397 @@ function ChapterArticle({
           </div>
           <h2>{chapter.title}</h2>
           <p className="chapter-question">{chapter.question}</p>
-          <div className="reading-order" aria-label="正文与右栏的联动顺序">
-            <span><b>→</b>右栏按 {Number(chapter.number)}.1 至 {Number(chapter.number)}.{evidenceCount} 跟随正文</span>
+          <div className="reading-order" aria-label="正文与代码的联动顺序">
+            <span><b>→</b>滚动正文，右侧代码逐段补全：先见骨架，再见实现</span>
           </div>
         </div>
-        <div className="mobile-switcher" role="tablist" aria-label="移动端章节视图">
-          {MOBILE_TABS.map((item) => (
-            <button
-              key={item.id}
-              className={isMobileTabActive(mobileTab, item.id) ? "active" : ""}
-              onClick={() => onMobileTab(item.id)}
-              aria-selected={isMobileTabActive(mobileTab, item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <CodeGuideCard chapter={chapter} />
+        <div className="lesson-copy">
+          {flow.map((item, index) => {
+            if (item.kind === "heading") return <h3 key={index}>{item.text}</h3>;
+            if (item.kind === "paragraph") return <p key={index}>{renderInlineCode(item.text)}</p>;
+            if (item.kind === "fill") {
+              const fill = fills[item.fillIndex];
+              if (!fill) return null;
+              return (
+                <FillCard
+                  key={item.fillIndex}
+                  chapter={chapter}
+                  fillIndex={item.fillIndex}
+                  fill={fill}
+                  active={checkpoint !== null && checkpoint >= item.fillIndex}
+                />
+              );
+            }
+            return <EvidenceContentCard key={item.id} chapter={chapter} block={item} />;
+          })}
         </div>
-        <div className={`chapter-body ${mobileTab === "article" ? "mobile-active" : ""}`}>
-          <LessonNarrative
-            blocks={lesson}
-            chapterNumber={chapter.number}
-            active={active}
-            activeCueId={evidenceSync?.cueId ?? null}
-            onCueFocus={onNarrativeFocus}
-            onCuePreview={onNarrativePreview}
-            onCueClick={onNarrativeClick}
-          />
-        </div>
-        <div className={`mobile-panel ${mobileTab !== "article" ? "mobile-active" : ""}`}>
-          {mobileTab === "more" && <MoreEvidence chapter={chapter} onSelect={onNarrativeClick} />}
-          {mobileTab !== "article" && mobileTab !== "more" && (
-            <EvidencePanel
-              chapter={chapter}
-              chapters={chapters}
-              tab={mobileTab}
-              step={step}
-              onSelect={onNarrativeClick}
-              sync={evidenceSync}
-              compact
-            />
-          )}
+        <ChapterSummaryCard chapter={chapter} />
+        <div className="chapter-code-mobile">
+          <CodeDock chapter={chapter} checkpoint={checkpoint} />
         </div>
       </div>
     </section>
   );
 }
 
-function LessonNarrative({
-  blocks,
-  chapterNumber,
+function CodeGuideCard({ chapter }: { chapter: Chapter }) {
+  return (
+    <section className="code-guide-card" aria-label="本章源码导览">
+      <span>本章源码导览</span>
+      <h3>{chapter.codeGuide.title}</h3>
+      <p>{chapter.codeGuide.description}</p>
+    </section>
+  );
+}
+
+/** 正文中的填充卡片：滚动锚点 + 该实现段的教学解释（取首个重叠观察点的 text）。
+ * fillIndex 0 是骨架卡：进入章节后第一个锚点，激活时右侧呈现类/函数抽象。 */
+function FillCard({
+  chapter,
+  fillIndex,
+  fill,
   active,
-  activeCueId,
-  onCueFocus,
-  onCuePreview,
-  onCueClick,
 }: {
-  blocks: LessonBlock[];
-  chapterNumber: string;
+  chapter: Chapter;
+  fillIndex: number;
+  fill: NonNullable<Chapter["codeGuide"]["fills"]>[number];
   active: boolean;
-  activeCueId: string | null;
-  onCueFocus: (target: EvidenceTarget) => void;
-  onCuePreview: (target: EvidenceTarget) => void;
-  onCueClick: (target: EvidenceTarget) => void;
 }) {
-  const cueRefs = useRef(new Map<string, HTMLElement>());
-  const focusCallback = useRef(onCueFocus);
-  const lastFocusedCue = useRef<string | null>(null);
-
-  useEffect(() => { focusCallback.current = onCueFocus; }, [onCueFocus]);
-
-  useEffect(() => {
-    if (!active || window.matchMedia("(max-width: 960px)").matches) {
-      lastFocusedCue.current = null;
-      return;
-    }
-
-    const elements = [...cueRefs.current.values()];
-    if (elements.length === 0) return;
-
-    let frame = 0;
-    const evaluate = () => {
-      frame = 0;
-      const focusY = window.innerHeight * 0.4;
-      const positions = elements
-        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
-      const atPageEnd = window.scrollY + window.innerHeight
-        >= document.documentElement.scrollHeight - 4;
-      const candidate = atPageEnd
-        ? positions.at(-1)
-        : positions
-        .filter(({ rect }) => rect.bottom > 0 && rect.top < window.innerHeight)
-        .sort(
-          (left, right) =>
-            Math.abs(left.rect.top - focusY) - Math.abs(right.rect.top - focusY),
-        )[0];
-      const cueId = candidate?.element.getAttribute("data-evidence-cue");
-      if (!cueId || cueId === lastFocusedCue.current) return;
-      const block = blocks.find(
-        (item): item is LessonEvidenceBlock => item.kind === "evidence" && item.id === cueId,
-      );
-      if (!block) return;
-      lastFocusedCue.current = cueId;
-      focusCallback.current(block.target);
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(evaluate);
-    };
-
-    schedule();
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
-    return () => {
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
-      if (frame) cancelAnimationFrame(frame);
-    };
-  }, [active, blocks]);
-
+  const observation = fillIndex > 0
+    ? chapter.codeGuide.observations.find(
+        (item) =>
+          fill.ranges.some(
+            ([start, end]) => item.lines[0] >= start && item.lines[0] <= end,
+          ),
+      )
+    : undefined;
   return (
-    <div className="lesson-copy">
-      {blocks.map((block, index) => {
-        if (block.kind === "heading") return <h3 key={index}>{block.text}</h3>;
-        if (block.kind === "paragraph") return <p key={index}>{renderInlineCode(block.text)}</p>;
-        const selected = block.id === activeCueId;
-        return (
-          <aside
-            key={block.id}
-            ref={(node) => {
-              if (node) cueRefs.current.set(block.id, node);
-              else cueRefs.current.delete(block.id);
-            }}
-            data-evidence-cue={block.id}
-            className={`evidence-cue ${selected ? "active" : ""}`}
-          >
-            <button
-              type="button"
-              aria-pressed={selected}
-              onMouseEnter={() => onCuePreview(block.target)}
-              onFocus={() => onCuePreview(block.target)}
-              onClick={() => onCueClick(block.target)}
-            >
-              <span className="evidence-cue-index">{Number(chapterNumber)}.{block.ordinal}</span>
-              <strong>{block.label}</strong>
-              <span className="evidence-cue-description">{block.description}</span>
-            </button>
-          </aside>
-        );
-      })}
+    <div
+      className={`fill-card ${fill.kind === "skeleton" ? "skeleton" : ""} ${active ? "done" : ""}`}
+      data-chapter={chapter.id}
+      data-fill-cp={fillIndex}
+    >
+      <span className="fill-card-index">{fillIndex === 0 ? "骨架" : `代码 ${fillIndex}`}</span>
+      <h4>{fill.label}</h4>
+      {observation && <p>{observation.text}</p>}
     </div>
   );
 }
 
-function MoreEvidence({ chapter, onSelect }: { chapter: Chapter; onSelect: (target: EvidenceTarget) => void }) {
-  const sections = lessonEvidenceBlocks(chapter.lesson);
+/** 证据卡：lesson 里的 evidence 块，按 target.tab 渲染压缩版内容。 */
+function EvidenceContentCard({ chapter, block }: { chapter: Chapter; block: LessonEvidenceBlock }) {
+  const target = block.target;
   return (
-    <section className="mobile-more">
-      <span>本章顺序</span>
-      <h3>从 {Number(chapter.number)}.1 读到总结</h3>
-      <p>每一项只回答正文旁边的一个问题。</p>
-      <div>
-        {sections.map((section) => (
-          <button key={section.id} onClick={() => onSelect(section.target)}>
-            <b>{Number(chapter.number)}.{section.ordinal} · {section.label}</b>
-            <span>{section.description}</span>
-          </button>
-        ))}
+    <section className={`evidence-content-card evidence-${target.tab}`} data-evidence-cue={block.id}>
+      <div className="evidence-content-heading">
+        <span>{Number(chapter.number)}.{block.ordinal}</span>
+        <h4>{block.label}</h4>
       </div>
+      <p className="evidence-content-description">{block.description}</p>
+      {target.tab === "request" && <RequestCard chapter={chapter} target={target} />}
+      {target.tab === "events" && <TraceCard chapter={chapter} />}
+      {target.tab === "graph" && <GraphCard chapter={chapter} />}
+      {target.tab === "diff" && <SummaryCard chapter={chapter} />}
     </section>
   );
 }
 
-function EvidencePanel({
+function ChapterSummaryCard({ chapter }: { chapter: Chapter }) {
+  const { changeStory } = chapter;
+  return (
+    <section className="chapter-summary-card" aria-label="本章总结">
+      <span>本章总结</span>
+      <h3>{changeStory.title}</h3>
+      <p>{changeStory.summary}</p>
+      <dl>
+        <div><dt>Harness 的角色</dt><dd>{changeStory.harnessRole}</dd></div>
+        <div><dt>与全书的连接</dt><dd>{changeStory.connection}</dd></div>
+      </dl>
+      <ul>
+        {changeStory.outcomes.map((outcome) => <li key={outcome}><i>✓</i><span>{outcome}</span></li>)}
+      </ul>
+      <small>本章代码改动 {chapter.diffStats.filesChanged} 个文件 · +{chapter.diffStats.additions} / −{chapter.diffStats.deletions} 行</small>
+    </section>
+  );
+}
+
+/** 手动平滑滚动：rAF 驱动 easeOutCubic，时长随距离 180-420ms。
+ * 通过 frameRef 可取消上一段动画（连续 checkpoint 变化时避免排队）。 */
+function smoothScrollTo(
+  scroller: HTMLElement,
+  targetTop: number,
+  frameRef: { current: number | null },
+): void {
+  if (frameRef.current !== null) {
+    cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }
+  const start = scroller.scrollTop;
+  const delta = targetTop - start;
+  if (Math.abs(delta) < 1) return;
+  const duration = Math.min(620, Math.max(280, Math.abs(delta) * 0.9));
+  const begin = performance.now();
+  const step = (now: number) => {
+    const progress = Math.min(1, (now - begin) / duration);
+    const eased = 1 - Math.pow(1 - progress, 3);
+    scroller.scrollTop = start + delta * eased;
+    frameRef.current = progress < 1 ? requestAnimationFrame(step) : null;
+  };
+  frameRef.current = requestAnimationFrame(step);
+}
+
+/** 代码区：随正文 checkpoint 渐进补全（nano-dsh CodePanel 同款）。
+ * 文件 tab 由章节决定（该章为止已出现的六个主文件，进入章节即全部显示）；
+ * 内容由 checkpoint 驱动：null 为空编辑器（「尚未讲到这个文件」），
+ * 骨架为类/函数抽象，随后实现段逐段补入；checkpoint 变化时 tab 重置回主文件。 */
+function CodeDock({
   chapter,
-  chapters,
-  tab,
-  step,
-  onSelect,
-  following = true,
-  onFollowingChange,
-  sync = null,
-  compact = false,
+  checkpoint,
 }: {
   chapter: Chapter;
-  chapters: Chapter[];
-  tab: PanelTab;
-  step: number;
-  onSelect: (target: EvidenceTarget) => void;
-  following?: boolean;
-  onFollowingChange?: (following: boolean) => void;
-  sync?: EvidenceSync | null;
-  compact?: boolean;
+  checkpoint: number | null;
 }) {
-  const sections = lessonEvidenceBlocks(chapter.lesson);
-  const availableSteps = tab === "graph" ? chapter.graphs.length : chapter.requests.length;
-  const safeStep = Math.min(step, Math.max(availableSteps - 1, 0));
-  const activeSectionId = sync?.cueId
-    ?? sections.find((section) => sameEvidenceLocation(section.target, { tab, step: safeStep }))?.id;
+  const fills = chapterFills(chapter);
+  const extraFiles = chapter.extraFiles ?? [];
+  const mainPath = chapter.source.path;
+  // tab 只依赖章节：主文件 + 该章为止已出现的其余主文件
+  const tabs = [mainPath, ...extraFiles.map((file) => file.path)];
+  const safeCheckpoint = checkpoint === null
+    ? null
+    : Math.min(checkpoint, Math.max(fills.length - 1, 0));
+  const [selected, setSelected] = useState(mainPath);
+  // nano-dsh：checkpoint 变化时重置到该 checkpoint 的默认文件（主文件）
+  useEffect(() => {
+    setSelected(mainPath);
+  }, [safeCheckpoint, chapter.id]);
+  const file = tabs.includes(selected) ? selected : mainPath;
+  const extra = extraFiles.find((candidate) => candidate.path === file);
+  const snapshot = useMemo(
+    () => safeCheckpoint === null
+      ? []
+      : snapshotForCheckpoint(chapter, safeCheckpoint),
+    [chapter, safeCheckpoint],
+  );
+  const previous = useMemo(
+    () => safeCheckpoint === null || safeCheckpoint === 0
+      ? []
+      : snapshotForCheckpoint(chapter, safeCheckpoint - 1),
+    [chapter, safeCheckpoint],
+  );
+  const added = useMemo(
+    () => newLineNumbers(previous, snapshot),
+    [previous, snapshot],
+  );
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const scrollFrameRef = useRef<number | null>(null);
+  // 补全定位（pi-from-scratch 时序 + 平滑滚动）：checkpoint 推进后，
+  // 先平滑滚动到新增代码首行（视口 28% 处），随后打字动画逐行写入。
+  // 平滑滚动用 rAF 手动驱动（easeOutCubic），连续 checkpoint 变化时
+  // 取消上一段动画，避免排队跳变。
+  useEffect(() => {
+    if (safeCheckpoint === null) return;
+    const frame = requestAnimationFrame(() => {
+      const body = bodyRef.current;
+      if (!body) return;
+      const scroller = body.querySelector<HTMLElement>(".code-lines");
+      if (!scroller) return;
+      const firstNew = body.querySelector<HTMLElement>(".code-line.is-new");
+      if (!firstNew) {
+        smoothScrollTo(scroller, 0, scrollFrameRef);
+        return;
+      }
+      const bodyRect = scroller.getBoundingClientRect();
+      const newRect = firstNew.getBoundingClientRect();
+      const targetTop = scroller.scrollTop
+        + newRect.top - bodyRect.top - scroller.clientHeight * 0.28;
+      smoothScrollTo(scroller, Math.max(0, targetTop), scrollFrameRef);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+        scrollFrameRef.current = null;
+      }
+    };
+  }, [safeCheckpoint, chapter.id]);
+
+  const code = snapshot.map((line) => line.text).join("\n");
+  const lineNumbers = snapshot.map((line) => line.number);
+  const language = languageForPath(file);
+  // 写入动画只作用于主文件的新增行（extra 文件为完整查看，不动画）
+  const enteringLines = !extra && safeCheckpoint !== null && safeCheckpoint > 0
+    ? added
+    : null;
   return (
-    <div className={`panel-shell ${compact ? "compact" : ""}`}>
-      <div className="panel-topline">
-        <div><i /> 本章路径</div>
-        {onFollowingChange ? (
-          <button
-            type="button"
-            className={`narrative-follow ${following ? "active" : "paused"}`}
-            aria-pressed={following}
-            onClick={() => onFollowingChange(!following)}
-          >
-            <span />{following ? "跟随正文" : "继续跟随正文"}
-          </button>
-        ) : <span>{chapterName(chapter.number)}</span>}
-      </div>
-      <div className="panel-tabs chapter-evidence-tabs" role="tablist">
-        {sections.map((section) => (
+    <div className="code-dock-shell">
+      {tabs.length > 0 && (
+        <div className="code-tabs" role="tablist" aria-label="已打开的文件">
+          {tabs.map((path) => (
             <button
-              key={section.id}
-              className={activeSectionId === section.id ? "active" : ""}
-              onClick={() => onSelect(section.target)}
-              aria-selected={activeSectionId === section.id}
+              key={path}
+              role="tab"
+              aria-selected={file === path}
+              className={file === path ? "code-tab is-active" : "code-tab"}
+              onClick={() => setSelected(path)}
             >
-              <small>{Number(chapter.number)}.{section.ordinal}</small>
-              <span>{section.label}</span>
+              {path.replace(/^src\//u, "")}
             </button>
-        ))}
+          ))}
+        </div>
+      )}
+      <div className="file-label">
+        <span>
+          {file}
+          {extra ? ` · 完整文件` : fills.length > 0
+            ? safeCheckpoint === null
+              ? " · 尚未开始"
+              : ` · 第 ${safeCheckpoint + 1}/${fills.length} 段`
+            : ""}
+        </span>
+        <button onClick={() => navigator.clipboard?.writeText(extra ? extra.content : code)}>复制</button>
       </div>
-      <div
-        key={`${chapter.id}-${activeSectionId ?? tab}-${safeStep}`}
-        className={`panel-content panel-content-enter ${tab === "source" ? "source-panel-content" : ""}`}
-      >
-        {tab === "source" && <SourceView chapter={chapter} externalRange={sync?.lines ?? null} />}
-        {tab === "diff" && <DiffView chapter={chapter} chapters={chapters} onSelect={onSelect} />}
-        {tab === "request" && <RequestView chapter={chapter} evidence={chapter.requests[safeStep] ?? chapter.requests[0]!} />}
-        {tab === "events" && <TraceView chapter={chapter} focus={sync?.event} />}
-        {tab === "graph" && <GraphView {...(chapter.graphs[safeStep] ? { graph: chapter.graphs[safeStep] } : {})} chapter={chapter} />}
+      <div ref={bodyRef} className="code-dock-body">
+        {extra ? (
+          <CodeBlock
+            code={extra.content}
+            startLine={1}
+            language={language}
+            folds={[]}
+          />
+        ) : safeCheckpoint === null || fills.length === 0 ? (
+          fills.length === 0 ? (
+            <CodeBlock
+              code={code}
+              sourceLineNumbers={lineNumbers}
+              language={language}
+              folds={chapter.codeGuide.folds ?? []}
+            />
+          ) : (
+            <div className="editor-empty">（尚未讲到这个文件）</div>
+          )
+        ) : (
+          <CodeBlock
+            code={code}
+            sourceLineNumbers={lineNumbers}
+            language={language}
+            newLines={safeCheckpoint === 0 ? null : added}
+            enteringLines={enteringLines}
+            folds={chapter.codeGuide.folds ?? []}
+          />
+        )}
+        {!extra && fills.length > 0 && safeCheckpoint !== null && safeCheckpoint < fills.length - 1 && (
+          <p className="code-dock-hint">继续向下滚动正文，下一段代码将补入上方</p>
+        )}
       </div>
     </div>
   );
 }
 
-function SourceView({
-  chapter,
-  externalRange = null,
-}: {
-  chapter: Chapter;
-  externalRange?: [number, number] | null;
-}) {
-  const lineCount = chapter.source.content.trimEnd().split("\n").length;
-  const [hoveredObservation, setHoveredObservation] = useState<number | null>(null);
-  const [pinnedObservation, setPinnedObservation] = useState<number | null>(null);
-  const focusCodeRef = useRef<HTMLDivElement>(null);
-  const externalObservation = externalRange === null
-    ? -1
-    : chapter.codeGuide.observations.findIndex(
-        (observation) => observation.lines[0] === externalRange[0]
-          && observation.lines[1] === externalRange[1],
-      );
-  const activeObservation = hoveredObservation
-    ?? pinnedObservation
-    ?? (externalObservation >= 0 ? externalObservation : null);
-  const activeRange = hoveredObservation !== null || pinnedObservation !== null
-    ? chapter.codeGuide.observations[activeObservation ?? -1]?.lines ?? null
-    : externalRange;
-  const suppressFullExcerptFocus = hoveredObservation === null
-    && pinnedObservation === null
-    && externalRange !== null
-    && externalRange[0] <= chapter.source.startLine
-    && externalRange[1] >= chapter.source.endLine;
-  const displayedRange = suppressFullExcerptFocus ? null : activeRange;
-  const focusLine = displayedRange === null
-    ? null
-    : Math.floor((displayedRange[0] + displayedRange[1]) / 2);
-  useEffect(() => {
-    if (focusLine === null) return;
-    const frame = requestAnimationFrame(() => {
-      const highlighted = [
-        ...(focusCodeRef.current?.querySelectorAll<HTMLElement>(".code-line.highlighted") ?? []),
-      ];
-      const target = highlighted[Math.floor(highlighted.length / 2)]
-        ?? focusCodeRef.current?.querySelector<HTMLElement>(`[data-line="${focusLine}"]`);
-      if (target) scrollEvidenceIntoView(target);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusLine]);
+/** 总结卡（压缩版，供 lesson evidence 块使用）：本章答案 */
+function SummaryCard({ chapter }: { chapter: Chapter }) {
+  const { changeStory } = chapter;
   return (
-    <div className="source-view">
-      <section className="panel-intro">
-        <span>源码细读</span>
-        <h3>{chapter.codeGuide.title}</h3>
-        <p>{chapter.codeGuide.description}</p>
-        <small className="hover-hint">悬停即定位并高亮；点按可固定。代码独立滚动，省略行可展开。</small>
-        <ol>
-          {chapter.codeGuide.observations.map((observation, index) => (
-            <li key={observation.text} className={activeObservation === index ? "active" : ""}>
-              <button
-                type="button"
-                aria-pressed={pinnedObservation === index}
-                onMouseEnter={() => setHoveredObservation(index)}
-                onMouseLeave={() => setHoveredObservation(null)}
-                onFocus={() => setHoveredObservation(index)}
-                onBlur={() => setHoveredObservation(null)}
-                onClick={() => setPinnedObservation((current) => current === index ? null : index)}
-              >
-                <span className="source-guide-copy">
-                  <b>{observation.title}</b>
-                  <span>{observation.text}</span>
-                </span>
-                <small>{formatLineRange(observation.lines)}</small>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </section>
-      <div ref={focusCodeRef} className="focus-code">
-        <div className="file-label">
-          <span>
-            {chapter.source.path} · 第 {chapter.source.startLine}–{chapter.source.endLine} 行
-            {chapter.codeGuide.folds?.length ? ` · 折叠 ${chapter.codeGuide.folds.length} 处实现细节` : ""}
-          </span>
-          <button onClick={() => navigator.clipboard?.writeText(chapter.source.excerpt)}>复制片段</button>
-        </div>
-        <CodeBlock
-          code={chapter.source.excerpt}
-          startLine={chapter.source.startLine}
-          language={languageForPath(chapter.source.path)}
-          highlightedRange={displayedRange}
-          folds={chapter.codeGuide.folds ?? []}
-        />
+    <div className="evidence-card-body summary-card">
+      <p className="summary-question">{chapter.question}</p>
+      <h4>{changeStory.title}</h4>
+      <p>{changeStory.summary}</p>
+      <p className="summary-role"><b>Harness 的角色</b>{changeStory.harnessRole}</p>
+      <p className="summary-connection">{changeStory.connection}</p>
+    </div>
+  );
+}
+
+/** 请求对比卡（压缩版）：相邻请求的 token 估算与首次失效位置 */
+function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTarget }) {
+  const step = target.step ?? Math.min(chapter.requests.length - 1, 1);
+  const evidence = chapter.requests[step] ?? chapter.requests[0]!;
+  return (
+    <div className="evidence-card-body request-card">
+      <p className="request-step-title">第 {evidence.step} 次模型请求</p>
+      <div className="request-metrics">
+        <div><small>整份工作包</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
+        <div><small>与上次相同的开头</small><b>约 {evidence.prefix.sharedApproximateTokens}</b><span>token</span></div>
       </div>
-      <details className="technical-details full-source">
-        <summary><span>完整源文件</span><b>{lineCount} 行 · 按需展开</b></summary>
+      <div className="request-anatomy">
+        <div className="stable"><b>固定区</b><span>系统规则、工具说明</span></div>
+        <div className="append-only"><b>累积区</b><span>用户、模型与工具记录</span></div>
+        <div className="step-variable"><b>本步区</b><span>只服务于当前步骤的说明</span></div>
+      </div>
+      <div className="invalidation">
+        <span>相同开头从这里发生变化</span>
+        <b>{invalidationLabel(evidence.prefix.firstInvalidation)}</b>
+      </div>
+      <details className="technical-details">
+        <summary><span>拆开这份请求</span><b>查看各部件与估算</b></summary>
         <div className="details-body">
-          <div className="file-label">
-            <span>{chapter.source.path}</span>
-            <button onClick={() => navigator.clipboard?.writeText(chapter.source.content)}>复制全文</button>
-          </div>
-          <CodeBlock code={chapter.source.content} language={languageForPath(chapter.source.path)} />
+          {evidence.parts.map((part) => (
+            <details key={part.id} className={part.stability}>
+              <summary>
+                <span>{requestPartLabel(part)}</span>
+                <small>{stabilityLabel(part.stability)} · 约 {part.approximateTokens} token</small>
+              </summary>
+              <pre><SyntaxCode code={formatJson(part.value)} language="json" /></pre>
+            </details>
+          ))}
         </div>
       </details>
     </div>
   );
 }
 
-function DiffView({
-  chapter,
-  chapters,
-  onSelect,
-}: {
-  chapter: Chapter;
-  chapters: Chapter[];
-  onSelect: (target: EvidenceTarget) => void;
-}) {
-  const { changeStory } = chapter;
-  const activeIndex = chapters.findIndex((item) => item.id === chapter.id);
+/** 时间线卡（压缩版）：关键事件摘要 */
+function TraceCard({ chapter }: { chapter: Chapter }) {
+  const items = chapter.trace.slice(0, 8);
   return (
-    <div className="diff-view">
-      <section className="panel-intro change-intro">
-        <span>第 {Number(chapter.number)} 问 · 本章答案</span>
-        <p className="summary-question">{chapter.question}</p>
-        <h3>{changeStory.title}</h3>
-        <p>{changeStory.summary}</p>
-      </section>
+    <div className="evidence-card-body trace-card">
+      {chapter.events.length === 0 ? (
+        <p className="evidence-card-empty">这一章先保存本地执行轨迹；第四章让全部过程进入同一条只追加日志。</p>
+      ) : (
+        <>
+          <p className="trace-summary"><b>{chapter.events.length}</b> 条关键事件，按发生顺序只追加</p>
+          <ol>
+            {items.map((item) => (
+              <li key={`${item.eventId}-${item.type}`} className={traceClass(item.type)}>
+                <span>{String(item.eventId).padStart(2, "0")}</span>
+                <i />
+                <div>
+                  <small>{traceLabel(item.type)}</small>
+                  <b>{humanTraceTitle(item)}</b>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {chapter.trace.length > 8 && <p className="evidence-card-more">…共 {chapter.trace.length} 条事件</p>}
+        </>
+      )}
+    </div>
+  );
+}
 
-      <section className="summary-section code-callbacks">
-        <header>
-          <span>回看代码</span>
-          <h4>答案落在这三个控制点</h4>
-          <p>{chapter.codeGuide.description}</p>
-        </header>
-        <ol>
-          {chapter.codeGuide.observations.map((observation, index) => (
-            <li key={`${observation.title}-${observation.lines.join("-")}`}>
-              <button
-                type="button"
-                onClick={() => onSelect({
-                  tab: "source",
-                  lines: observation.lines,
-                  note: observation.title,
-                })}
-              >
-                <small>{String(index + 1).padStart(2, "0")} · {chapter.source.path}:{observation.lines[0]}–{observation.lines[1]}</small>
-                <b>{observation.title}</b>
-                <span>{observation.text}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="summary-section harness-summary">
-        <header>
-          <span>放回 DeepSeek Harness</span>
-          <h4>{changeStory.harnessRole}</h4>
-          <p>{changeStory.connection}</p>
-        </header>
-        <ol className="six-question-map" aria-label="理解 DeepSeek Harness 的六个问题">
-          {chapters.map((item, index) => (
-            <li
-              key={item.id}
-              className={index === activeIndex ? "current" : index < activeIndex ? "answered" : "upcoming"}
-            >
-              <small>{String(index + 1).padStart(2, "0")}</small>
-              <div><b>{item.shortTitle}</b><span>{item.question}</span></div>
-            </li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="summary-section summary-checklist">
-        <header><span>带走这三句</span><h4>读完本章，你应该能自己解释</h4></header>
-        <ul className="outcome-list">
-          {changeStory.outcomes.map((outcome) => <li key={outcome}><i>✓</i><span>{outcome}</span></li>)}
-        </ul>
-      </section>
+/** 能力图卡（压缩版）：插件归属快照 */
+function GraphCard({ chapter }: { chapter: Chapter }) {
+  const graph = chapter.graphs[chapter.graphs.length - 1];
+  if (!graph) {
+    return (
+      <div className="evidence-card-body graph-card">
+        <p className="evidence-card-empty">能力归属会在第三章加入：前两章直接组装工具，不记录来源。</p>
+      </div>
+    );
+  }
+  const capability = graph.plugins.find((plugin) => plugin.startsWith("capability:"));
+  return (
+    <div className="evidence-card-body graph-card">
+      <div className="graph-ledger">
+        <section><small>插件 · {graph.plugins.length}</small>{graph.plugins.map((plugin) => <span key={plugin}>{prettyPlugin(plugin)}</span>)}</section>
+        <section><small>工具 · {graph.tools.length}</small>{graph.tools.map((tool) => <span key={tool.name}>{tool.name}</span>)}</section>
+        <section><small>服务 · {graph.services.length}</small>{graph.services.map((service) => <span key={service.name}>{service.name}</span>)}</section>
+      </div>
+      {chapter.number === "05" && (
+        <p className={`capability-state ${capability ? "mounted" : "removed"}`}>
+          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录已经出现 word_count" : "未安装；工具目录处于基线状态"}
+        </p>
+      )}
     </div>
   );
 }
@@ -1630,14 +1613,22 @@ function CodeBlock({
   diff = false,
   language = "typescript",
   highlightedRange = null,
+  newLines = null,
+  enteringLines = null,
   folds = [],
+  sourceLineNumbers = null,
 }: {
   code: string;
   startLine?: number;
   diff?: boolean;
   language?: string;
   highlightedRange?: [number, number] | null;
+  newLines?: Set<number> | null;
+  /** 需要打字机写入动画的新增行（相对该行号排序确定交错延迟） */
+  enteringLines?: Set<number> | null;
   folds?: Array<{ lines: [number, number]; label: string }>;
+  /** 快照渲染时逐行指定源文件真实行号（与 code 的行一一对应） */
+  sourceLineNumbers?: number[] | null;
 }) {
   const lines = code.trimEnd().split("\n");
   const languages = diffLanguages(lines, language);
@@ -1645,9 +1636,15 @@ function CodeBlock({
   const foldAtLine = new Map(
     folds.map((fold) => [fold.lines[0], fold] as const),
   );
+  const enteringOrder = useMemo(() => {
+    if (!enteringLines || enteringLines.size === 0) return new Map<number, number>();
+    return new Map(
+      [...enteringLines].sort((a, b) => a - b).map((line, index) => [line, index]),
+    );
+  }, [enteringLines]);
   const rows: ReactNode[] = [];
   for (let index = 0; index < lines.length;) {
-    const lineNumber = startLine + index;
+    const lineNumber = sourceLineNumbers?.[index] ?? startLine + index;
     const fold = foldAtLine.get(lineNumber);
     const foldKey = fold ? `${fold.lines[0]}-${fold.lines[1]}` : "";
     if (fold && !expandedFolds.has(foldKey)) {
@@ -1672,11 +1669,17 @@ function CodeBlock({
     const highlighted = highlightedRange !== null
       && lineNumber >= highlightedRange[0]
       && lineNumber <= highlightedRange[1];
+    const enteringIndex = enteringOrder.get(lineNumber);
+    const isEntering = enteringIndex !== undefined;
     rows.push(
       <div
         key={index}
         data-line={lineNumber}
-        className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""}`.trim()}
+        className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""} ${newLines?.has(lineNumber) ? "is-new" : ""} ${isEntering ? "is-entering" : ""}`.trim()}
+        style={isEntering ? ({
+          "--write-delay": `${120 + enteringIndex! * 28}ms`,
+          "--write-duration": `${Math.max(260, line.length * 10)}ms`,
+        } as CSSProperties) : undefined}
       >
         <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
         {diff
@@ -1710,192 +1713,6 @@ function DiffCodeLine({ line, language }: { line: string; language: string }) {
       {marker && <span className="diff-marker">{marker}</span>}
       <span dangerouslySetInnerHTML={{ __html: highlightCode(content || " ", language) }} />
     </code>
-  );
-}
-
-function RequestView({ chapter, evidence }: { chapter: Chapter; evidence: RequestEvidence }) {
-  const guide = requestViewGuide(chapter.number);
-  const showAnatomy = chapter.number === "01" || chapter.number === "02";
-  return (
-    <div className="request-view">
-      <section className="panel-intro concept-intro">
-        <span>{guide.eyebrow}</span>
-        <h3>{guide.title}</h3>
-        <p>{guide.description}</p>
-      </section>
-      {showAnatomy && (
-        <div className="request-anatomy">
-          <div className="stable"><b>固定区</b><span>系统规则、工具说明</span></div>
-          <div className="append-only"><b>累积区</b><span>用户、模型与工具记录</span></div>
-          <div className="step-variable"><b>本步区</b><span>只服务于当前步骤的说明</span></div>
-        </div>
-      )}
-      <p className="request-step-title">第 {evidence.step} 次模型请求</p>
-      <div className="request-metrics">
-        <div><small>整份工作包</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
-        <div><small>与上次相同的开头</small><b>约 {evidence.prefix.sharedApproximateTokens}</b><span>token</span></div>
-      </div>
-      {chapter.number === "02" && <p className="estimate-warning">Token 是模型处理文本时使用的计量单位。这里按字符估算，便于比较大小；相同开头只表示提示词缓存（Prompt Cache）具备复用机会。</p>}
-      <div className="request-parts">
-        {evidence.parts.map((part) => (
-          <details key={part.id} className={part.stability}>
-            <summary>
-              <span>{requestPartLabel(part)}</span>
-              <small>{stabilityLabel(part.stability)} · 约 {part.approximateTokens} token</small>
-            </summary>
-            <pre><SyntaxCode code={formatJson(part.value)} language="json" /></pre>
-          </details>
-        ))}
-      </div>
-      <div className="invalidation">
-        <span>相同开头从这里发生变化</span>
-        <b>{invalidationLabel(evidence.prefix.firstInvalidation)}</b>
-      </div>
-    </div>
-  );
-}
-
-function TraceView({
-  chapter,
-  focus,
-}: {
-  chapter: Chapter;
-  focus?: EvidenceTarget["event"];
-}) {
-  const guide = traceViewGuide(chapter.number);
-  const focusedEvent = (() => {
-    if (!focus) return undefined;
-    const matches = chapter.trace.filter((item) => item.type === focus.type);
-    if (focus.occurrence === "last") return matches.at(-1);
-    return matches[Math.max(0, (focus.occurrence ?? 1) - 1)];
-  })();
-  const focusedRef = useRef<HTMLLIElement>(null);
-
-  useEffect(() => {
-    if (!focusedEvent) return;
-    const frame = requestAnimationFrame(() => {
-      if (focusedRef.current) scrollEvidenceIntoView(focusedRef.current);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [focusedEvent?.eventId]);
-
-  return (
-    <div className="trace-view">
-      <section className="panel-intro concept-intro">
-        <span>{guide.eyebrow}</span>
-        <h3>{guide.title}</h3>
-        <p>{guide.description}</p>
-      </section>
-      {chapter.events.length === 0 ? (
-        <EmptyMechanism
-          title="可重建的会话事件会在后续章节加入"
-          text="这一章先保存本地执行轨迹。第四章会让用户消息、模型请求、工具结果和能力变化进入同一条只追加日志。"
-          fallback={chapter.trace}
-        />
-      ) : (
-        <>
-          <div className="trace-summary"><b>{chapter.events.length}</b> 条关键事件，按发生顺序只追加</div>
-          <ol>
-            {chapter.trace.map((item) => {
-              const selected = item.eventId === focusedEvent?.eventId;
-              return (
-              <li
-                key={`${item.eventId}-${item.type}`}
-                ref={selected ? focusedRef : undefined}
-                className={`${traceClass(item.type)} ${selected ? "focused" : ""}`.trim()}
-              >
-                <span>{String(item.eventId).padStart(2, "0")}</span>
-                <i />
-                <div>
-                  <small>{traceLabel(item.type)} <code>{item.type}</code></small>
-                  <b>{humanTraceTitle(item)}</b>
-                  {item.detail && (
-                    item.detail.length > 120 ? (
-                      <details className="trace-payload">
-                        <summary>{truncate(item.detail, 120)}</summary>
-                        <pre>{item.detail}</pre>
-                      </details>
-                    ) : <p>{item.detail}</p>
-                  )}
-                </div>
-              </li>
-              );
-            })}
-          </ol>
-        </>
-      )}
-    </div>
-  );
-}
-
-function GraphView({ graph, chapter }: { graph?: GraphSnapshot; chapter: Chapter }) {
-  if (!graph) {
-    return (
-      <div className="graph-view">
-        <section className="panel-intro concept-intro">
-          <span>能力图读什么</span>
-          <h3>它会回答“谁提供了这项能力”</h3>
-          <p>插件可以贡献工具、服务和提示词。能力图把这些归属与依赖放在一张快照中。</p>
-        </section>
-        <EmptyMechanism title="能力归属会在第三章加入" text="前两章直接组装工具。第三章开始记录每项工具、服务和提示词来自哪个插件。" />
-      </div>
-    );
-  }
-  const capability = graph.plugins.find((plugin) => plugin.startsWith("capability:"));
-  const guide = graphViewGuide(chapter.number, Boolean(capability));
-  return (
-    <div className="graph-view">
-      <section className="panel-intro graph-intro">
-        <span>{guide.eyebrow}</span>
-        <h3>{guide.title}</h3>
-        <p>{guide.description}</p>
-      </section>
-      <div className="graph-stage">
-        <div className="graph-core">运行环境<span>本章快照</span></div>
-        {graph.plugins.map((plugin, index) => {
-          const angle = (index / graph.plugins.length) * Math.PI * 2 - Math.PI / 2;
-          return (
-            <div
-              key={plugin}
-              className={`graph-node plugin ${plugin.startsWith("capability:") ? "capability" : ""}`}
-              style={{
-                left: `${50 + Math.cos(angle) * 36}%`,
-                top: `${50 + Math.sin(angle) * 34}%`,
-              }}
-            >
-              <i />{prettyPlugin(plugin)}
-            </div>
-          );
-        })}
-      </div>
-      <div className="graph-ledger">
-        <section><small>工具 · {graph.tools.length}</small>{graph.tools.map((tool) => <span key={tool.name}>{tool.name}</span>)}</section>
-        <section><small>服务 · {graph.services.length}</small>{graph.services.map((service) => <span key={service.name}>{service.name}</span>)}</section>
-        <section><small>提示词片段 · {graph.prompts.length}</small>{graph.prompts.map((prompt, index) => <span key={prompt.id ?? index}>{truncate(prompt.text, 48)}</span>)}</section>
-      </div>
-      {chapter.number === "05" && (
-        <p className={`capability-state ${capability ? "mounted" : "removed"}`}>
-          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录已经出现 word_count" : "未安装；工具目录处于基线状态"}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function EmptyMechanism({
-  title,
-  text,
-  fallback,
-}: {
-  title: string;
-  text: string;
-  fallback?: Chapter["trace"];
-}) {
-  return (
-    <div className="empty-mechanism">
-      <span>后续章节加入</span><h3>{title}</h3><p>{text}</p>
-      {fallback && <div className="early-trace">{fallback.slice(0, 7).map((item) => <small key={item.eventId}>{humanTraceTitle(item)}</small>)}</div>}
-    </div>
   );
 }
 
@@ -1977,43 +1794,11 @@ function parseLesson(markdown: string): LessonBlock[] {
     });
 }
 
-function lessonEvidenceBlocks(markdown: string): LessonEvidenceBlock[] {
-  return parseLesson(markdown).filter(
-    (block): block is LessonEvidenceBlock => block.kind === "evidence",
-  );
-}
-
-function chapterDefaultEvidence(chapter: Chapter | undefined): EvidenceTarget {
-  const firstSection = chapter ? lessonEvidenceBlocks(chapter.lesson)[0] : undefined;
-  if (firstSection) {
-    const { lines: _defaultLines, ...target } = firstSection.target;
-    return target;
-  }
-  return chapter ? {
-    tab: "source",
-    note: "从本章主文件开始",
-  } : { tab: "source", note: "从本章主文件开始" };
-}
-
-function sameEvidenceLocation(
-  target: EvidenceTarget,
-  location: { tab: PanelTab; step?: number },
-): boolean {
-  return target.tab === location.tab && (target.step ?? 0) === (location.step ?? 0);
-}
-
 function scrollEvidenceIntoView(element: HTMLElement): void {
   const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ? "auto"
     : "smooth";
-  const shell = element.closest<HTMLElement>(".panel-shell");
-  if (shell?.classList.contains("compact")) {
-    element.scrollIntoView({ behavior, block: "center" });
-    return;
-  }
-
-  const container = element.closest<HTMLElement>(".code-lines")
-    ?? element.closest<HTMLElement>(".panel-content");
+  const container = element.closest<HTMLElement>(".code-lines");
   if (!container) return;
   const elementBox = element.getBoundingClientRect();
   const containerBox = container.getBoundingClientRect();
@@ -2022,88 +1807,6 @@ function scrollEvidenceIntoView(element: HTMLElement): void {
     - containerBox.top
     - (container.clientHeight - elementBox.height) / 2;
   container.scrollTo({ top: Math.max(0, centeredTop), behavior });
-}
-
-function requestViewGuide(number: string): { eyebrow: string; title: string; description: string } {
-  return ({
-    "01": {
-      eyebrow: "Agent Loop · 反馈闭环",
-      title: "工具反馈构成下一步的新增上下文",
-      description: "展开累积区，可以看到上一 Step 的模型回复和工具结果。正是这两条记录，让模型能从真实反馈继续。",
-    },
-    "02": {
-      eyebrow: "上下文与缓存 · 比较相邻请求",
-      title: "缓存机会位于稳定前缀",
-      description: "先看相同前缀有多长，再看第一次变化落在哪个区域。变化越靠后，可复用的内容通常越多。",
-    },
-    "03": {
-      eyebrow: "插件组装 · 编译模型输入",
-      title: "当前 Context 决定模型能看到什么",
-      description: "工具与 Prompt 都来自已挂载插件。插件组装不变，请求头就保持稳定；组装改变，下一次请求也会跟着改变。",
-    },
-    "04": {
-      eyebrow: "Session Log · 请求重建",
-      title: "这份请求不是另存的副本",
-      description: "系统从目标 request/header 之前的事件重新拼出消息，再应用当时的投影设置。请求视图与 Trace 共用一份历史。",
-    },
-    "05": {
-      eyebrow: "运行时实验 · 能力变化",
-      title: "插件从下一次请求开始生效",
-      description: "比较安装前后或卸载前后的步骤。工具目录与系统 Prompt 的变化，会准确落在紧随其后的模型请求中。",
-    },
-    "06": {
-      eyebrow: "长程续行 · 跨 Round 请求",
-      title: "新的 Turn 仍然带着旧进展",
-      description: "Round 会开始新的 Turn，但不会清空 Session。展开累积区，可以看到前一阶段留下的消息和工具结果。",
-    },
-  } as Record<string, { eyebrow: string; title: string; description: string }>)[number] ?? {
-    eyebrow: "模型请求",
-    title: "一次请求，就是交给模型的一份工作包",
-    description: "它把规则、可用动作、已有记录和本步说明装在一起。",
-  };
-}
-
-function traceViewGuide(number: string): { eyebrow: string; title: string; description: string } {
-  return ({
-    "04": {
-      eyebrow: "Session Log · 同一份记录",
-      title: "Event 是原始记录，Trace 是可读投影",
-      description: "这里没有第二份手写时间线。每一项都来自只追加事件；请求重建也从同一组事件开始。",
-    },
-    "05": {
-      eyebrow: "运行时实验 · 变化有记录",
-      title: "安装和卸载不是看不见的状态跳跃",
-      description: "沿时间线查看插件挂载、工具使用和插件撤回。能力在何时出现、何时消失，都有对应事件。",
-    },
-    "06": {
-      eyebrow: "长程任务 · Goal 时间线",
-      title: "每一次继续和停止都有原因",
-      description: "Goal 创建、Round 开始、Agent Turn 和最终状态都在同一条时间线上。这里能看见外层协调器怎样推进任务。",
-    },
-  } as Record<string, { eyebrow: string; title: string; description: string }>)[number] ?? {
-    eyebrow: "事件与轨迹",
-    title: "Event 保存原始记录，Trace 提供阅读视图",
-    description: "会话日志按时间收集运行事件，Trace 再把同一份记录翻成便于阅读的时间线。",
-  };
-}
-
-function graphViewGuide(number: string, capabilityMounted: boolean): { eyebrow: string; title: string; description: string } {
-  if (number === "05") {
-    return capabilityMounted ? {
-      eyebrow: "运行时实验 · 已挂载",
-      title: "新能力已经进入当前 Context",
-      description: "能力插件、它贡献的工具和 Prompt 同时出现。下一次模型请求会从这张新的能力快照编译。",
-    } : {
-      eyebrow: "运行时实验 · 基线或已卸载",
-      title: "临时能力不在当前 Context 中",
-      description: "能力插件与它的贡献一起消失。对照安装时的快照，可以检查卸载是否留下残余。",
-    };
-  }
-  return {
-    eyebrow: "插件内核 · 当前能力快照",
-    title: "每项运行时能力都有明确归属",
-    description: "圆心代表运行时 Context，外圈是已安装插件；下方清单把工具、服务和 Prompt 归到各自来源。",
-  };
 }
 
 function parsePrimer(markdown: string, language: TutorialLanguage): {
@@ -2126,11 +1829,6 @@ function renderInlineCode(text: string) {
   return text.split(/(`[^`]+`)/gu).map((part, index) =>
     part.startsWith("`") ? <code key={index}>{part.slice(1, -1)}</code> : part,
   );
-}
-
-function isMobileTabActive(current: MobileTab, item: MobileTab): boolean {
-  if (item === "more") return current !== "article";
-  return current === item;
 }
 
 function formatLineRange(range: [number, number]): string {
