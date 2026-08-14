@@ -23,6 +23,24 @@ pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:dev
 ```
 
+## 运行真实模型 Demo
+
+下面的命令完成一个受限的 Python 任务。Agent 需要创建 `hello.py`，调用验证器运行它，并确认输出正好是 `Hello, world!`。文件默认写入 `demo-python/hello.py`。
+
+```sh
+pnpm demo
+```
+
+设置 `DEEPSEEK_API_KEY` 后，命令调用真实的 DeepSeek 模型；没有设置时，命令离线重放仓库中保存的模型决策，不访问网络，也不模拟流式等待。可以通过环境变量指定模型和工作区：
+
+```sh
+DEEPSEEK_API_KEY=你的密钥 \
+DEEPSEEK_MODEL=deepseek-chat \
+pnpm demo -- --workspace ./tmp/python-hello
+```
+
+模型请求、工具调用和 Python 程序的实际输出都会进入 `SessionLog`。如果只想运行原来的离线购物车样本，可以使用 `pnpm demo:checkout`。
+
 `scripts/generate-tutorial-data.ts` 默认生成中文版 TypeScript 数据。如需同时生成英文数据，可以另外执行：
 
 ```sh
@@ -91,16 +109,15 @@ TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
 
 Goal、Round、Turn 和 Step 分别处理长期目标、跨轮续行、一次连续执行和一次模型请求。测试覆盖正常完成、没有可观察进展、显式受阻和达到轮数上限。
 
-## 验证
+## 部署教学网站
 
 ```sh
-pnpm test
-pnpm typecheck
-pnpm build
+pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:build
+pnpm site:dev
 ```
 
-测试覆盖 Agent Loop 的正常与失败路径、DeepSeek 流式数据解析、上下文裁剪和检查点、插件安装与回滚、请求重建、动态插件实验、长程任务停止条件，以及网站数据与交互辅助逻辑。
+`pnpm site:build` 生成生产版本，输出目录是 `dist/`。本地查看时使用 `pnpm site:dev`，然后打开终端显示的地址。
 
 ## 实现边界
 

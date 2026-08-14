@@ -23,6 +23,24 @@ TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:dev
 ```
 
+## Run the real-model demo
+
+The following command runs a bounded Python task. The Agent must create `hello.py`, run it with the provided verifier, and confirm that the output is exactly `Hello, world!`. The file is written to `demo-python/hello.py` by default.
+
+```sh
+pnpm demo
+```
+
+With `DEEPSEEK_API_KEY` set, the command uses a real DeepSeek model. Without it, the command replays the stored model decisions offline, without network access or simulated stream timing. You can choose the model and workspace with environment variables and an option:
+
+```sh
+DEEPSEEK_API_KEY=your-key \
+DEEPSEEK_MODEL=deepseek-chat \
+pnpm demo -- --workspace ./tmp/python-hello
+```
+
+Model requests, tool calls, and Python program output are recorded in the `SessionLog`. To run the original offline checkout sample, use `pnpm demo:checkout`.
+
 The command above generates the English TypeScript data. To generate the Chinese data, run the generator without `TUTORIAL_LOCALE`:
 
 ```sh
@@ -105,16 +123,15 @@ How does DSH continue working on long-running tasks?
 
 Goal, Round, Turn, and Step represent a long-term objective, one continuation attempt, one continuous execution, and one model request respectively. Tests cover normal completion, no observable progress, an explicit block, and the configured round limit.
 
-## Verification
+## Deploy the tutorial site
 
 ```sh
-pnpm test
-pnpm typecheck
-pnpm build
+TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:build
+pnpm site:dev
 ```
 
-The test suite covers successful and failed Agent Loop paths, DeepSeek stream parsing, context clipping and checkpoints, plugin setup and rollback, request reconstruction, dynamic plugin experiments, long-task stopping conditions, tutorial data, and the site's interaction helpers.
+`pnpm site:build` creates the production site in `dist/`. For local viewing, run `pnpm site:dev` and open the address printed in the terminal.
 
 ## Deliberate scope limits
 
