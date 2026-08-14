@@ -53,10 +53,21 @@ export interface LlmResponse {
   providerMetadata?: Record<string, JsonValue>;
 }
 
+export type LlmStreamEvent =
+  | { type: "content-delta"; content: string }
+  | {
+      type: "tool-call-delta";
+      index: number;
+      id?: string;
+      name?: string;
+      arguments: string;
+    }
+  | { type: "response"; response: LlmResponse };
+
 export interface Llm {
   readonly provider: string;
   readonly model: string;
-  complete(request: UnifiedRequest): Promise<LlmResponse>;
+  stream(request: UnifiedRequest): AsyncIterable<LlmStreamEvent>;
 }
 
 export interface ToolDefinition extends ToolSchema {

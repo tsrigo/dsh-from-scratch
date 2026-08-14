@@ -10,6 +10,7 @@ import Prism from "prismjs";
 import "prismjs/components/prism-bash.js";
 import "prismjs/components/prism-json.js";
 import "prismjs/components/prism-markdown.js";
+import "prismjs/components/prism-python.js";
 import "prismjs/components/prism-typescript.js";
 import "prismjs/components/prism-jsx.js";
 import "prismjs/components/prism-tsx.js";
@@ -17,41 +18,79 @@ import "prismjs/components/prism-yaml.js";
 import type {
   Chapter,
   GraphSnapshot,
+  LiveReplay,
+  LiveReplayEvent,
   PanelTab,
   RequestEvidence,
   RequestPart,
   TutorialData,
 } from "./types.js";
+import {
+  nextReplayFrame,
+  replayDelay,
+  replayEventGroup,
+  replayStageHold,
+} from "./replay-timing.js";
 
 const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
-  { id: "source", label: "跟着写" },
-  { id: "diff", label: "变化" },
+  { id: "source", label: "源码细读" },
+  { id: "diff", label: "总结" },
   { id: "request", label: "请求" },
   { id: "events", label: "事件" },
   { id: "graph", label: "能力关系" },
 ];
 
+const SHOW_LIVE_REPLAY = false;
+
+type TutorialLanguage = "typescript" | "python";
+
+function initialLanguage(): TutorialLanguage {
+  const query = new URLSearchParams(window.location.search).get("lang");
+  if (query === "python") return "python";
+  return window.localStorage.getItem("tutorial-language") === "python" ? "python" : "typescript";
+}
+
 type MobileTab = "article" | PanelTab | "more";
 
-interface ExerciseTarget {
+interface EvidenceTarget {
   tab: PanelTab;
   step?: number;
   lines?: [number, number];
+  event?: {
+    type: string;
+    occurrence?: number | "last";
+  };
+  cueId?: string;
   note: string;
 }
 
-interface EvidenceSync extends ExerciseTarget {
+interface EvidenceSync extends EvidenceTarget {
   chapterId: string;
   version: number;
+  origin: "default" | "scroll" | "hover" | "click";
 }
+
+interface LessonEvidenceBlock {
+  kind: "evidence";
+  id: string;
+  ordinal: number;
+  label: string;
+  description: string;
+  target: EvidenceTarget;
+}
+
+type LessonBlock =
+  | { kind: "heading"; text: string }
+  | { kind: "paragraph"; text: string }
+  | LessonEvidenceBlock;
 
 const MOBILE_TABS: Array<{ id: MobileTab; label: string }> = [
   { id: "article", label: "正文" },
-  { id: "source", label: "跟着写" },
-  { id: "more", label: "延伸阅读" },
+  { id: "more", label: "证据" },
 ];
 
 export function App() {
+  const [language, setLanguage] = useState<TutorialLanguage>(initialLanguage);
   const [data, setData] = useState<TutorialData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState("chapter-1");
@@ -59,17 +98,43 @@ export function App() {
   const [mobileTabs, setMobileTabs] = useState<Record<string, MobileTab>>({});
   const [step, setStep] = useState(0);
   const [evidenceSync, setEvidenceSync] = useState<EvidenceSync | null>(null);
+  const [followingNarrative, setFollowingNarrative] = useState(true);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
+  const latestNarrativeTargets = useRef(new Map<string, EvidenceTarget>());
 
   useEffect(() => {
-    fetch("/generated/tutorial.json")
+    let current = true;
+    setData(null);
+    setError(null);
+    const source = language === "python" ? "/generated/tutorial-python.json" : "/generated/tutorial.json";
+    fetch(source)
       .then((response) => {
         if (!response.ok) throw new Error(`tutorial data: ${response.status}`);
         return response.json() as Promise<TutorialData>;
       })
-      .then(setData)
-      .catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
-  }, []);
+      .then((nextData) => {
+        if (!current) return;
+        const firstChapter = nextData.chapters[0];
+        const initialEvidence = chapterDefaultEvidence(firstChapter);
+        setData(nextData);
+        setActiveChapterId(firstChapter?.id ?? "chapter-1");
+        setTab(initialEvidence.tab);
+        setStep(initialEvidence.step ?? 0);
+        setEvidenceSync(firstChapter ? {
+          ...initialEvidence,
+          chapterId: firstChapter.id,
+          version: 1,
+          origin: "default",
+        } : null);
+        setFollowingNarrative(true);
+        latestNarrativeTargets.current.clear();
+        setMobileTabs({});
+      })
+      .catch((reason: unknown) => {
+        if (current) setError(reason instanceof Error ? reason.message : String(reason));
+      });
+    return () => { current = false; };
+  }, [language]);
 
   useEffect(() => {
     if (!data) return;
@@ -82,7 +147,17 @@ export function App() {
         if (id) {
           setActiveChapterId((current) => {
             if (current !== id) {
-              setStep(0);
+              const chapter = data.chapters.find((item) => item.id === id);
+              const target = chapterDefaultEvidence(chapter);
+              setTab(target.tab);
+              setStep(target.step ?? 0);
+              setEvidenceSync((sync) => ({
+                ...target,
+                chapterId: id,
+                version: (sync?.version ?? 0) + 1,
+                origin: "default",
+              }));
+              setFollowingNarrative(true);
             }
             return id;
           });
@@ -102,11 +177,38 @@ export function App() {
   if (error) return <LoadFailure message={error} />;
   if (!data || !activeChapter) return <Loading />;
 
-  const navigateTo = (chapter: Chapter) => {
+  const showEvidence = (
+    chapter: Chapter,
+    target: EvidenceTarget,
+    origin: EvidenceSync["origin"],
+    openOnCompact = false,
+  ) => {
     setActiveChapterId(chapter.id);
+    setTab(target.tab);
+    setStep(target.step ?? 0);
+    setEvidenceSync((current) => ({
+      ...target,
+      chapterId: chapter.id,
+      version: (current?.version ?? 0) + 1,
+      origin,
+    }));
+
+    if (openOnCompact && window.matchMedia("(max-width: 960px)").matches) {
+      setMobileTabs((current) => ({ ...current, [chapter.id]: target.tab }));
+      requestAnimationFrame(() => {
+        sectionRefs.current
+          .get(chapter.id)
+          ?.querySelector<HTMLElement>(".mobile-switcher")
+          ?.scrollIntoView({ behavior: "auto", block: "start" });
+      });
+    }
+  };
+
+  const navigateTo = (chapter: Chapter) => {
+    const target = chapterDefaultEvidence(chapter);
+    showEvidence(chapter, target, "default");
+    setFollowingNarrative(true);
     setMobileTabs({});
-    setStep(0);
-    setEvidenceSync(null);
     const compact = window.matchMedia("(max-width: 960px)").matches;
     const scroll = () => sectionRefs.current.get(chapter.id)?.scrollIntoView({
       behavior: compact ? "auto" : "smooth",
@@ -116,98 +218,837 @@ export function App() {
     else scroll();
   };
 
+  const switchLanguage = (nextLanguage: TutorialLanguage) => {
+    if (nextLanguage === language) return;
+    const url = new URL(window.location.href);
+    if (nextLanguage === "python") url.searchParams.set("lang", "python");
+    else url.searchParams.delete("lang");
+    window.history.replaceState(null, "", url);
+    window.localStorage.setItem("tutorial-language", nextLanguage);
+    setLanguage(nextLanguage);
+    window.scrollTo({ top: 0, behavior: "auto" });
+  };
+
+  const navigateToQuestions = () => {
+    document.getElementById("six-questions")?.scrollIntoView({
+      behavior: window.matchMedia("(max-width: 960px)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+  };
+
   return (
     <div className="app-shell">
-      <Header data={data} activeId={activeChapter.id} onNavigate={navigateTo} />
+      <Header data={data} activeId={activeChapter.id} language={language} onLanguage={switchLanguage} onNavigate={navigateTo} />
       <main>
-        <Hero data={data} onStart={() => navigateTo(data.chapters[0]!)} />
+        <Hero data={data} onStart={navigateToQuestions} />
         <BuildPrelude chapters={data.chapters} onStart={() => navigateTo(data.chapters[0]!)} />
-        <TypeScriptPrimer markdown={data.project.primer ?? ""} />
+        <LanguagePrimer markdown={data.project.primer ?? ""} language={language} />
+        {SHOW_LIVE_REPLAY && <LiveReplaySection replay={data.liveReplay} />}
         <div className="learning-layout">
           <article className="chapters" aria-label="渐进教程">
-            {data.chapters.map((chapter, index) => (
+            {data.chapters.map((chapter) => (
               <ChapterArticle
                 key={chapter.id}
                 chapter={chapter}
-                hasPrevious={index > 0}
+                chapters={data.chapters}
                 active={activeChapter.id === chapter.id}
                 mobileTab={mobileTabs[chapter.id] ?? "article"}
                 sectionRef={(node) => {
                   if (node) sectionRefs.current.set(chapter.id, node);
                 }}
-                onOpenPanel={(nextTab) => {
-                  setActiveChapterId(chapter.id);
-                  setTab(nextTab);
-                  setEvidenceSync(null);
-                  setMobileTabs((current) => ({ ...current, [chapter.id]: nextTab }));
-                }}
                 onMobileTab={(nextTab) => {
                   setActiveChapterId(chapter.id);
+                  setFollowingNarrative(false);
                   setEvidenceSync(null);
                   setMobileTabs((current) => ({ ...current, [chapter.id]: nextTab }));
                   if (nextTab !== "article" && nextTab !== "more") setTab(nextTab);
                 }}
-                onSync={(target) => {
-                  setActiveChapterId(chapter.id);
-                  setTab(target.tab);
-                  if (target.step !== undefined) setStep(target.step);
-                  setEvidenceSync((current) => ({
-                    ...target,
-                    chapterId: chapter.id,
-                    version: (current?.version ?? 0) + 1,
-                  }));
+                onNarrativeFocus={(target) => {
+                  latestNarrativeTargets.current.set(chapter.id, target);
+                  if (followingNarrative) showEvidence(chapter, target, "scroll");
+                }}
+                onNarrativePreview={(target) => {
+                  latestNarrativeTargets.current.set(chapter.id, target);
+                  showEvidence(chapter, target, "hover");
+                }}
+                onNarrativeClick={(target) => {
+                  latestNarrativeTargets.current.set(chapter.id, target);
+                  setFollowingNarrative(true);
+                  showEvidence(chapter, target, "click", true);
                 }}
                 evidenceSync={evidenceSync?.chapterId === chapter.id ? evidenceSync : null}
                 step={step}
-                onStep={setStep}
               />
             ))}
           </article>
           <aside className="evidence-dock" aria-label="随章节更新的学习面板">
             <EvidencePanel
               chapter={activeChapter}
+              chapters={data.chapters}
               tab={tab}
               step={step}
-              onTab={(nextTab) => { setTab(nextTab); setEvidenceSync(null); }}
-              onStep={(nextStep) => { setStep(nextStep); setEvidenceSync(null); }}
+              following={followingNarrative}
+              onFollowingChange={(nextFollowing) => {
+                setFollowingNarrative(nextFollowing);
+                if (nextFollowing) {
+                  const target = latestNarrativeTargets.current.get(activeChapter.id)
+                    ?? chapterDefaultEvidence(activeChapter);
+                  showEvidence(activeChapter, target, "scroll");
+                }
+              }}
+              onSelect={(target) => {
+                setFollowingNarrative(false);
+                latestNarrativeTargets.current.set(activeChapter.id, target);
+                showEvidence(activeChapter, target, "click");
+              }}
               sync={evidenceSync?.chapterId === activeChapter.id ? evidenceSync : null}
             />
           </aside>
         </div>
       </main>
       <footer>
-        <span>Harness Lab · 从零搭建</span>
-        <span>确定性模型模拟器 · 静态学习样本 · 原创实现</span>
+        <div className="site-footer-meta">
+          <span>Harness Lab · {data.project.languageLabel ?? "TypeScript"} 从零搭建</span>
+          <span>确定性模型模拟器 · 静态学习样本 · 原创实现</span>
+          <span>DeepSeek Harness / 从零搭建</span>
+        </div>
+        <p className="site-footer-disclaimer">免责声明：本项目为独立的教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系；相关名称仅用于技术学习与参考说明。</p>
       </footer>
     </div>
   );
 }
 
-function TypeScriptPrimer({ markdown }: { markdown: string }) {
-  const sections = parsePrimer(markdown);
+interface ReplayToolState {
+  index: number;
+  id: string;
+  name: string;
+  arguments: string;
+  result?: {
+    name: string;
+    summary: string;
+  };
+}
+
+interface ReplayGenerationState {
+  stepId: string;
+  ordinal: number;
+  content: string;
+  tools: ReplayToolState[];
+  done: boolean;
+  promptTokens: number | null;
+  completionTokens: number | null;
+}
+
+interface ReplayReceiptState {
+  sequence: number;
+  type: string;
+  label: string;
+  title: string;
+  detail: string;
+}
+
+interface ReplayInstructionSet {
+  systems: Array<{ stepId: string; content: string }>;
+  users: Array<{ turnId: string; content: string }>;
+  dynamicContexts: string[];
+}
+
+type ReplaySignalNodeId = "context" | "model" | "tool" | "session";
+type ReplaySignalEdge = "context-model" | "model-tool" | "tool-session" | "session-context" | null;
+type ReplaySignalPhase = "setup" | "prepare" | "generate" | "commit" | "feedback" | "settle";
+
+interface ReplaySignalState {
+  phase: ReplaySignalPhase;
+  activeNode: ReplaySignalNodeId | null;
+  activeEdge: ReplaySignalEdge;
+  title: string;
+  detail: string;
+}
+
+const REPLAY_SIGNAL_NODES: Array<{
+  id: ReplaySignalNodeId;
+  code: string;
+  label: string;
+  detail: string;
+}> = [
+  { id: "context", code: "01 · CONTEXT", label: "整理请求", detail: "系统 · 工具 · 历史" },
+  { id: "model", code: "02 · MODEL", label: "生成下一步", detail: "文字或工具参数" },
+  { id: "tool", code: "03 · TOOL", label: "执行动作", detail: "校验 · 运行 · 返回" },
+  { id: "session", code: "04 · SESSION", label: "写入事件", detail: "只追加并反馈" },
+];
+
+const REPLAY_SIGNAL_PHASES: Record<ReplaySignalPhase, { code: string; label: string }> = {
+  setup: { code: "SETUP", label: "建立舞台" },
+  prepare: { code: "PREPARE", label: "准备输入" },
+  generate: { code: "GENERATE", label: "流式生成" },
+  commit: { code: "COMMIT", label: "提交动作" },
+  feedback: { code: "FEEDBACK", label: "接收反馈" },
+  settle: { code: "SETTLE", label: "记录收束" },
+};
+
+function LiveReplaySection({ replay }: { replay: LiveReplay }) {
+  const [cursor, setCursor] = useState(-1);
+  const [playing, setPlaying] = useState(false);
+  const [speed, setSpeed] = useState(1);
+  const [reducedMotion, setReducedMotion] = useState(false);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const receiptsRef = useRef<HTMLDivElement>(null);
+  const events = replay.events;
+  const complete = cursor >= events.length - 1;
+  const instructions = useMemo(() => extractReplayInstructions(events), [events]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  const firstDeltaSequences = useMemo(() => {
+    const seen = new Set<string>();
+    const first = new Set<number>();
+    for (const item of events) {
+      if (
+        item.source === "model" &&
+        item.stepId &&
+        (item.event.type === "content-delta" || item.event.type === "tool-call-delta") &&
+        !seen.has(item.stepId)
+      ) {
+        seen.add(item.stepId);
+        first.add(item.sequence);
+      }
+    }
+    return first;
+  }, [events]);
+
+  useEffect(() => {
+    if (!playing) return;
+    if (cursor >= events.length - 1) {
+      setPlaying(false);
+      return;
+    }
+    const frame = nextReplayFrame(events, cursor);
+    if (!frame) {
+      setPlaying(false);
+      return;
+    }
+    const next = events[frame.start];
+    if (!next) return;
+    const previousAt = cursor >= 0 ? events[cursor]?.atMs ?? 0 : 0;
+    const rawGap = Math.max(0, next.atMs - previousAt);
+    const modelDelta = next.source === "model" &&
+      (next.event.type === "content-delta" || next.event.type === "tool-call-delta");
+    const transition = next.event.type === "response" ||
+      next.event.type === "goal/round-started" ||
+      next.event.type === "goal/status-changed";
+    const delayKind = firstDeltaSequences.has(next.sequence) || rawGap > 600
+      ? "idle"
+      : modelDelta
+        ? "stream"
+        : transition
+          ? "transition"
+          : "receipt";
+    const current = cursor >= 0 ? events[cursor] : undefined;
+    const leavingSemanticPose = current && replayEventGroup(current) !== replayEventGroup(next);
+    const currentSignal = leavingSemanticPose ? replaySignalState(current) : null;
+    const semanticHold = currentSignal
+      ? replayStageHold(currentSignal.activeNode, currentSignal.phase)
+      : 0;
+    const delay = Math.max(replayDelay(rawGap, speed, delayKind), semanticHold);
+    const timer = window.setTimeout(() => setCursor(frame.end), delay);
+    return () => window.clearTimeout(timer);
+  }, [cursor, events, firstDeltaSequences, playing, speed]);
+
+  const visibleEvents = useMemo(() => events.slice(0, cursor + 1), [cursor, events]);
+  const generations = useMemo(() => buildReplayGenerations(visibleEvents), [visibleEvents]);
+  const receipts = useMemo(() => buildReplayReceipts(visibleEvents), [visibleEvents]);
+  const roundStarts = useMemo(
+    () => events
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => item.source === "session" && item.event.type === "goal/round-started"),
+    [events],
+  );
+  const visibleRoundCount = visibleEvents.filter(
+    (item) => item.source === "session" && item.event.type === "goal/round-started",
+  ).length;
+  const goalCompleted = visibleEvents.some(
+    (item) => item.source === "session" && item.event.type === "goal/status-changed" && item.event.status === "completed",
+  );
+
+  useEffect(() => {
+    if (!playing) return;
+    terminalRef.current?.scrollTo({ top: terminalRef.current.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+    receiptsRef.current?.scrollTo({ top: receiptsRef.current.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+  }, [cursor, playing, reducedMotion]);
+
+  const togglePlayback = () => {
+    if (complete) setCursor(-1);
+    setPlaying((current) => !current || complete);
+  };
+  const restart = () => {
+    setCursor(-1);
+    setPlaying(true);
+  };
+  const jumpToRound = (index: number) => {
+    const target = roundStarts[index];
+    if (!target) return;
+    setPlaying(false);
+    setCursor(target.index);
+  };
+  const progress = events.length === 0 ? 0 : Math.max(0, (cursor + 1) / events.length * 100);
+  const status = complete ? "任务完成" : playing ? "正在流式回放" : cursor < 0 ? "等待播放" : "已暂停";
+  const currentEvent = cursor >= 0 ? events[cursor] : undefined;
+
+  return (
+    <section className="live-replay" id="live-replay" aria-labelledby="live-replay-title">
+      <header className="replay-heading">
+        <div>
+          <h2 id="live-replay-title">先看模型怎样把任务做完。</h2>
+          <p>这不是预先写好的打字动画。下面保存了一次真实 DeepSeek 流式调用：模型读取缺陷与代码证据、应用最小补丁、运行回归测试，再临时安装 TypeScript 分析能力完成语义核验。</p>
+        </div>
+        <dl className="replay-provenance">
+          <div><dt>来源</dt><dd><i /> 真实 API 录制</dd></div>
+          <div><dt>模型</dt><dd>{replay.provenance.model}</dd></div>
+          <div><dt>原始时长</dt><dd>{formatReplayDuration(replay.provenance.durationMs)}</dd></div>
+          <div><dt>录制时间</dt><dd>{formatReplayDate(replay.provenance.recordedAt)}</dd></div>
+        </dl>
+      </header>
+
+      <section className="replay-mission" aria-labelledby="replay-mission-title">
+        <div className="mission-command">
+          <span>GOAL BRIEF · 交给模型的任务</span>
+          <h3 id="replay-mission-title">修复购物车重复优惠 Bug · CHECKOUT-417</h3>
+          <p>订单优惠已经分摊进商品小计，结账函数却又扣了一次。模型要定位重复扣减、应用唯一最小补丁并跑完回归测试；最终核验时还要临时安装 TypeScript 分析工具，并在提交前完整移除。</p>
+        </div>
+        <ol className="mission-rounds">
+          <li><i>1</i><div><b>先诊断</b><span>检查运行环境，读取 issue、源码、测试与 CI 日志。</span></div></li>
+          <li><i>2</i><div><b>再修复</b><span>精确替换重复扣减表达式，运行 43 项回归测试。</span></div></li>
+          <li><i>3</i><div><b>验证提交</b><span>用 <code>typescript_analysis</code> 核验调用方与类型，清理后提交。</span></div></li>
+        </ol>
+        <div className="mission-contract">
+          <span><small>补丁约束</small>只修改 src/checkout.ts 的目标表达式</span>
+          <span><small>执行边界</small>只能读固定路径 · 只能使用 Harness 受限工具</span>
+          <span><small>完成条件</small>43/43 测试通过 · 补丁被接受 · 临时能力无残留</span>
+        </div>
+        <p className="mission-explainer"><b>怎么看这段回放：</b>模型只负责生成文字或工具调用；Harness 校验并执行工具，再把结果写入会话，成为下一模型步骤的输入。</p>
+        <div className="mission-prompt">
+          <span>ACTUAL USER INSTRUCTION · 实际发送的首轮指令</span>
+          <code>{instructions.users[0]?.content ?? "录制中没有找到 user/message。"}</code>
+          <details>
+            <summary>查看完整 SYSTEM、全部 USER 指令与动态上下文</summary>
+            <div className="mission-prompt-details">
+              {instructions.systems.map((instruction, index) => (
+                <section key={`${instruction.stepId}-${index}`}>
+                  <small>SYSTEM {index + 1} · 从 {instruction.stepId} 起生效</small>
+                  <pre>{instruction.content}</pre>
+                </section>
+              ))}
+              <section>
+                <small>USER · 每个 turn 的实际任务</small>
+                <ol>{instructions.users.map((instruction, index) => (
+                  <li key={`${instruction.turnId}-${index}`}><b>{instruction.turnId}</b><code>{instruction.content}</code></li>
+                ))}</ol>
+              </section>
+              <section>
+                <small>DYNAMIC CONTEXT · 每步追加</small>
+                {instructions.dynamicContexts.map((context) => <code key={context}>{context}</code>)}
+              </section>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <div className="replay-console">
+        <div className="replay-controls">
+          <button className="replay-play" onClick={togglePlayback}>
+            <span aria-hidden="true">{playing ? "Ⅱ" : "▶"}</span>
+            {complete ? "重新播放" : playing ? "暂停" : cursor < 0 ? "播放真实回放" : "继续"}
+          </button>
+          <button className="replay-restart" onClick={restart} disabled={cursor < 0}>从头播放</button>
+          <div className="replay-speed" aria-label="回放速度">
+            {[0.25, 0.5, 1, 2].map((value) => (
+              <button key={value} className={speed === value ? "active" : ""} onClick={() => setSpeed(value)}>{value}×</button>
+            ))}
+          </div>
+          <span className={`replay-status ${playing ? "active" : ""}`} aria-live="polite"><i />{status}</span>
+        </div>
+        <div className="replay-progress" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
+
+        <ReplaySignalMap currentEvent={currentEvent} playing={playing} />
+
+        <div className="replay-rounds" aria-label="三轮任务进度">
+          {["诊断", "修复", "验证提交"].map((label, index) => {
+            const active = visibleRoundCount === index + 1 && !goalCompleted;
+            const done = visibleRoundCount > index + 1 || goalCompleted;
+            return (
+              <button key={label} className={`${active ? "active" : ""} ${done ? "done" : ""}`} onClick={() => jumpToRound(index)}>
+                <i>{done ? "✓" : index + 1}</i><span><small>第 {index + 1} 轮</small>{label}</span>
+              </button>
+            );
+          })}
+          <div className={goalCompleted ? "done" : ""}><i>{goalCompleted ? "✓" : "·"}</i><span><small>最终状态</small>{goalCompleted ? "CHECKOUT-417 已接受" : "等待完成"}</span></div>
+        </div>
+
+        <div className="replay-stage">
+          <section className="model-stream-panel">
+            <header><span><i /> MODEL STREAM</span><small>模型文字与工具参数按真实 chunk 顺序出现</small></header>
+            <div className="model-stream-feed" ref={terminalRef} aria-live={playing ? "off" : "polite"}>
+              {generations.length === 0 ? (
+                <div className="replay-empty"><b>准备回放真实生成过程</b><span>点击播放后，这里会先出现请求，再逐段收到模型输出。</span></div>
+              ) : generations.map((generation, index) => {
+                const current = index === generations.length - 1 && !generation.done;
+                return (
+                  <article key={generation.stepId} className={`generation-block ${current ? "current" : ""}`}>
+                    <div className="generation-meta">
+                      <span>模型步骤 {generation.ordinal}</span><code>{generation.stepId}</code>
+                      {generation.done && (
+                        <small>
+                          {generation.tools.length > 0 ? `生成 ${generation.tools.length} 个工具调用` : "文字回复完成"}
+                          {generation.completionTokens === null ? "" : ` · ${generation.completionTokens} token`}
+                        </small>
+                      )}
+                    </div>
+                    {generation.content && <pre>{generation.content}{current && playing && <i className="stream-cursor" />}</pre>}
+                    {generation.tools.map((tool) => (
+                      <div className="stream-tool" key={tool.index}>
+                        <span>TOOL CALL</span>
+                        <b>模型请求 · {tool.name || "正在接收工具名…"}</b>
+                        <code>{tool.arguments || "…"}{current && playing && <i className="stream-cursor" />}</code>
+                        {tool.result ? (
+                          <div className="stream-tool-result">
+                            <span>HARNESS RESULT</span>
+                            <b>{toolNameLabel(tool.result.name)} 已执行</b>
+                            <p>{tool.result.summary}</p>
+                          </div>
+                        ) : generation.done ? (
+                          <div className="stream-tool-pending"><i /> 调用已经生成，等待 Harness 校验并执行…</div>
+                        ) : null}
+                      </div>
+                    ))}
+                    {generation.tools.some((tool) => tool.result) && (
+                      <p className="stream-feedback-note">↳ 工具结果已写入 Session，下一模型步骤会从这些事实继续。</p>
+                    )}
+                    {!generation.content && generation.tools.length === 0 && !generation.done && (
+                      <p className="waiting-token"><i /> 请求已发送，等待首个增量…</p>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          <aside className="harness-receipts">
+            <header><span>HARNESS RECEIPTS</span><small>同一次运行中的动作收据</small></header>
+            <div ref={receiptsRef}>
+              {receipts.length === 0 ? <p>尚未产生运行事件。</p> : receipts.map((receipt, index) => (
+                <article key={receipt.sequence} className={`${receipt.type} ${index === receipts.length - 1 ? "latest" : ""}`}>
+                  <i /><div><small>#{String(receipt.sequence).padStart(3, "0")} · {receipt.label}</small><b>{receipt.title}</b>{receipt.detail && <p>{receipt.detail}</p>}</div>
+                </article>
+              ))}
+            </div>
+          </aside>
+        </div>
+      </div>
+      <footer className="replay-note">
+        <span><i /> 阅读者无需 API</span>
+        <p>浏览器只读取已提交的录制样本。生成内容保留真实 chunk 顺序；没有可见内容的网络等待统一缩成短停顿。六章的可重复教学证据仍由确定性模型模拟器生成。</p>
+      </footer>
+    </section>
+  );
+}
+
+function ReplaySignalMap({
+  currentEvent,
+  playing,
+}: {
+  currentEvent: LiveReplayEvent | undefined;
+  playing: boolean;
+}) {
+  const signal = replaySignalState(currentEvent);
+  const phase = REPLAY_SIGNAL_PHASES[signal.phase];
+
+  return (
+    <section
+      className={`replay-signal-map phase-${signal.phase} ${playing ? "playing" : ""}`}
+      aria-label="当前运行事件在智能体循环中的位置"
+    >
+      <div className="signal-readout" aria-live={playing ? "off" : "polite"}>
+        <span className="signal-kicker"><i /> 运行信号台</span>
+        <div>
+          <small>{phase.code} · {phase.label}</small>
+          <b>{signal.title}</b>
+          <p>{signal.detail}</p>
+        </div>
+      </div>
+
+      <div className="signal-route" role="group" aria-label="请求、模型、工具与会话记录的反馈回路">
+        <ol className="signal-track">
+          {REPLAY_SIGNAL_NODES.map((node, index) => {
+            const nextNode = REPLAY_SIGNAL_NODES[index + 1];
+            const edge = nextNode ? `${node.id}-${nextNode.id}` as ReplaySignalEdge : null;
+            const active = signal.activeNode === node.id;
+            return (
+              <li key={node.id} className={`signal-step ${active ? "active" : ""}`} aria-current={active ? "step" : undefined}>
+                <div className="signal-node">
+                  <i aria-hidden="true">{index + 1}</i>
+                  <span>{node.code}</span>
+                  <b>{node.label}</b>
+                  <small>{node.detail}</small>
+                </div>
+                {edge && <span className={`signal-bridge ${signal.activeEdge === edge ? "active" : ""}`} aria-hidden="true"><i /></span>}
+              </li>
+            );
+          })}
+        </ol>
+        <div className={`signal-feedback ${signal.activeEdge === "session-context" ? "active" : ""}`}>
+          <i aria-hidden="true">↺</i>
+          <span>反馈回路</span>
+          <b>工具结果与运行变化，会成为下一份模型请求的一部分</b>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function replaySignalState(item: LiveReplayEvent | undefined): ReplaySignalState {
+  if (!item) {
+    return {
+      phase: "setup",
+      activeNode: null,
+      activeEdge: null,
+      title: "等待第一条真实事件",
+      detail: "播放后，这里会标出每个动作由谁接手、又把结果交给谁。",
+    };
+  }
+
+  const event = item.event;
+  if (item.source === "model") {
+    if (event.type === "tool-call-delta") {
+      return {
+        phase: "commit",
+        activeNode: "model",
+        activeEdge: "model-tool",
+        title: "模型正在组装工具调用",
+        detail: "工具名与参数按增量到达；完整后才会交给 Harness 校验执行。",
+      };
+    }
+    if (event.type === "response") {
+      return {
+        phase: "settle",
+        activeNode: "model",
+        activeEdge: null,
+        title: "本次模型生成已经结束",
+        detail: "Harness 接收完整回复，并把文字或工具请求写进会话事件。",
+      };
+    }
+    return {
+      phase: "generate",
+      activeNode: "model",
+      activeEdge: "context-model",
+      title: "模型正在流式生成",
+      detail: "左侧按真实 chunk 追加内容；当前阶段不会直接执行任何工具。",
+    };
+  }
+
+  if (event.type === "goal/created") {
+    return {
+      phase: "setup",
+      activeNode: "session",
+      activeEdge: "session-context",
+      title: "跨轮任务已经建立",
+      detail: "目标、轮次上限与完成条件先写入会话，成为后续运行的边界。",
+    };
+  }
+  if (event.type === "goal/round-started") {
+    const round = replayNumber(event.round) ?? 1;
+    return {
+      phase: "prepare",
+      activeNode: "context",
+      activeEdge: "session-context",
+      title: `第 ${round} 轮从已有记录继续`,
+      detail: "上一轮的工具反馈不会丢失；它会和本轮目标一起重建模型输入。",
+    };
+  }
+  if (event.type === "turn/start" || event.type === "user/message" || event.type === "step/start") {
+    return {
+      phase: "prepare",
+      activeNode: "context",
+      activeEdge: "session-context",
+      title: event.type === "step/start" ? "从事件历史重建本步输入" : "把本轮任务加入上下文",
+      detail: "稳定系统说明、可用工具、历史消息与动态上下文正在按固定顺序组合。",
+    };
+  }
+  if (event.type === "request/header") {
+    return {
+      phase: "commit",
+      activeNode: "context",
+      activeEdge: "context-model",
+      title: "模型工作包已经发出",
+      detail: `${replayString(event.stepId) || "当前步骤"} 的请求边界已记录，现在由模型接手。`,
+    };
+  }
+  if (event.type === "tool/call") {
+    const call = replayRecord(event.call);
+    const name = replayString(call?.name);
+    return {
+      phase: "commit",
+      activeNode: "tool",
+      activeEdge: "model-tool",
+      title: `正在执行 ${toolNameLabel(name)}`,
+      detail: "参数先经过结构校验，再调用对应实现；模型不能绕过这层执行边界。",
+    };
+  }
+  if (event.type === "tool/result") {
+    const name = replayString(event.name);
+    return {
+      phase: "feedback",
+      activeNode: "session",
+      activeEdge: "tool-session",
+      title: `${toolNameLabel(name)} 已经返回`,
+      detail: "结果先写入只追加会话，下一模型步骤再从同一份事实继续推理。",
+    };
+  }
+  if (event.type === "runtime/plugin-mounted" || event.type === "runtime/plugin-unmounted") {
+    const mounted = event.type === "runtime/plugin-mounted";
+    return {
+      phase: "feedback",
+      activeNode: "session",
+      activeEdge: "session-context",
+      title: `运行能力已${mounted ? "挂载" : "移除"}`,
+      detail: "能力图发生变化；下一份请求会据此重新列出可见工具与提示词。",
+    };
+  }
+  if (event.type === "goal/status-changed") {
+    return {
+      phase: "settle",
+      activeNode: "session",
+      activeEdge: null,
+      title: replayString(event.status) === "completed" ? "任务完成，循环停止" : "任务状态已经更新",
+      detail: "完成条件已经核验，最终状态与原因被保存在同一条事件时间线上。",
+    };
+  }
+  if (event.type === "assistant/message" || event.type === "step/end" || event.type === "turn/end") {
+    return {
+      phase: "settle",
+      activeNode: "session",
+      activeEdge: null,
+      title: event.type === "turn/end" ? "本轮运行已经收束" : "本步输出写入会话",
+      detail: "记录保持只追加：既能复盘，也能在下一步重建出模型真正看到的输入。",
+    };
+  }
+
+  return {
+    phase: "settle",
+    activeNode: "session",
+    activeEdge: null,
+    title: "运行事件已经落盘",
+    detail: "Harness 用同一份事件历史连接模型输入、工具执行与任务状态。",
+  };
+}
+
+export function buildReplayGenerations(events: LiveReplayEvent[]): ReplayGenerationState[] {
+  const order: string[] = [];
+  const states = new Map<string, ReplayGenerationState & { toolMap: Map<number, ReplayToolState> }>();
+  const ensure = (stepId: string) => {
+    let state = states.get(stepId);
+    if (!state) {
+      order.push(stepId);
+      state = {
+        stepId,
+        ordinal: order.length,
+        content: "",
+        tools: [],
+        toolMap: new Map(),
+        done: false,
+        promptTokens: null,
+        completionTokens: null,
+      };
+      states.set(stepId, state);
+    }
+    return state;
+  };
+  for (const item of events) {
+    if (item.source === "session") {
+      const stepId = replayString(item.event.stepId);
+      if (item.event.type === "request/header" && stepId) ensure(stepId);
+      if (item.event.type === "tool/result" && stepId) {
+        const state = ensure(stepId);
+        const toolCallId = replayString(item.event.toolCallId);
+        const name = replayString(item.event.name);
+        let tool = [...state.toolMap.values()].find((candidate) => candidate.id === toolCallId);
+        if (!tool) {
+          const index = state.toolMap.size;
+          tool = { index, id: toolCallId, name, arguments: "" };
+          state.toolMap.set(index, tool);
+        }
+        tool.result = {
+          name,
+          summary: replayToolResult(name, replayString(item.event.content)),
+        };
+      }
+      continue;
+    }
+    if (item.source !== "model" || !item.stepId) continue;
+    const state = ensure(item.stepId);
+    if (item.event.type === "content-delta") {
+      state.content += replayString(item.event.content);
+    } else if (item.event.type === "tool-call-delta") {
+      const index = replayNumber(item.event.index) ?? 0;
+      const tool = state.toolMap.get(index) ?? { index, id: "", name: "", arguments: "" };
+      tool.id += replayString(item.event.id);
+      tool.name += replayString(item.event.name);
+      tool.arguments += replayString(item.event.arguments);
+      state.toolMap.set(index, tool);
+    } else if (item.event.type === "response") {
+      state.done = true;
+      const response = replayRecord(item.event.response);
+      const metadata = replayRecord(response?.providerMetadata);
+      state.promptTokens = replayNumber(metadata?.promptTokens);
+      state.completionTokens = replayNumber(metadata?.completionTokens);
+    }
+  }
+  return order.map((stepId) => {
+    const state = states.get(stepId)!;
+    const { toolMap, ...generation } = state;
+    return { ...generation, tools: [...toolMap.values()].sort((left, right) => left.index - right.index) };
+  });
+}
+
+function buildReplayReceipts(events: LiveReplayEvent[]): ReplayReceiptState[] {
+  return events.flatMap((item): ReplayReceiptState[] => {
+    if (item.source !== "session") return [];
+    const event = item.event;
+    if (event.type === "goal/created") {
+      return [{ sequence: item.sequence, type: "goal", label: "目标", title: "三轮代码修复任务已创建", detail: "诊断重复优惠、应用并测试最小补丁，最后验证提交。" }];
+    }
+    if (event.type === "goal/round-started") {
+      const round = replayNumber(event.round) ?? 0;
+      return [{ sequence: item.sequence, type: "round", label: `第 ${round} 轮`, title: replayRoundTitle(replayString(event.label)), detail: "同一个 goal 继续向前推进。" }];
+    }
+    if (event.type === "request/header") {
+      return [{ sequence: item.sequence, type: "request", label: "模型请求", title: replayString(event.stepId), detail: `${replayString(event.provider)}/${replayString(event.model)}` }];
+    }
+    if (event.type === "tool/call") {
+      const call = replayRecord(event.call);
+      const name = replayString(call?.name);
+      return [{ sequence: item.sequence, type: "tool", label: "工具调用", title: toolNameLabel(name), detail: truncate(JSON.stringify(call?.arguments ?? {}), 92) }];
+    }
+    if (event.type === "tool/result") {
+      const name = replayString(event.name);
+      return [{ sequence: item.sequence, type: "result", label: "工具结果", title: `${toolNameLabel(name)} 已返回`, detail: replayToolResult(name, replayString(event.content)) }];
+    }
+    if ((event.type === "runtime/plugin-mounted" || event.type === "runtime/plugin-unmounted") && replayString(event.plugin).startsWith("capability:")) {
+      const mounted = event.type === "runtime/plugin-mounted";
+      return [{ sequence: item.sequence, type: "runtime", label: "能力变化", title: `TypeScript 分析能力已${mounted ? "安装" : "移除"}`, detail: mounted ? "下一次模型请求会看到 find_references 与 check_types。" : "工具目录已经恢复。" }];
+    }
+    if (event.type === "goal/status-changed") {
+      return [{ sequence: item.sequence, type: "complete", label: "目标状态", title: "任务完成", detail: "CHECKOUT-417 已接受，临时分析能力已移除。" }];
+    }
+    return [];
+  });
+}
+
+export function extractReplayInstructions(events: LiveReplayEvent[]): ReplayInstructionSet {
+  const systems: ReplayInstructionSet["systems"] = [];
+  const users: ReplayInstructionSet["users"] = [];
+  const dynamicContexts = new Set<string>();
+  const seenSystems = new Set<string>();
+  for (const item of events) {
+    if (item.source !== "session") continue;
+    if (item.event.type === "request/header") {
+      const system = replayString(item.event.system);
+      const stepId = replayString(item.event.stepId);
+      if (system && !seenSystems.has(system)) {
+        systems.push({ stepId, content: system });
+        seenSystems.add(system);
+      }
+      const dynamicContext = replayString(item.event.dynamicContext);
+      if (dynamicContext) dynamicContexts.add(dynamicContext);
+    }
+    if (item.event.type === "user/message") {
+      users.push({
+        turnId: replayString(item.event.turnId),
+        content: replayString(item.event.content),
+      });
+    }
+  }
+  return { systems, users, dynamicContexts: [...dynamicContexts] };
+}
+
+function replayToolResult(name: string, content: string): string {
+  if (name === "read_workspace_file") return "工作区证据已读取：issue、源码、测试或 CI 日志进入会话。";
+  if (name === "inspect_runtime") return "当前插件、服务和受信任能力目录已返回。";
+  if (name === "apply_patch") return "最小补丁已应用：返回值不再重复扣除订单优惠。";
+  if (name === "run_tests") return "回归测试完成：43 项全部通过。";
+  if (name === "install_capability") return "typescript_analysis 已进入运行时。";
+  if (name === "find_references") return "calculateTotal 的调用方已列出，折扣参数彼此独立。";
+  if (name === "check_types") return "TypeScript 类型检查通过，没有诊断。";
+  if (name === "remove_capability") return "typescript_analysis 已从运行时撤下。";
+  if (name === "submit_patch") {
+    return content.includes('"accepted":true')
+      ? "补丁通过：CHECKOUT-417 已被验收器接受。"
+      : "补丁被拒绝；错误结果将回到下一次模型请求。";
+  }
+  return truncate(content, 92);
+}
+
+function replayRoundTitle(label: string): string {
+  return ({ diagnose: "诊断重复优惠", repair: "应用补丁并运行测试", "verify-submit": "验证调用方并提交补丁" } as Record<string, string>)[label] ?? label;
+}
+
+function replayRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function replayString(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function replayNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function formatReplayDuration(durationMs: number): string {
+  return `${(durationMs / 1000).toFixed(1)} 秒`;
+}
+
+function formatReplayDate(value: string): string {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function LanguagePrimer({ markdown, language }: { markdown: string; language: TutorialLanguage }) {
+  const sections = parsePrimer(markdown, language);
+  const label = language === "python" ? "Python" : "TypeScript";
   return (
     <details className="typescript-primer">
       <summary className="primer-summary">
         <div>
           <p className="eyebrow">阅读补充 · 约 3 分钟</p>
-          <h2 id="typescript-primer-title">TypeScript 不熟？先认四个路标。</h2>
+          <h2 id="language-primer-title">{label} 不熟？先认四个路标。</h2>
         </div>
         <span aria-hidden="true" />
       </summary>
-      <div className="primer-body" aria-labelledby="typescript-primer-title">
+      <div className="primer-body" aria-labelledby="language-primer-title">
         <p className="primer-intro">{sections.intro}</p>
         <div className="primer-cards">
           {sections.cards.map((card, index) => (
             <article key={card.title}>
               <span>路标 {index + 1}</span>
               <h3>{card.title}</h3>
-              <pre><SyntaxCode code={card.code} language="typescript" /></pre>
+              <pre><SyntaxCode code={card.code} language={language} /></pre>
               <p>{renderInlineCode(card.body)}</p>
             </article>
           ))}
-        </div>
-        <div className="primer-flow" aria-label="一次模型步骤的阅读顺序">
-          <span>用户目标</span><i>→</i><span>模型请求</span><i>→</i><span>工具动作</span><i>→</i><span>过程事件</span><i>→</i><span>下一步</span>
         </div>
       </div>
     </details>
@@ -215,28 +1056,23 @@ function TypeScriptPrimer({ markdown }: { markdown: string }) {
 }
 
 function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () => void }) {
-  const [scaffolded, setScaffolded] = useState(false);
   return (
-    <section className={`build-prelude ${scaffolded ? "scaffolded" : ""}`} aria-labelledby="build-prelude-title">
+    <section id="six-questions" className="build-prelude scaffolded" aria-labelledby="build-prelude-title">
       <div className="build-prelude-copy">
-        <p className="eyebrow">先导 · 第 0 步</p>
-        <h2 id="build-prelude-title">从六个空文件开始。</h2>
-        <p>先搭出目录，暂时不塞进整套实现。后面每一章只盯住一个主文件，让这个运行框架一层一层长出来。</p>
+        <p className="eyebrow">阅读地图</p>
+        <h2 id="build-prelude-title">六个问题，理解 DeepSeek Harness。</h2>
+        <p>Loop 让历史增长，上下文投影控制输入；插件管理变化，会话日志保存过程；运行时能力可以受控调整，Goal 再把工作带到下一轮。</p>
         <div className="prelude-actions">
-          {!scaffolded ? (
-            <button onClick={() => setScaffolded(true)}>搭好空架子</button>
-          ) : (
-            <button onClick={onStart}>开始写第一个文件</button>
-          )}
-          <span>{scaffolded ? "六个文件已就位，先写 agent.ts" : "点击后查看本教程的搭建顺序"}</span>
+          <button onClick={onStart}>从六个问题开始</button>
+          <span>每章先讲整体机制，右侧再细读一个主文件</span>
         </div>
       </div>
-      <div className="scaffold-tree" aria-live="polite">
-        <b>src/</b>
+      <div className="scaffold-tree">
+        <b>{chapters[0]?.source.path.startsWith("python_harness/") ? "python_harness/" : "src/"}</b>
         {chapters.map((chapter, index) => (
           <div key={chapter.id} style={{ "--file-index": index } as CSSProperties}>
-            <i>{scaffolded ? "✓" : ""}</i>
-            <code>{chapter.source.path.replace(/^src\//u, "")}</code>
+            <i>{String(index + 1).padStart(2, "0")}</i>
+            <code>{chapter.source.path.replace(/^(?:src|python_harness)\//u, "")}</code>
             <span className="scaffold-chapter">
               <strong>第{chapterNumeral(chapter.number)}章 · {chapter.shortTitle}</strong>
               <small>{chapter.question}</small>
@@ -251,17 +1087,21 @@ function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () 
 function Header({
   data,
   activeId,
+  language,
+  onLanguage,
   onNavigate,
 }: {
   data: TutorialData;
   activeId: string;
+  language: TutorialLanguage;
+  onLanguage: (language: TutorialLanguage) => void;
   onNavigate: (chapter: Chapter) => void;
 }) {
   return (
     <header className="site-header">
       <button className="wordmark" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
         <span className="wordmark-dot" />
-        <span>Harness Lab</span>
+        <span>DeepSeek Harness</span>
         <span className="wordmark-muted">/ from scratch</span>
       </button>
       <nav className="chapter-nav" aria-label="章节导航">
@@ -277,107 +1117,77 @@ function Header({
           </button>
         ))}
       </nav>
-      <a className="repo-link" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">
-        上游项目 ↗
-      </a>
+      <div className="header-actions">
+        <div className="language-switch" role="group" aria-label="教程实现语言">
+          <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
+          <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
+        </div>
+        <a className="repo-link" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">上游项目 ↗</a>
+      </div>
     </header>
   );
 }
 
 function Hero({ data, onStart }: { data: TutorialData; onStart: () => void }) {
-  const requestCount = data.chapters.reduce((sum, chapter) => sum + chapter.requests.length, 0);
-  const eventCount = data.chapters.reduce((sum, chapter) => sum + chapter.events.length, 0);
+  const language = data.project.languageLabel ?? "TypeScript";
   return (
     <section className="hero">
       <div className="hero-copy">
-        <p className="eyebrow">从零搭建 · 可运行教程</p>
+        <p className="eyebrow">{language} 从零搭建 · 可运行教程</p>
         <h1>
-          <span className="hero-line">看懂一次模型调用，</span>
+          <span className="hero-line">看懂 DeepSeek Harness，</span>
           <span className="hero-line">如何一步步</span>
           <span className="hero-line hero-line-accent">完成复杂任务。</span>
         </h1>
-        <p className="hero-intro">
-          Agent Harness（智能体运行框架）负责整理模型输入、执行工具、保存过程。
-          这套教程用一宗火星中继站事故，分六章拆开它的工作方式。
-        </p>
+          <p className="hero-intro">
+            Agent Harness 负责整理模型输入、执行工具、保存过程。
+            <br />
+            六章各用一个最小样本，只回答一个机制问题。
+          </p>
         <div className="hero-actions">
-          <button className="primary-action" onClick={onStart}>从第一章开始 <span>↓</span></button>
+          <button className="primary-action" onClick={onStart}>从六个问题开始 <span>↓</span></button>
           <span className="offline-badge"><i /> 离线学习样本可直接查看</span>
         </div>
-        <div className="hero-facts">
-          <div><b>{data.chapters.length}</b><span>渐进章节</span></div>
-          <div><b>{requestCount}</b><span>模型请求样本</span></div>
-          <div><b>{eventCount}</b><span>过程事件样本</span></div>
-        </div>
       </div>
-      <OrbitalIllustration />
+      <div
+        className="hero-art"
+        role="img"
+        aria-label="手持教鞭与书本的蓝色水彩学院导师"
+      />
       <p className="hero-caption">
-        {data.project.scenario} · 每份样本都由对应章节的真实代码生成
+        {data.project.scenario} · 源码与右侧样本解释同一机制，不宣称来自同一次执行
       </p>
     </section>
   );
 }
 
-function OrbitalIllustration() {
-  return (
-    <div className="orbit-art" aria-label="中继站恢复路线示意图">
-      <div className="orbit-grid" />
-      <svg viewBox="0 0 600 540" role="img" aria-hidden="true">
-        <defs>
-          <filter id="glow"><feGaussianBlur stdDeviation="5" result="blur" /><feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge></filter>
-          <linearGradient id="path" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#7dd3fc" /><stop offset="1" stopColor="#4f8cff" /></linearGradient>
-        </defs>
-        <circle cx="300" cy="282" r="176" className="orbit-line orbit-a" />
-        <circle cx="300" cy="282" r="112" className="orbit-line orbit-b" />
-        <path d="M77 414 C175 366 184 211 297 180 C393 153 421 249 525 93" className="signal-path" />
-        <path d="M83 170 C185 235 213 329 316 366 C411 399 462 355 548 440" className="failed-path" />
-        <circle cx="83" cy="414" r="9" className="node node-green" />
-        <circle cx="297" cy="180" r="12" className="node node-green" />
-        <circle cx="525" cy="93" r="15" className="node node-green" filter="url(#glow)" />
-        <circle cx="83" cy="170" r="8" className="node node-muted" />
-        <circle cx="316" cy="366" r="15" className="node node-failed" />
-        <circle cx="548" cy="440" r="8" className="node node-muted" />
-        <g transform="translate(316 366)"><path d="M-10 -10 L10 10 M10 -10 L-10 10" className="failure-x" /></g>
-        <g className="satellite" transform="translate(265 250)">
-          <rect x="-27" y="-19" width="54" height="38" rx="7" />
-          <path d="M-28 -13 L-68 -30 L-68 30 L-28 13 M28 -13 L68 -30 L68 30 L28 13" />
-          <circle cx="0" cy="0" r="9" />
-          <path d="M0 -22 L0 -45 M-10 -45 L10 -45" />
-        </g>
-      </svg>
-      <div className="art-label label-a"><b>ASTER</b><span>可用候选路线</span></div>
-      <div className="art-label label-b"><b>RELAY-7</b><span>出现热漂移</span></div>
-      <div className="telemetry-strip"><span>T+35</span><i /><i /><i className="hot" /><i className="hot" /><b>79°C</b></div>
-    </div>
-  );
-}
-
 function ChapterArticle({
   chapter,
-  hasPrevious,
+  chapters,
   active,
   mobileTab,
   sectionRef,
-  onOpenPanel,
   onMobileTab,
-  onSync,
+  onNarrativeFocus,
+  onNarrativePreview,
+  onNarrativeClick,
   evidenceSync,
   step,
-  onStep,
 }: {
   chapter: Chapter;
-  hasPrevious: boolean;
+  chapters: Chapter[];
   active: boolean;
   mobileTab: MobileTab;
   sectionRef: (node: HTMLElement | null) => void;
-  onOpenPanel: (tab: PanelTab) => void;
   onMobileTab: (tab: MobileTab) => void;
-  onSync: (target: ExerciseTarget) => void;
+  onNarrativeFocus: (target: EvidenceTarget) => void;
+  onNarrativePreview: (target: EvidenceTarget) => void;
+  onNarrativeClick: (target: EvidenceTarget) => void;
   evidenceSync: EvidenceSync | null;
   step: number;
-  onStep: (step: number) => void;
 }) {
-  const lesson = parseLesson(chapter.lesson);
+  const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
+  const evidenceCount = lesson.filter((block) => block.kind === "evidence").length;
   return (
     <section
       ref={sectionRef}
@@ -400,10 +1210,8 @@ function ChapterArticle({
           </div>
           <h2>{chapter.title}</h2>
           <p className="chapter-question">{chapter.question}</p>
-          <div className="reading-order" aria-label="推荐阅读顺序">
-            <span><b>1</b>读本章说明</span><i>→</i>
-            <span><b>2</b>跟三处代码</span><i>→</i>
-            <span><b>3</b>操作并看右侧变化</span>
+          <div className="reading-order" aria-label="正文与右栏的联动顺序">
+            <span><b>→</b>右栏按 {Number(chapter.number)}.1 至 {Number(chapter.number)}.{evidenceCount} 跟随正文</span>
           </div>
         </div>
         <div className="mobile-switcher" role="tablist" aria-label="移动端章节视图">
@@ -419,37 +1227,25 @@ function ChapterArticle({
           ))}
         </div>
         <div className={`chapter-body ${mobileTab === "article" ? "mobile-active" : ""}`}>
-          {hasPrevious && (
-            <div className="pressure-note">
-              <span>上一章留下的限制</span>
-              {pressureText(chapter.number)}
-            </div>
-          )}
-          <div className="lesson-copy">
-            {lesson.map((block, index) =>
-              block.kind === "heading" ? (
-                <h3 key={index}>{block.text}</h3>
-              ) : (
-                <p key={index}>{renderInlineCode(block.text)}</p>
-              ),
-            )}
-          </div>
-          {chapter.number === "01" && chapter.ptc && <ModeContrast program={chapter.ptc.program} />}
-          {chapter.number === "02" && <ContextCutaway request={chapter.requests[1] ?? chapter.requests[0]!} />}
-          {chapter.number === "03" && <PresetAssembly />}
-          {chapter.number === "05" && <ExperimentSequence />}
-          {chapter.number === "06" && <RoundSequence />}
-          <ChapterRun chapter={chapter} onOpenPanel={onOpenPanel} onSync={onSync} />
+          <LessonNarrative
+            blocks={lesson}
+            chapterNumber={chapter.number}
+            active={active}
+            activeCueId={evidenceSync?.cueId ?? null}
+            onCueFocus={onNarrativeFocus}
+            onCuePreview={onNarrativePreview}
+            onCueClick={onNarrativeClick}
+          />
         </div>
         <div className={`mobile-panel ${mobileTab !== "article" ? "mobile-active" : ""}`}>
-          {mobileTab === "more" && <MoreEvidence chapter={chapter} onSelect={onMobileTab} />}
+          {mobileTab === "more" && <MoreEvidence chapter={chapter} onSelect={onNarrativeClick} />}
           {mobileTab !== "article" && mobileTab !== "more" && (
             <EvidencePanel
               chapter={chapter}
+              chapters={chapters}
               tab={mobileTab}
               step={step}
-              onTab={onOpenPanel}
-              onStep={onStep}
+              onSelect={onNarrativeClick}
               sync={evidenceSync}
               compact
             />
@@ -460,355 +1256,123 @@ function ChapterArticle({
   );
 }
 
-function ChapterRun({
-  chapter,
-  onOpenPanel,
-  onSync,
+function LessonNarrative({
+  blocks,
+  chapterNumber,
+  active,
+  activeCueId,
+  onCueFocus,
+  onCuePreview,
+  onCueClick,
 }: {
-  chapter: Chapter;
-  onOpenPanel: (tab: PanelTab) => void;
-  onSync: (target: ExerciseTarget) => void;
+  blocks: LessonBlock[];
+  chapterNumber: string;
+  active: boolean;
+  activeCueId: string | null;
+  onCueFocus: (target: EvidenceTarget) => void;
+  onCuePreview: (target: EvidenceTarget) => void;
+  onCueClick: (target: EvidenceTarget) => void;
 }) {
-  if (chapter.number === "01") return <AgentLoopExercise chapter={chapter} onOpen={() => onOpenPanel("request")} onSync={onSync} />;
-  if (chapter.number === "02") return <ContextExercise onOpen={() => onOpenPanel("request")} onSync={onSync} />;
-  if (chapter.number === "03") return <PluginExercise onOpen={() => onOpenPanel("source")} onSync={onSync} />;
-  if (chapter.number === "04") return <SessionExercise chapter={chapter} onOpen={() => onOpenPanel("events")} onSync={onSync} />;
-  if (chapter.number === "05") return <CapabilityExercise chapter={chapter} onOpen={() => onOpenPanel("graph")} onSync={onSync} />;
-  return <LongTaskExercise onOpen={() => onOpenPanel("events")} onSync={onSync} />;
-}
+  const cueRefs = useRef(new Map<string, HTMLElement>());
+  const focusCallback = useRef(onCueFocus);
+  const lastFocusedCue = useRef<string | null>(null);
 
-function ExerciseFrame({
-  title,
-  status,
-  actionLabel,
-  actionDisabled = false,
-  onAction,
-  detailLabel,
-  onOpen,
-  children,
-}: {
-  title: string;
-  status: string;
-  actionLabel: string;
-  actionDisabled?: boolean;
-  onAction: () => void;
-  detailLabel: string;
-  onOpen: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <section className="chapter-exercise">
-      <header>
-        <div><small>动手检查</small><h3>{title}</h3><span>{status}</span></div>
-        <button className="exercise-primary" onClick={onAction} disabled={actionDisabled}>{actionLabel}</button>
-      </header>
-      <div className="exercise-stage">{children}</div>
-      <div className="exercise-footer">
-        <button onClick={onOpen}>{detailLabel} →</button>
-        <span>固定样本 · 操作会同步右侧</span>
-      </div>
-    </section>
-  );
-}
+  useEffect(() => { focusCallback.current = onCueFocus; }, [onCueFocus]);
 
-const ROUTE_OPTIONS = [
-  { name: "BOREAL", latency: 42, loss: 6.5, energy: 4, valid: false, reason: "丢包率超过 2%" },
-  { name: "ASTER", latency: 58, loss: 1.2, energy: 3, valid: true, reason: "三项都符合" },
-  { name: "CRATER", latency: 75, loss: 0.5, energy: 8, valid: false, reason: "延迟和能耗超过上限" },
-] as const;
-
-function AgentLoopExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [phase, setPhase] = useState<0 | 1 | 2>(0);
-  const [selected, setSelected] = useState<string | null>(null);
-  const selectedRoute = ROUTE_OPTIONS.find((route) => route.name === selected);
-  const requestIndex = phase === 0 ? 0 : phase === 2 && selectedRoute?.valid ? 2 : 1;
-  const request = chapter.requests[requestIndex] ?? chapter.requests[0];
-  const actionLabel = phase === 0
-    ? "读取事故包"
-    : phase === 1
-      ? selectedRoute ? `提交 ${selectedRoute.name}` : "先选择一条路线"
-      : selectedRoute?.valid ? "重新开始" : "换一条路线";
-  const status = phase === 0
-    ? "模型只有任务说明，还没有事故数据"
-    : phase === 1
-      ? selectedRoute ? `已选择 ${selectedRoute.name}` : "请选择一条符合三项约束的路线"
-      : selectedRoute?.valid ? "提交通过" : `提交被拒绝：${selectedRoute?.reason ?? "不符合约束"}`;
-  const advance = () => {
-    if (phase === 0) {
-      setPhase(1);
-      onSync({ tab: "request", step: 1, note: "工具结果已加入第 2 次模型输入" });
+  useEffect(() => {
+    if (!active || window.matchMedia("(max-width: 960px)").matches) {
+      lastFocusedCue.current = null;
       return;
     }
-    if (phase === 1 && selectedRoute) {
-      setPhase(2);
-      onSync(selectedRoute.valid
-        ? { tab: "request", step: 2, note: "提交结果已加入第 3 次模型输入" }
-        : { tab: "source", lines: [83, 91], note: "右侧突出工具执行与结果写入" });
-      return;
-    }
-    if (phase === 2) {
-      if (selectedRoute?.valid) {
-        setPhase(0);
-        onSync({ tab: "request", step: 0, note: "回到第 1 次模型输入" });
-      } else {
-        setPhase(1);
-        onSync({ tab: "request", step: 1, note: "保留读取结果，重新选择路线" });
-      }
-      setSelected(null);
-    }
-  };
-  const records = phase === 0
-    ? ["用户要求检查火星中继站"]
-    : phase === 1
-      ? ["用户要求检查火星中继站", "模型调用：读取事故包", "工具返回：3 条候选路线"]
-      : ["用户要求检查火星中继站", "模型调用：读取事故包", "工具返回：3 条候选路线", `模型提交：${selectedRoute?.name ?? ""}`, selectedRoute?.valid ? "工具返回：方案通过" : `工具返回：${selectedRoute?.reason ?? "不符合约束"}`];
-  return (
-    <ExerciseFrame
-      title="读取数据，选择路线，再提交"
-      status={status}
-      actionLabel={actionLabel}
-      actionDisabled={phase === 1 && !selectedRoute}
-      onAction={advance}
-      detailLabel="查看完整模型输入"
-      onOpen={onOpen}
-    >
-      <div className="exercise-grid agent-exercise">
-        <section className="request-state">
-          <div className="exercise-card-title"><b>模型输入</b><span>第 {requestIndex + 1} 份</span></div>
-          <dl>
-            <div><dt>用户记录</dt><dd>{request?.request.messages.length ?? 1} 条</dd></div>
-            <div><dt>可用动作</dt><dd>{request?.request.tools.length ?? 2} 个</dd></div>
-            <div><dt>本次目标</dt><dd>检查并提交恢复方案</dd></div>
-          </dl>
-        </section>
-        <section key={phase} className="exercise-output exercise-flash" aria-live="polite">
-          {phase === 0 && <ToolCallCard label="下一步需要真实事故数据" name="读取事故包" code="read_incident_packet" />}
-          {phase === 1 && <RouteTable selected={selected} onSelect={setSelected} />}
-          {phase === 2 && (
-            selectedRoute?.valid
-              ? <div className="accepted-card"><i>✓</i><b>ASTER 方案通过</b><span>没有新的工具调用，本轮结束。</span></div>
-              : <div className="rejected-card"><i>×</i><b>{selectedRoute?.name} 没有通过</b><span>{selectedRoute?.reason}</span></div>
-          )}
-        </section>
-      </div>
-      <section className="record-strip">
-        <div className="exercise-card-title"><b>运行记录</b><span>{records.length} 条</span></div>
-        <ol>{records.map((item, index) => <li key={`${index}-${item}`} className={index === records.length - 1 ? "new" : ""}><i>{index + 1}</i>{item}</li>)}</ol>
-      </section>
-    </ExerciseFrame>
-  );
-}
 
-function ContextExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [projected, setProjected] = useState(false);
-  const telemetry = Array.from({ length: 36 }, (_, index) => {
-    const temperature = index < 30 ? 41 + (index % 4) : 74 + index - 30;
-    return `T+${String(index).padStart(2, "0")}  RELAY-7  ${temperature}°C`;
-  });
-  const visible = projected
-    ? [...telemetry.slice(0, 3), "… 省略 30 行 …", ...telemetry.slice(-3)]
-    : telemetry;
-  const toggle = () => {
-    const next = !projected;
-    setProjected(next);
-    onSync(next
-      ? { tab: "request", step: 1, note: "右侧显示裁剪后实际发送的模型输入" }
-      : { tab: "source", lines: [49, 66], note: "右侧突出裁剪这段文本的代码" });
-  };
-  return (
-    <ExerciseFrame
-      title="切换完整记录和模型看到的版本"
-      status={projected ? "正在查看模型输入" : "正在查看完整记录"}
-      actionLabel={projected ? "查看完整记录" : "查看模型输入"}
-      onAction={toggle}
-      detailLabel="拆开完整模型输入"
-      onOpen={onOpen}
-    >
-      <div className="projection-metrics">
-        <div className={!projected ? "active" : ""}><small>完整记录</small><b>36</b><span>行遥测</span></div>
-        <div className={projected ? "active" : ""}><small>模型输入</small><b>7</b><span>行内容</span></div>
-      </div>
-      <pre key={String(projected)} className="telemetry-view exercise-flash">{visible.join("\n")}</pre>
-    </ExerciseFrame>
-  );
-}
+    const elements = [...cueRefs.current.values()];
+    if (elements.length === 0) return;
 
-function PluginExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [phase, setPhase] = useState<0 | 1 | 2>(0);
-  const additions = [["工具", "读取事故包"], ["规则", "事故处理规则"], ["监听", "记录运行变化"]];
-  const advance = () => {
-    if (phase === 0) {
-      setPhase(1);
-      onSync({ tab: "source", lines: [45, 53], note: "右侧突出安装与登记过程" });
-    } else if (phase === 1) {
-      setPhase(2);
-      onSync({ tab: "source", lines: [54, 57], note: "右侧突出报错后的回滚" });
-    } else {
-      setPhase(0);
-      onSync({ tab: "source", lines: [45, 50], note: "安装状态已经重置" });
-    }
-  };
-  return (
-    <ExerciseFrame
-      title="看看安装失败后留下什么"
-      status={phase === 0 ? "准备开始" : phase === 1 ? "三项内容已登记，安装即将报错" : "回滚完成，没有残留"}
-      actionLabel={phase === 0 ? "开始安装" : phase === 1 ? "触发错误" : "重新检查"}
-      onAction={advance}
-      detailLabel="查看回滚代码"
-      onOpen={onOpen}
-    >
-      <div className="plugin-summary"><b>{phase === 1 ? 3 : 0}</b><span>{phase === 2 ? "项残留" : "项内容已登记"}</span></div>
-      <div key={phase} className="plugin-slots exercise-flash">
-        {additions.map(([kind, label]) => (
-          <div key={label} className={phase === 1 ? "present" : phase === 2 ? "cleared" : "empty"}>
-            <small>{kind}</small><b>{label}</b><span>{phase === 1 ? "已登记" : phase === 2 ? "已清理" : "等待登记"}</span>
-          </div>
-        ))}
-      </div>
-      <div className={`install-failure phase-${phase}`}><b>setup()</b><span>{phase === 0 ? "等待执行" : phase === 1 ? "下一步返回错误" : "错误已交给回滚处理"}</span></div>
-    </ExerciseFrame>
-  );
-}
+    let frame = 0;
+    const evaluate = () => {
+      frame = 0;
+      const focusY = window.innerHeight * 0.4;
+      const positions = elements
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+      const atPageEnd = window.scrollY + window.innerHeight
+        >= document.documentElement.scrollHeight - 4;
+      const candidate = atPageEnd
+        ? positions.at(-1)
+        : positions
+        .filter(({ rect }) => rect.bottom > 0 && rect.top < window.innerHeight)
+        .sort(
+          (left, right) =>
+            Math.abs(left.rect.top - focusY) - Math.abs(right.rect.top - focusY),
+        )[0];
+      const cueId = candidate?.element.getAttribute("data-evidence-cue");
+      if (!cueId || cueId === lastFocusedCue.current) return;
+      const block = blocks.find(
+        (item): item is LessonEvidenceBlock => item.kind === "evidence" && item.id === cueId,
+      );
+      if (!block) return;
+      lastFocusedCue.current = cueId;
+      focusCallback.current(block.target);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(evaluate);
+    };
 
-function SessionExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [selected, setSelected] = useState(0);
-  const request = chapter.requests[selected] ?? chapter.requests[0]!;
-  const select = (index: number) => {
-    setSelected(index);
-    onSync({ tab: "request", step: index, note: `右侧已切换到第 ${index + 1} 次模型输入` });
-  };
-  const next = () => select((selected + 1) % chapter.requests.length);
-  return (
-    <ExerciseFrame
-      title="选择一步，还原当时的模型输入"
-      status={`正在查看第 ${selected + 1} 次输入`}
-      actionLabel={`查看第 ${(selected + 1) % chapter.requests.length + 1} 次`}
-      onAction={next}
-      detailLabel="打开全部事件"
-      onOpen={onOpen}
-    >
-      <div className="request-choice">
-        {chapter.requests.map((item, index) => <button key={item.step} className={selected === index ? "active" : ""} onClick={() => select(index)}>第 {index + 1} 次</button>)}
-      </div>
-      <div key={selected} className="rebuild-grid exercise-flash">
-        <section>
-          <div className="exercise-card-title"><b>已有记录</b><span>{request.request.messages.length} 条</span></div>
-          {request.request.messages.length === 0 ? <p>还没有记录</p> : request.request.messages.map((message, index) => <p key={index}><i>{messageRoleLabel(message.role)}</i>{messagePreview(message)}</p>)}
-        </section>
-        <section>
-          <div className="exercise-card-title"><b>还原结果</b><span>第 {selected + 1} 次</span></div>
-          <dl><div><dt>系统规则</dt><dd>1 份</dd></div><div><dt>可用动作</dt><dd>{request.request.tools.length} 个</dd></div><div><dt>过程记录</dt><dd>{request.request.messages.length} 条</dd></div></dl>
-        </section>
-      </div>
-    </ExerciseFrame>
-  );
-}
+    schedule();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [active, blocks]);
 
-function CapabilityExercise({ chapter, onOpen, onSync }: { chapter: Chapter; onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [phase, setPhase] = useState(0);
-  const requestIndexes = [0, 2, 3, 4];
-  const request = chapter.requests[requestIndexes[phase] ?? 0] ?? chapter.requests[0]!;
-  const actions = ["安装评分工具", "执行路线评分", "移除评分工具", "重新开始"];
-  const statuses = ["评分工具未安装", "评分工具已经出现", "评分已经完成", "评分工具已经移除"];
-  const advance = () => {
-    const next = phase >= 3 ? 0 : phase + 1;
-    setPhase(next);
-    const graphStep = requestIndexes[next] ?? 0;
-    onSync({ tab: "graph", step: graphStep, note: next === 1 ? "右侧已经出现路线评分工具" : next === 3 ? "右侧已经移除路线评分工具" : next === 2 ? "右侧保留评分时的能力状态" : "右侧回到安装前" });
-  };
   return (
-    <ExerciseFrame
-      title="观察模型输入怎样增减一个工具"
-      status={statuses[phase] ?? ""}
-      actionLabel={actions[phase] ?? "继续"}
-      onAction={advance}
-      detailLabel="查看能力关系"
-      onOpen={onOpen}
-    >
-      <section key={phase} className="tool-catalog exercise-flash">
-        <div className="exercise-card-title"><b>当前可用动作</b><span>{request.request.tools.length} 个</span></div>
-        <div>{request.request.tools.map((tool) => <span key={tool.name} className={tool.name === "score_routes" ? "new" : ""}>{toolNameLabel(tool.name)}</span>)}</div>
-      </section>
-      {phase === 2 && <RouteTable />}
-      {phase === 3 && <p className="removed-note">评分工具已从下一次模型输入中移除。</p>}
-    </ExerciseFrame>
-  );
-}
-
-function LongTaskExercise({ onOpen, onSync }: { onOpen: () => void; onSync: (target: ExerciseTarget) => void }) {
-  const [round, setRound] = useState(0);
-  const actions = ["开始调查", "进入评分", "进入提交", "重新开始"];
-  const statuses = ["任务尚未开始", "调查完成", "评分完成", "任务完成"];
-  const requestSteps = [0, 1, 4, 6];
-  const advance = () => {
-    const next = round >= 3 ? 0 : round + 1;
-    setRound(next);
-    onSync({ tab: "request", step: requestSteps[next] ?? 0, note: next === 0 ? "右侧回到任务开始前" : `右侧已切换到第 ${next} 轮结束时的模型输入` });
-  };
-  return (
-    <ExerciseFrame
-      title="比较三轮结束时的模型输入"
-      status={statuses[round] ?? ""}
-      actionLabel={actions[round] ?? "继续"}
-      onAction={advance}
-      detailLabel="打开全部事件"
-      onOpen={onOpen}
-    >
-      <div className="round-progress">
-        {["调查", "评分", "提交"].map((label, index) => <div key={label} className={round > index + 1 ? "done" : round === index + 1 ? "current" : ""}><i>{round > index + 1 ? "✓" : index + 1}</i><span>{label}</span></div>)}
-      </div>
-      <section key={round} className="round-result exercise-flash">
-        {round === 0 && <div className="exercise-empty"><b>目标已经保存</b><span>恢复火星中继站，并提交通过约束的方案。</span></div>}
-        {round === 1 && <div className="survey-result"><b>调查结果</b><span>RELAY-7 最高温度 79°C</span><span>共有 3 条候选路线</span></div>}
-        {round === 2 && <RouteTable />}
-        {round === 3 && <div className="accepted-card"><i>✓</i><b>第三轮完成</b><span>评分工具已移除，ASTER 已提交。</span></div>}
-      </section>
-    </ExerciseFrame>
-  );
-}
-
-function ToolCallCard({ label, name, code }: { label: string; name: string; code: string }) {
-  return <div className="tool-call-card"><span>{label}</span><b>{name}</b><code>{code}</code></div>;
-}
-
-function RouteTable({ selected = null, onSelect }: { selected?: string | null; onSelect?: (name: string) => void }) {
-  return (
-    <div className={`route-table ${onSelect ? "selectable" : ""}`}>
-      <div className="exercise-card-title"><b>{onSelect ? "选择要提交的路线" : "路线评分"}</b><span>3 条路线</span></div>
-      <p className="route-limits">上限：延迟 65 ms · 丢包 2% · 能耗 5</p>
-      {ROUTE_OPTIONS.map((route) => (
-        <button
-          type="button"
-          key={route.name}
-          disabled={!onSelect}
-          onClick={() => onSelect?.(route.name)}
-          className={`route-row ${!onSelect && route.valid ? "valid" : ""} ${selected === route.name ? "selected" : ""}`}
-        >
-          <span><b>{route.name}</b><i>{onSelect ? selected === route.name ? "已选择" : "选择" : route.valid ? "符合约束" : "不符合"}</i></span>
-          <span>延迟 {route.latency} ms</span><span>丢包 {route.loss}%</span><span>能耗 {route.energy}</span>
-        </button>
-      ))}
+    <div className="lesson-copy">
+      {blocks.map((block, index) => {
+        if (block.kind === "heading") return <h3 key={index}>{block.text}</h3>;
+        if (block.kind === "paragraph") return <p key={index}>{renderInlineCode(block.text)}</p>;
+        const selected = block.id === activeCueId;
+        return (
+          <aside
+            key={block.id}
+            ref={(node) => {
+              if (node) cueRefs.current.set(block.id, node);
+              else cueRefs.current.delete(block.id);
+            }}
+            data-evidence-cue={block.id}
+            className={`evidence-cue ${selected ? "active" : ""}`}
+          >
+            <button
+              type="button"
+              aria-pressed={selected}
+              onMouseEnter={() => onCuePreview(block.target)}
+              onFocus={() => onCuePreview(block.target)}
+              onClick={() => onCueClick(block.target)}
+            >
+              <span className="evidence-cue-index">{Number(chapterNumber)}.{block.ordinal}</span>
+              <strong>{block.label}</strong>
+              <span className="evidence-cue-description">{block.description}</span>
+            </button>
+          </aside>
+        );
+      })}
     </div>
   );
 }
 
-function MoreEvidence({ chapter, onSelect }: { chapter: Chapter; onSelect: (tab: MobileTab) => void }) {
-  const descriptions: Record<Exclude<PanelTab, "source">, string> = {
-    diff: "看看这一章改了哪些文件",
-    request: "拆开模型收到的工作包",
-    events: "按时间回看运行过程",
-    graph: "查看工具和服务来自哪里",
-  };
+function MoreEvidence({ chapter, onSelect }: { chapter: Chapter; onSelect: (target: EvidenceTarget) => void }) {
+  const sections = lessonEvidenceBlocks(chapter.lesson);
   return (
     <section className="mobile-more">
-      <span>按需打开</span>
-      <h3>这些内容不影响主线阅读</h3>
-      <p>先完成正文和“跟着写”。需要核对实现时，再从下面选一项。</p>
+      <span>本章顺序</span>
+      <h3>从 {Number(chapter.number)}.1 读到总结</h3>
+      <p>每一项只回答正文旁边的一个问题。</p>
       <div>
-        {PANEL_TABS.slice(1).filter((item) => isPanelAvailable(chapter, item.id)).map((item) => (
-          <button key={item.id} onClick={() => onSelect(item.id)}>
-            <b>{item.label}</b>
-            <span>{descriptions[item.id as Exclude<PanelTab, "source">]}</span>
+        {sections.map((section) => (
+          <button key={section.id} onClick={() => onSelect(section.target)}>
+            <b>{Number(chapter.number)}.{section.ordinal} · {section.label}</b>
+            <span>{section.description}</span>
           </button>
         ))}
       </div>
@@ -816,172 +1380,125 @@ function MoreEvidence({ chapter, onSelect }: { chapter: Chapter; onSelect: (tab:
   );
 }
 
-function ModeContrast({ program }: { program: string }) {
-  return (
-    <section className="mode-contrast" aria-label="两种工具呈现方式">
-      <div className="mode-intro">
-        <span>概念补充</span>
-        <p>程序化工具调用（Programmatic Tool Calling，PTC）允许模型用程序组合多个工具。Code Mode 软件开发工具包（Software Development Kit，SDK）提供程序可以调用的工具接口。</p>
-      </div>
-      <div><span>标准模式 · 本教程可运行</span><b>逐项选择工具</b><p>模型返回一个或多个工具调用，运行框架逐个校验和执行。</p></div>
-      <div className="mode-arrow">同一组能力<br />两种交互方式</div>
-      <div><span>PTC · 概念示例</span><b>用程序组合工具</b><p>模型生成 TypeScript，通过工具接口表达条件、循环和多步动作。</p></div>
-      <details className="ptc-example">
-        <summary>展开静态代码示例</summary>
-        <pre><SyntaxCode code={program} language="typescript" /></pre>
-      </details>
-    </section>
-  );
-}
-
-function ContextCutaway({ request }: { request: RequestEvidence }) {
-  return (
-    <div className="context-cutaway">
-      <p><span /> 固定区 <i /> 累积区 <b /> 本步区</p>
-      <div className="request-bar">
-        {request.parts.map((part) => (
-          <span key={part.id} className={part.stability} style={{ flexGrow: part.approximateTokens }} title={`${requestPartLabel(part)}：约 ${part.approximateTokens} token`} />
-        ))}
-      </div>
-      <small>约 {request.totalApproximateTokens} token · 用于比较体积的教学估算</small>
-    </div>
-  );
-}
-
-function PresetAssembly() {
-  return (
-    <div className="preset-grid">
-      <div><b>标准</b><span>完整编码能力组装</span></div>
-      <div><b>程序化调用</b><span>同一能力目录，提供程序接口</span></div>
-      <div><b>极简</b><span>主动删减后的轻量组装</span></div>
-      <div><b>创造</b><span>标准组装加检查、实验与指导</span></div>
-    </div>
-  );
-}
-
-function ExperimentSequence() {
-  return (
-    <div className="sequence-strip" aria-label="临时能力实验顺序">
-      <span>检查环境</span><i>→</i><span>安装评分能力</span><i>→</i><strong>执行路线评分</strong><i>→</i><span>移除能力</span><i>→</i><span>提交方案</span>
-    </div>
-  );
-}
-
-function RoundSequence() {
-  return (
-    <div className="round-strip">
-      <div><b>第一轮</b><span>调查</span></div><i />
-      <div><b>第二轮</b><span>评分</span></div><i />
-      <div><b>第三轮</b><span>提交</span></div>
-      <strong>完成</strong>
-    </div>
-  );
-}
-
 function EvidencePanel({
   chapter,
+  chapters,
   tab,
   step,
-  onTab,
-  onStep,
+  onSelect,
+  following = true,
+  onFollowingChange,
   sync = null,
   compact = false,
 }: {
   chapter: Chapter;
+  chapters: Chapter[];
   tab: PanelTab;
   step: number;
-  onTab: (tab: PanelTab) => void;
-  onStep: (step: number) => void;
+  onSelect: (target: EvidenceTarget) => void;
+  following?: boolean;
+  onFollowingChange?: (following: boolean) => void;
   sync?: EvidenceSync | null;
   compact?: boolean;
 }) {
-  const maxSteps = Math.max(chapter.requests.length, chapter.graphs.length, 1);
-  const safeStep = Math.min(step, maxSteps - 1);
+  const sections = lessonEvidenceBlocks(chapter.lesson);
+  const availableSteps = tab === "graph" ? chapter.graphs.length : chapter.requests.length;
+  const safeStep = Math.min(step, Math.max(availableSteps - 1, 0));
+  const activeSectionId = sync?.cueId
+    ?? sections.find((section) => sameEvidenceLocation(section.target, { tab, step: safeStep }))?.id;
   return (
     <div className={`panel-shell ${compact ? "compact" : ""}`}>
-      {sync && <div key={sync.version} className="panel-sync-note"><i />{sync.note}</div>}
       <div className="panel-topline">
-        <div><i /> 本章练习区</div>
-        <span>{chapterName(chapter.number)}</span>
+        <div><i /> 本章路径</div>
+        {onFollowingChange ? (
+          <button
+            type="button"
+            className={`narrative-follow ${following ? "active" : "paused"}`}
+            aria-pressed={following}
+            onClick={() => onFollowingChange(!following)}
+          >
+            <span />{following ? "跟随正文" : "继续跟随正文"}
+          </button>
+        ) : <span>{chapterName(chapter.number)}</span>}
       </div>
-      <div className="panel-tabs" role="tablist">
-        <button
-          className={`primary-tab ${tab === "source" ? "active" : ""}`}
-          onClick={() => onTab("source")}
-          aria-selected={tab === "source"}
-        >
-          跟着写
-        </button>
-        <div className="secondary-tabs">
-          {PANEL_TABS.slice(1).filter((item) => isPanelAvailable(chapter, item.id)).map((item) => {
-          return (
+      <div className="panel-tabs chapter-evidence-tabs" role="tablist">
+        {sections.map((section) => (
             <button
-              key={item.id}
-              className={tab === item.id ? "active" : ""}
-              onClick={() => onTab(item.id)}
-              aria-selected={tab === item.id}
+              key={section.id}
+              className={activeSectionId === section.id ? "active" : ""}
+              onClick={() => onSelect(section.target)}
+              aria-selected={activeSectionId === section.id}
             >
-              {item.label}
+              <small>{Number(chapter.number)}.{section.ordinal}</small>
+              <span>{section.label}</span>
             </button>
-          );
-          })}
-        </div>
+        ))}
       </div>
-      {(tab === "request" || tab === "graph") && maxSteps > 1 && (
-        <div className="step-picker">
-          <span>模型步骤</span>
-          {Array.from({ length: maxSteps }, (_, index) => (
-            <button key={index} className={safeStep === index ? "active" : ""} onClick={() => onStep(index)}>{index + 1}</button>
-          ))}
-        </div>
-      )}
-      <div className="panel-content">
+      <div
+        key={`${chapter.id}-${activeSectionId ?? tab}-${safeStep}`}
+        className={`panel-content panel-content-enter ${tab === "source" ? "source-panel-content" : ""}`}
+      >
         {tab === "source" && <SourceView chapter={chapter} externalRange={sync?.lines ?? null} />}
-        {tab === "diff" && <DiffView chapter={chapter} />}
-        {tab === "request" && <RequestView evidence={chapter.requests[safeStep] ?? chapter.requests[0]!} />}
-        {tab === "events" && <TraceView chapter={chapter} />}
+        {tab === "diff" && <DiffView chapter={chapter} chapters={chapters} onSelect={onSelect} />}
+        {tab === "request" && <RequestView chapter={chapter} evidence={chapter.requests[safeStep] ?? chapter.requests[0]!} />}
+        {tab === "events" && <TraceView chapter={chapter} focus={sync?.event} />}
         {tab === "graph" && <GraphView {...(chapter.graphs[safeStep] ? { graph: chapter.graphs[safeStep] } : {})} chapter={chapter} />}
       </div>
     </div>
   );
 }
 
-function SourceView({ chapter, externalRange = null }: { chapter: Chapter; externalRange?: [number, number] | null }) {
+function SourceView({
+  chapter,
+  externalRange = null,
+}: {
+  chapter: Chapter;
+  externalRange?: [number, number] | null;
+}) {
   const lineCount = chapter.source.content.trimEnd().split("\n").length;
   const [hoveredObservation, setHoveredObservation] = useState<number | null>(null);
   const [pinnedObservation, setPinnedObservation] = useState<number | null>(null);
   const focusCodeRef = useRef<HTMLDivElement>(null);
-  const activeObservation = hoveredObservation ?? pinnedObservation;
-  const activeRange = activeObservation === null
-    ? externalRange
-    : chapter.codeGuide.observations[activeObservation]?.lines ?? externalRange;
+  const externalObservation = externalRange === null
+    ? -1
+    : chapter.codeGuide.observations.findIndex(
+        (observation) => observation.lines[0] === externalRange[0]
+          && observation.lines[1] === externalRange[1],
+      );
+  const activeObservation = hoveredObservation
+    ?? pinnedObservation
+    ?? (externalObservation >= 0 ? externalObservation : null);
+  const activeRange = hoveredObservation !== null || pinnedObservation !== null
+    ? chapter.codeGuide.observations[activeObservation ?? -1]?.lines ?? null
+    : externalRange;
+  const suppressFullExcerptFocus = hoveredObservation === null
+    && pinnedObservation === null
+    && externalRange !== null
+    && externalRange[0] <= chapter.source.startLine
+    && externalRange[1] >= chapter.source.endLine;
+  const displayedRange = suppressFullExcerptFocus ? null : activeRange;
+  const focusLine = displayedRange === null
+    ? null
+    : Math.floor((displayedRange[0] + displayedRange[1]) / 2);
   useEffect(() => {
-    if (pinnedObservation === null) return;
-    const line = chapter.codeGuide.observations[pinnedObservation]?.lines[0];
-    if (!line) return;
+    if (focusLine === null) return;
     const frame = requestAnimationFrame(() => {
-      focusCodeRef.current
-        ?.querySelector<HTMLElement>(`[data-line="${line}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const highlighted = [
+        ...(focusCodeRef.current?.querySelectorAll<HTMLElement>(".code-line.highlighted") ?? []),
+      ];
+      const target = highlighted[Math.floor(highlighted.length / 2)]
+        ?? focusCodeRef.current?.querySelector<HTMLElement>(`[data-line="${focusLine}"]`);
+      if (target) scrollEvidenceIntoView(target);
     });
     return () => cancelAnimationFrame(frame);
-  }, [chapter.codeGuide.observations, pinnedObservation]);
-  useEffect(() => {
-    if (!externalRange) return;
-    const frame = requestAnimationFrame(() => {
-      focusCodeRef.current
-        ?.querySelector<HTMLElement>(`[data-line="${externalRange[0]}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [externalRange]);
+  }, [focusLine]);
   return (
     <div className="source-view">
       <section className="panel-intro">
-        <span>本章只跟一个主文件</span>
+        <span>源码细读</span>
         <h3>{chapter.codeGuide.title}</h3>
         <p>{chapter.codeGuide.description}</p>
-        <small className="hover-hint">将鼠标移到说明上；手机可点按。对应代码会突出显示。</small>
+        <small className="hover-hint">悬停即定位并高亮；点按可固定。代码独立滚动，省略行可展开。</small>
         <ol>
           {chapter.codeGuide.observations.map((observation, index) => (
             <li key={observation.text} className={activeObservation === index ? "active" : ""}>
@@ -994,7 +1511,10 @@ function SourceView({ chapter, externalRange = null }: { chapter: Chapter; exter
                 onBlur={() => setHoveredObservation(null)}
                 onClick={() => setPinnedObservation((current) => current === index ? null : index)}
               >
-                <span>{observation.text}</span>
+                <span className="source-guide-copy">
+                  <b>{observation.title}</b>
+                  <span>{observation.text}</span>
+                </span>
                 <small>{formatLineRange(observation.lines)}</small>
               </button>
             </li>
@@ -1003,14 +1523,18 @@ function SourceView({ chapter, externalRange = null }: { chapter: Chapter; exter
       </section>
       <div ref={focusCodeRef} className="focus-code">
         <div className="file-label">
-          <span>{chapter.source.path} · 第 {chapter.source.startLine}–{chapter.source.endLine} 行</span>
+          <span>
+            {chapter.source.path} · 第 {chapter.source.startLine}–{chapter.source.endLine} 行
+            {chapter.codeGuide.folds?.length ? ` · 折叠 ${chapter.codeGuide.folds.length} 处实现细节` : ""}
+          </span>
           <button onClick={() => navigator.clipboard?.writeText(chapter.source.excerpt)}>复制片段</button>
         </div>
         <CodeBlock
           code={chapter.source.excerpt}
           startLine={chapter.source.startLine}
           language={languageForPath(chapter.source.path)}
-          highlightedRange={activeRange}
+          highlightedRange={displayedRange}
+          folds={chapter.codeGuide.folds ?? []}
         />
       </div>
       <details className="technical-details full-source">
@@ -1027,39 +1551,77 @@ function SourceView({ chapter, externalRange = null }: { chapter: Chapter; exter
   );
 }
 
-function DiffView({ chapter }: { chapter: Chapter }) {
-  const { diffStats, changeStory } = chapter;
+function DiffView({
+  chapter,
+  chapters,
+  onSelect,
+}: {
+  chapter: Chapter;
+  chapters: Chapter[];
+  onSelect: (target: EvidenceTarget) => void;
+}) {
+  const { changeStory } = chapter;
+  const activeIndex = chapters.findIndex((item) => item.id === chapter.id);
   return (
     <div className="diff-view">
       <section className="panel-intro change-intro">
-        <span>这一章给使用者带来什么</span>
+        <span>第 {Number(chapter.number)} 问 · 本章答案</span>
+        <p className="summary-question">{chapter.question}</p>
         <h3>{changeStory.title}</h3>
         <p>{changeStory.summary}</p>
       </section>
-      <div className="change-metrics" aria-label="代码改动规模">
-        <div><b>{diffStats.filesChanged}</b><span>个文件有改动</span></div>
-        <div><b>+{diffStats.additions}</b><span>行新增</span></div>
-        <div><b>{diffStats.deletions}</b><span>行删除</span></div>
-      </div>
-      <ul className="outcome-list">
-        {changeStory.outcomes.map((outcome) => <li key={outcome}><i>✓</i><span>{outcome}</span></li>)}
-      </ul>
-      <details className="technical-details diff-details">
-        <summary><span>工程证据</span><b>查看文件清单与逐行代码差异（Diff）</b></summary>
-        <div className="details-body">
-          <div className="file-stats">
-            {diffStats.files.map((file) => (
-              <div key={file.path}><span>{file.path}</span><b>+{file.additions} / −{file.deletions}</b></div>
-            ))}
-          </div>
-          <p className="details-note">逐行差异保留实现细节；内部版本名已经从公开视图中隐藏。</p>
-          <div className="file-label">
-            <span>本章逐行差异</span>
-            <button onClick={() => navigator.clipboard?.writeText(chapter.diff)}>复制差异</button>
-          </div>
-          <CodeBlock code={chapter.diff} diff />
-        </div>
-      </details>
+
+      <section className="summary-section code-callbacks">
+        <header>
+          <span>回看代码</span>
+          <h4>答案落在这三个控制点</h4>
+          <p>{chapter.codeGuide.description}</p>
+        </header>
+        <ol>
+          {chapter.codeGuide.observations.map((observation, index) => (
+            <li key={`${observation.title}-${observation.lines.join("-")}`}>
+              <button
+                type="button"
+                onClick={() => onSelect({
+                  tab: "source",
+                  lines: observation.lines,
+                  note: observation.title,
+                })}
+              >
+                <small>{String(index + 1).padStart(2, "0")} · {chapter.source.path}:{observation.lines[0]}–{observation.lines[1]}</small>
+                <b>{observation.title}</b>
+                <span>{observation.text}</span>
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="summary-section harness-summary">
+        <header>
+          <span>放回 DeepSeek Harness</span>
+          <h4>{changeStory.harnessRole}</h4>
+          <p>{changeStory.connection}</p>
+        </header>
+        <ol className="six-question-map" aria-label="理解 DeepSeek Harness 的六个问题">
+          {chapters.map((item, index) => (
+            <li
+              key={item.id}
+              className={index === activeIndex ? "current" : index < activeIndex ? "answered" : "upcoming"}
+            >
+              <small>{String(index + 1).padStart(2, "0")}</small>
+              <div><b>{item.shortTitle}</b><span>{item.question}</span></div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="summary-section summary-checklist">
+        <header><span>带走这三句</span><h4>读完本章，你应该能自己解释</h4></header>
+        <ul className="outcome-list">
+          {changeStory.outcomes.map((outcome) => <li key={outcome}><i>✓</i><span>{outcome}</span></li>)}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -1070,35 +1632,65 @@ function CodeBlock({
   diff = false,
   language = "typescript",
   highlightedRange = null,
+  folds = [],
 }: {
   code: string;
   startLine?: number;
   diff?: boolean;
   language?: string;
   highlightedRange?: [number, number] | null;
+  folds?: Array<{ lines: [number, number]; label: string }>;
 }) {
   const lines = code.trimEnd().split("\n");
   const languages = diffLanguages(lines, language);
+  const [expandedFolds, setExpandedFolds] = useState<Set<string>>(() => new Set());
+  const foldAtLine = new Map(
+    folds.map((fold) => [fold.lines[0], fold] as const),
+  );
+  const rows: ReactNode[] = [];
+  for (let index = 0; index < lines.length;) {
+    const lineNumber = startLine + index;
+    const fold = foldAtLine.get(lineNumber);
+    const foldKey = fold ? `${fold.lines[0]}-${fold.lines[1]}` : "";
+    if (fold && !expandedFolds.has(foldKey)) {
+      const highlighted = highlightedRange !== null
+        && fold.lines[0] <= highlightedRange[1]
+        && fold.lines[1] >= highlightedRange[0];
+      rows.push(
+        <div key={`fold-${foldKey}`} className={`code-fold ${highlighted ? "highlighted" : ""}`.trim()}>
+          <span className="line-no">⋯</span>
+          <button
+            type="button"
+            onClick={() => setExpandedFolds((current) => new Set(current).add(foldKey))}
+          >
+            展开第 {fold.lines[0]}–{fold.lines[1]} 行 · {fold.label}
+          </button>
+        </div>,
+      );
+      index += fold.lines[1] - fold.lines[0] + 1;
+      continue;
+    }
+    const line = lines[index] ?? "";
+    const highlighted = highlightedRange !== null
+      && lineNumber >= highlightedRange[0]
+      && lineNumber <= highlightedRange[1];
+    rows.push(
+      <div
+        key={index}
+        data-line={lineNumber}
+        className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""}`.trim()}
+      >
+        <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
+        {diff
+          ? <DiffCodeLine line={line} language={languages[index] ?? language} />
+          : <SyntaxCode code={line || " "} language={language} />}
+      </div>,
+    );
+    index += 1;
+  }
   return (
     <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
-      {lines.map((line, index) => {
-        const lineNumber = startLine + index;
-        const highlighted = highlightedRange !== null
-          && lineNumber >= highlightedRange[0]
-          && lineNumber <= highlightedRange[1];
-        return (
-        <div
-          key={index}
-          data-line={lineNumber}
-          className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""}`.trim()}
-        >
-          <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
-          {diff
-            ? <DiffCodeLine line={line} language={languages[index] ?? language} />
-            : <SyntaxCode code={line || " "} language={language} />}
-        </div>
-        );
-      })}
+      {rows}
     </div>
   );
 }
@@ -1123,25 +1715,29 @@ function DiffCodeLine({ line, language }: { line: string; language: string }) {
   );
 }
 
-function RequestView({ evidence }: { evidence: RequestEvidence }) {
+function RequestView({ chapter, evidence }: { chapter: Chapter; evidence: RequestEvidence }) {
+  const guide = requestViewGuide(chapter.number);
+  const showAnatomy = chapter.number === "01" || chapter.number === "02";
   return (
     <div className="request-view">
       <section className="panel-intro concept-intro">
-        <span>先认识“模型请求”</span>
-        <h3>一次请求，就是交给模型的一份工作包</h3>
-        <p>它把规则、可用动作、已有记录和本步说明装在一起。模型读完这份工作包后，返回文字回复或工具调用。</p>
+        <span>{guide.eyebrow}</span>
+        <h3>{guide.title}</h3>
+        <p>{guide.description}</p>
       </section>
-      <div className="request-anatomy">
-        <div className="stable"><b>固定区</b><span>系统规则、工具说明</span></div>
-        <div className="append-only"><b>累积区</b><span>用户、模型与工具记录</span></div>
-        <div className="step-variable"><b>本步区</b><span>只服务于当前步骤的说明</span></div>
-      </div>
+      {showAnatomy && (
+        <div className="request-anatomy">
+          <div className="stable"><b>固定区</b><span>系统规则、工具说明</span></div>
+          <div className="append-only"><b>累积区</b><span>用户、模型与工具记录</span></div>
+          <div className="step-variable"><b>本步区</b><span>只服务于当前步骤的说明</span></div>
+        </div>
+      )}
       <p className="request-step-title">第 {evidence.step} 次模型请求</p>
       <div className="request-metrics">
         <div><small>整份工作包</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
         <div><small>与上次相同的开头</small><b>约 {evidence.prefix.sharedApproximateTokens}</b><span>token</span></div>
       </div>
-      <p className="estimate-warning">Token 是模型处理文本时使用的计量单位。这里按字符估算，便于比较大小；相同开头只表示提示词缓存（Prompt Cache）具备复用机会。</p>
+      {chapter.number === "02" && <p className="estimate-warning">Token 是模型处理文本时使用的计量单位。这里按字符估算，便于比较大小；相同开头只表示提示词缓存（Prompt Cache）具备复用机会。</p>}
       <div className="request-parts">
         {evidence.parts.map((part) => (
           <details key={part.id} className={part.stability}>
@@ -1161,13 +1757,36 @@ function RequestView({ evidence }: { evidence: RequestEvidence }) {
   );
 }
 
-function TraceView({ chapter }: { chapter: Chapter }) {
+function TraceView({
+  chapter,
+  focus,
+}: {
+  chapter: Chapter;
+  focus?: EvidenceTarget["event"];
+}) {
+  const guide = traceViewGuide(chapter.number);
+  const focusedEvent = (() => {
+    if (!focus) return undefined;
+    const matches = chapter.trace.filter((item) => item.type === focus.type);
+    if (focus.occurrence === "last") return matches.at(-1);
+    return matches[Math.max(0, (focus.occurrence ?? 1) - 1)];
+  })();
+  const focusedRef = useRef<HTMLLIElement>(null);
+
+  useEffect(() => {
+    if (!focusedEvent) return;
+    const frame = requestAnimationFrame(() => {
+      if (focusedRef.current) scrollEvidenceIntoView(focusedRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusedEvent?.eventId]);
+
   return (
     <div className="trace-view">
       <section className="panel-intro concept-intro">
-        <span>先认识“事件”和“轨迹”</span>
-        <h3>事件是过程收据，轨迹是阅读时间线</h3>
-        <p>会话事件（Session Event）记录一次已发生动作；会话日志（Session Log）按时间收集这些记录；执行轨迹（Trace）把同一份日志翻成便于阅读的时间线。</p>
+        <span>{guide.eyebrow}</span>
+        <h3>{guide.title}</h3>
+        <p>{guide.description}</p>
       </section>
       {chapter.events.length === 0 ? (
         <EmptyMechanism
@@ -1177,10 +1796,16 @@ function TraceView({ chapter }: { chapter: Chapter }) {
         />
       ) : (
         <>
-          <div className="trace-summary"><b>{chapter.events.length}</b> 条过程收据 <span>生成</span> <b>{chapter.requests.length}</b> 份可重建请求</div>
+          <div className="trace-summary"><b>{chapter.events.length}</b> 条关键事件，按发生顺序只追加</div>
           <ol>
-            {chapter.trace.map((item) => (
-              <li key={`${item.eventId}-${item.type}`} className={traceClass(item.type)}>
+            {chapter.trace.map((item) => {
+              const selected = item.eventId === focusedEvent?.eventId;
+              return (
+              <li
+                key={`${item.eventId}-${item.type}`}
+                ref={selected ? focusedRef : undefined}
+                className={`${traceClass(item.type)} ${selected ? "focused" : ""}`.trim()}
+              >
                 <span>{String(item.eventId).padStart(2, "0")}</span>
                 <i />
                 <div>
@@ -1196,7 +1821,8 @@ function TraceView({ chapter }: { chapter: Chapter }) {
                   )}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ol>
         </>
       )}
@@ -1218,12 +1844,13 @@ function GraphView({ graph, chapter }: { graph?: GraphSnapshot; chapter: Chapter
     );
   }
   const capability = graph.plugins.find((plugin) => plugin.startsWith("capability:"));
+  const guide = graphViewGuide(chapter.number, Boolean(capability));
   return (
     <div className="graph-view">
       <section className="panel-intro graph-intro">
-        <span>当前能力快照</span>
-        <h3>查看工具、服务和提示词的归属</h3>
-        <p>圆心代表运行环境，外圈节点代表已安装插件。下方清单列出这一步当前可用的能力。</p>
+        <span>{guide.eyebrow}</span>
+        <h3>{guide.title}</h3>
+        <p>{guide.description}</p>
       </section>
       <div className="graph-stage">
         <div className="graph-core">运行环境<span>本章快照</span></div>
@@ -1250,7 +1877,7 @@ function GraphView({ graph, chapter }: { graph?: GraphSnapshot; chapter: Chapter
       </div>
       {chapter.number === "05" && (
         <p className={`capability-state ${capability ? "mounted" : "removed"}`}>
-          <i /> 路线评分能力{capability ? "已安装；下一次请求会出现评分工具" : "已移除；工具目录已经恢复"}
+          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录已经出现 word_count" : "未安装；工具目录处于基线状态"}
         </p>
       )}
     </div>
@@ -1279,29 +1906,216 @@ function LoadFailure({ message }: { message: string }) {
 }
 
 function Loading() {
-  return <div className="load-state"><b>正在装载学习样本…</b><span>页面不会发起模型调用</span></div>;
+  return <div className="load-state"><b>正在展开教程…</b><span>六章源码与运行轨迹即将就绪</span></div>;
 }
 
-function parseLesson(markdown: string): Array<{ kind: "heading" | "paragraph"; text: string }> {
+function parseLesson(markdown: string): LessonBlock[] {
+  let evidenceOrdinal = 0;
   return markdown
     .split(/\n\s*\n/u)
     .slice(1)
     .map((block) => block.trim())
     .filter(Boolean)
-    .map((block) => ({
-      kind: block.startsWith("## ") ? "heading" : "paragraph",
-      text: block.replace(/^##\s+/u, "").replace(/\n/gu, " "),
-    }));
+    .flatMap((block): LessonBlock[] => {
+      if (block.startsWith("## ")) {
+        return [{ kind: "heading", text: block.replace(/^##\s+/u, "").replace(/\n/gu, " ") }];
+      }
+      const evidence = /^<!--\s*evidence\s+([\s\S]+?)\s*-->$/u.exec(block)?.[1];
+      if (!evidence) return [{ kind: "paragraph", text: block.replace(/\n/gu, " ") }];
+      try {
+        const directive = JSON.parse(evidence) as {
+          id?: unknown;
+          tab?: unknown;
+          requestStep?: unknown;
+          lines?: unknown;
+          eventType?: unknown;
+          eventOccurrence?: unknown;
+          label?: unknown;
+          description?: unknown;
+        };
+        if (
+          typeof directive.id !== "string"
+          || !PANEL_TABS.some((item) => item.id === directive.tab)
+          || typeof directive.label !== "string"
+          || typeof directive.description !== "string"
+        ) {
+          throw new Error("missing id, tab, label, or description");
+        }
+        const target: EvidenceTarget = {
+          tab: directive.tab as PanelTab,
+          note: directive.description,
+          cueId: directive.id,
+        };
+        if (typeof directive.requestStep === "number") {
+          target.step = Math.max(0, Math.floor(directive.requestStep) - 1);
+        }
+        if (
+          Array.isArray(directive.lines)
+          && directive.lines.length === 2
+          && directive.lines.every((line) => typeof line === "number")
+        ) {
+          target.lines = [directive.lines[0] as number, directive.lines[1] as number];
+        }
+        if (typeof directive.eventType === "string") {
+          target.event = {
+            type: directive.eventType,
+            ...(directive.eventOccurrence === "last" || typeof directive.eventOccurrence === "number"
+              ? { occurrence: directive.eventOccurrence as number | "last" }
+              : {}),
+          };
+        }
+        return [{
+          kind: "evidence",
+          id: directive.id,
+          ordinal: evidenceOrdinal += 1,
+          label: directive.label,
+          description: directive.description,
+          target,
+        }];
+      } catch (error) {
+        console.warn("Ignored invalid lesson evidence directive", error);
+        return [];
+      }
+    });
 }
 
-function parsePrimer(markdown: string): {
+function lessonEvidenceBlocks(markdown: string): LessonEvidenceBlock[] {
+  return parseLesson(markdown).filter(
+    (block): block is LessonEvidenceBlock => block.kind === "evidence",
+  );
+}
+
+function chapterDefaultEvidence(chapter: Chapter | undefined): EvidenceTarget {
+  const firstSection = chapter ? lessonEvidenceBlocks(chapter.lesson)[0] : undefined;
+  if (firstSection) {
+    const { lines: _defaultLines, ...target } = firstSection.target;
+    return target;
+  }
+  return chapter ? {
+    tab: "source",
+    note: "从本章主文件开始",
+  } : { tab: "source", note: "从本章主文件开始" };
+}
+
+function sameEvidenceLocation(
+  target: EvidenceTarget,
+  location: { tab: PanelTab; step?: number },
+): boolean {
+  return target.tab === location.tab && (target.step ?? 0) === (location.step ?? 0);
+}
+
+function scrollEvidenceIntoView(element: HTMLElement): void {
+  const behavior: ScrollBehavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ? "auto"
+    : "smooth";
+  const shell = element.closest<HTMLElement>(".panel-shell");
+  if (shell?.classList.contains("compact")) {
+    element.scrollIntoView({ behavior, block: "center" });
+    return;
+  }
+
+  const container = element.closest<HTMLElement>(".code-lines")
+    ?? element.closest<HTMLElement>(".panel-content");
+  if (!container) return;
+  const elementBox = element.getBoundingClientRect();
+  const containerBox = container.getBoundingClientRect();
+  const centeredTop = container.scrollTop
+    + elementBox.top
+    - containerBox.top
+    - (container.clientHeight - elementBox.height) / 2;
+  container.scrollTo({ top: Math.max(0, centeredTop), behavior });
+}
+
+function requestViewGuide(number: string): { eyebrow: string; title: string; description: string } {
+  return ({
+    "01": {
+      eyebrow: "Agent Loop · 反馈闭环",
+      title: "工具反馈构成下一步的新增上下文",
+      description: "展开累积区，可以看到上一 Step 的模型回复和工具结果。正是这两条记录，让模型能从真实反馈继续。",
+    },
+    "02": {
+      eyebrow: "上下文与缓存 · 比较相邻请求",
+      title: "缓存机会位于稳定前缀",
+      description: "先看相同前缀有多长，再看第一次变化落在哪个区域。变化越靠后，可复用的内容通常越多。",
+    },
+    "03": {
+      eyebrow: "插件组装 · 编译模型输入",
+      title: "当前 Context 决定模型能看到什么",
+      description: "工具与 Prompt 都来自已挂载插件。插件组装不变，请求头就保持稳定；组装改变，下一次请求也会跟着改变。",
+    },
+    "04": {
+      eyebrow: "Session Log · 请求重建",
+      title: "这份请求不是另存的副本",
+      description: "系统从目标 request/header 之前的事件重新拼出消息，再应用当时的投影设置。请求视图与 Trace 共用一份历史。",
+    },
+    "05": {
+      eyebrow: "运行时实验 · 能力变化",
+      title: "插件从下一次请求开始生效",
+      description: "比较安装前后或卸载前后的步骤。工具目录与系统 Prompt 的变化，会准确落在紧随其后的模型请求中。",
+    },
+    "06": {
+      eyebrow: "长程续行 · 跨 Round 请求",
+      title: "新的 Turn 仍然带着旧进展",
+      description: "Round 会开始新的 Turn，但不会清空 Session。展开累积区，可以看到前一阶段留下的消息和工具结果。",
+    },
+  } as Record<string, { eyebrow: string; title: string; description: string }>)[number] ?? {
+    eyebrow: "模型请求",
+    title: "一次请求，就是交给模型的一份工作包",
+    description: "它把规则、可用动作、已有记录和本步说明装在一起。",
+  };
+}
+
+function traceViewGuide(number: string): { eyebrow: string; title: string; description: string } {
+  return ({
+    "04": {
+      eyebrow: "Session Log · 同一份记录",
+      title: "Event 是原始记录，Trace 是可读投影",
+      description: "这里没有第二份手写时间线。每一项都来自只追加事件；请求重建也从同一组事件开始。",
+    },
+    "05": {
+      eyebrow: "运行时实验 · 变化有记录",
+      title: "安装和卸载不是看不见的状态跳跃",
+      description: "沿时间线查看插件挂载、工具使用和插件撤回。能力在何时出现、何时消失，都有对应事件。",
+    },
+    "06": {
+      eyebrow: "长程任务 · Goal 时间线",
+      title: "每一次继续和停止都有原因",
+      description: "Goal 创建、Round 开始、Agent Turn 和最终状态都在同一条时间线上。这里能看见外层协调器怎样推进任务。",
+    },
+  } as Record<string, { eyebrow: string; title: string; description: string }>)[number] ?? {
+    eyebrow: "事件与轨迹",
+    title: "Event 保存原始记录，Trace 提供阅读视图",
+    description: "会话日志按时间收集运行事件，Trace 再把同一份记录翻成便于阅读的时间线。",
+  };
+}
+
+function graphViewGuide(number: string, capabilityMounted: boolean): { eyebrow: string; title: string; description: string } {
+  if (number === "05") {
+    return capabilityMounted ? {
+      eyebrow: "运行时实验 · 已挂载",
+      title: "新能力已经进入当前 Context",
+      description: "能力插件、它贡献的工具和 Prompt 同时出现。下一次模型请求会从这张新的能力快照编译。",
+    } : {
+      eyebrow: "运行时实验 · 基线或已卸载",
+      title: "临时能力不在当前 Context 中",
+      description: "能力插件与它的贡献一起消失。对照安装时的快照，可以检查卸载是否留下残余。",
+    };
+  }
+  return {
+    eyebrow: "插件内核 · 当前能力快照",
+    title: "每项运行时能力都有明确归属",
+    description: "圆心代表运行时 Context，外圈是已安装插件；下方清单把工具、服务和 Prompt 归到各自来源。",
+  };
+}
+
+function parsePrimer(markdown: string, language: TutorialLanguage): {
   intro: string;
   cards: Array<{ title: string; code: string; body: string }>;
 } {
-  if (!markdown) return { intro: "TypeScript 阅读预检正在更新。", cards: [] };
+  if (!markdown) return { intro: `${language === "python" ? "Python" : "TypeScript"} 阅读预检正在更新。`, cards: [] };
   const intro = markdown.split(/\n\s*\n/u)[1]?.trim() ?? "";
   const cards = [...markdown.matchAll(
-    /##\s+([^\n]+)\n\s*```ts\n([\s\S]*?)```\n\s*([^\n][\s\S]*?)(?=\n##\s+|$)/gu,
+    /##\s+([^\n]+)\n\s*```(?:ts|python)\n([\s\S]*?)```\n\s*([^\n][\s\S]*?)(?=\n##\s+|$)/gu,
   )].map((match) => ({
     title: match[1]?.trim() ?? "",
     code: match[2]?.trim() ?? "",
@@ -1317,58 +2131,30 @@ function renderInlineCode(text: string) {
 }
 
 function isMobileTabActive(current: MobileTab, item: MobileTab): boolean {
-  if (item === "more") return current === "more" || (current !== "article" && current !== "source");
+  if (item === "more") return current !== "article";
   return current === item;
-}
-
-function isPanelAvailable(chapter: Chapter, tab: PanelTab): boolean {
-  if (tab === "events") return chapter.events.length > 0;
-  if (tab === "graph") return chapter.graphs.length > 0;
-  return true;
 }
 
 function formatLineRange(range: [number, number]): string {
   return range[0] === range[1] ? `第 ${range[0]} 行` : `第 ${range[0]}–${range[1]} 行`;
 }
 
-function messageRoleLabel(role: string): string {
-  if (role === "user") return "用户";
-  if (role === "assistant") return "模型";
-  if (role === "tool") return "工具";
-  if (role === "system") return "摘要";
-  return "记录";
-}
-
-function messagePreview(message: { role: string; content: string; name?: string }): string {
-  if (message.role === "user") return "检查火星中继站并提交恢复方案";
-  if (message.role === "system") return "较早记录的简短摘要";
-  if (message.role === "tool" && message.name === "read_incident_packet") return "3 条候选路线，RELAY-7 温度过高";
-  if (message.role === "tool" && message.name === "submit_recovery_plan") return "ASTER 方案通过";
-  if (message.role === "assistant" && message.content.includes("accepted")) return "方案已经通过，准备结束";
-  if (message.role === "assistant" && message.content.includes("submit")) return "提交 ASTER 恢复方案";
-  if (message.role === "assistant") return "先读取事故包";
-  return truncate(message.content, 54);
-}
 
 function toolNameLabel(name: string): string {
   return ({
-    read_incident_packet: "读取事故包",
-    submit_recovery_plan: "提交恢复方案",
+    read_workspace_file: "读取工作区文件",
+    apply_patch: "应用精确补丁",
+    run_tests: "运行回归测试",
+    submit_patch: "提交补丁",
     inspect_runtime: "检查运行环境",
-    install_capability: "安装工具",
-    remove_capability: "移除工具",
-    score_routes: "路线评分",
+    install_capability: "安装临时能力",
+    remove_capability: "移除临时能力",
+    get_time: "查询城市时间",
+    read_note: "读取备忘录",
+    word_count: "统计单词数",
+    find_references: "查找调用方",
+    check_types: "检查 TypeScript 类型",
   } as Record<string, string>)[name] ?? name;
-}
-
-function pressureText(number: string): string {
-  return {
-    "02": "遥测结果被整段带进每个后续请求，稳定内容与本步变化混在一起。",
-    "03": "工具数组没有记录来源，也无法保证卸载和安装失败时完整清理。",
-    "04": "智能体内部还保存着一份内存消息数组，请求与时间线缺少共同的数据来源。",
-    "05": "固定组装无法在运行时验证临时评分能力，可安装范围也需要明确边界。",
-    "06": "一次用户交互难以表达调查、评分、提交的跨阶段进度与停止原因。",
-  }[number] ?? "";
 }
 
 function chapterName(number: string): string {
@@ -1403,7 +2189,7 @@ function stabilityLabel(stability: RequestPart["stability"]): string {
 
 function invalidationLabel(value: string | null): string {
   if (value === null) return "上一份请求完整保留在开头";
-  if (value.startsWith("First request")) return "首次请求，没有上一份样本可比较";
+  if (value.startsWith("First request")) return "本章基线请求；从下一步开始比较前缀";
   return ({
     "System prompt": "系统规则",
     "Tool schemas": "可用动作与参数规则",
@@ -1454,6 +2240,7 @@ function languageForPath(path: string): string {
     bash: "bash",
     yaml: "yaml",
     yml: "yaml",
+    py: "python",
   } as Record<string, string>)[extension ?? ""] ?? "typescript";
 }
 
@@ -1503,12 +2290,15 @@ function humanTraceTitle(item: Chapter["trace"][number]): string {
     if (earlyStep) return `第 ${earlyStep[1]} 个模型步骤开始`;
     if (item.type === "llm/request") return "整理模型工作包";
     const tools = ({
-      read_incident_packet: "读取事故数据",
-      submit_recovery_plan: "提交恢复方案",
+      read_workspace_file: "读取工作区文件",
+      apply_patch: "应用精确补丁",
+      run_tests: "运行回归测试",
+      submit_patch: "提交补丁",
       inspect_runtime: "检查运行环境",
       install_capability: "安装临时能力",
       remove_capability: "移除临时能力",
-      score_routes: "执行路线评分",
+      find_references: "查找调用方",
+      check_types: "检查 TypeScript 类型",
     } as Record<string, string>)[item.type];
     return tools ?? traceLabel(item.type);
   }
@@ -1520,8 +2310,10 @@ function prettyPlugin(plugin: string): string {
     "session-log": "过程日志",
     "runtime-tools": "实验工具",
     "trusted-capability-catalog": "受信任能力目录",
-    "incident-state": "事故状态",
-    "incident-tools": "事故工具",
+    "capability:word_count": "临时 · 分词统计",
+    "checkout-workspace-state": "结账工作区状态",
+    "checkout-workspace": "文件与补丁工具",
+    "checkout-tests": "测试与提交工具",
   } as Record<string, string>)[plugin];
   if (known) return known;
   return plugin

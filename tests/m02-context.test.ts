@@ -6,11 +6,11 @@ import {
   DEFAULT_PROJECTION,
   describeRequest,
 } from "../src/context.js";
-import { createMarsAuditReplies, ScriptedLlm } from "../src/llm-fake.js";
+import { createBugFixReplies, ScriptedLlm } from "../src/llm-fake.js";
 import { composeM03Runtime } from "../src/plugins.js";
 
 describe("M02 context projection", () => {
-  it("clips model-visible telemetry while preserving an explicit omission marker", () => {
+  it("clips model-visible test output while preserving an explicit omission marker", () => {
     const original = "head" + "x".repeat(1_200) + "tail";
     const clipped = clipToolResult(original, DEFAULT_PROJECTION);
     expect(clipped.content.length).toBeLessThan(original.length);
@@ -21,21 +21,24 @@ describe("M02 context projection", () => {
   });
 
   it("places stable prompt and tool schemas before append-only history and variable context", async () => {
-    const llm = new ScriptedLlm(createMarsAuditReplies());
+    const llm = new ScriptedLlm(createBugFixReplies());
     const { context } = await composeM03Runtime(llm);
     const result = await new Agent({
       llm,
       context,
       systemPrompt: "Stable system prompt.",
       dynamicContext: (step) => `step=${step}`,
-    }).runTurn("Recover the relay.");
+    }).runTurn("Fix CHECKOUT-417.");
 
     const firstParts = describeRequest(result.requests[0]!);
     expect(firstParts.map((part) => part.kind)).toEqual(["system", "tools", "message", "dynamic"]);
-    const incidentResult = result.requests[1]!.messages.find(
-      (message) => message.role === "tool" && message.name === "read_incident_packet",
+    const ciResult = result.requests[1]!.messages.find(
+      (message) =>
+        message.role === "tool" &&
+        message.name === "read_workspace_file" &&
+        message.content.includes("ci.log"),
     );
-    expect(incidentResult?.content).toContain("characters omitted");
+    expect(ciResult?.content).toContain("characters omitted");
 
     const prefix = compareRequestPrefix(result.requests[0], result.requests[1]!);
     expect(prefix.sharedParts).toBe(3);

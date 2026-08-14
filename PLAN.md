@@ -48,26 +48,26 @@ DSH 网页端的“模式”是四套 Agent preset，即四种插件组装，不
 
 ### 2.4 已冻结的首版范围（2026-08-14）
 
-贯穿任务确定为 **“火星中继站恢复审计”**：离线工作区内有一份固定的中继站事故包，包含故障链路、三条候选路由、遥测噪声和提交约束。Agent 要找出故障、比较候选路由，临时安装受信任的 `route_scoring` 能力完成可复核评分，卸载实验能力，并提交唯一正确、可由程序验收的恢复方案。任务不开放任意文件读取或 Shell；所有输入都由受限的事故包工具提供。
+贯穿任务确定为 **“修复购物车重复优惠 Bug”**：离线工作区内有固定的 issue、结账源码、回归测试与持续集成（CI）失败日志。订单级优惠已经分摊进商品小计，却又在 `calculateTotal()` 的返回值中被扣除一次。Agent 要定位重复扣减，临时安装受信任的 `typescript_analysis` 能力检查调用方与类型，卸载实验能力，用精确补丁修复源码，运行测试，并提交唯一正确、可由程序验收的 `CHECKOUT-417` 补丁。任务不开放任意文件读取或通用 Shell；所有输入和修改都由受限工作区工具提供。
 
 选择它的原因是同一结果可以由 fake LLM 和真实 DeepSeek 通过完全相同的 Harness 得到，并且每章都会留下不同且可观察的证据：
 
 | 章节 | 前一步的具体不足 | 本章可观察的增量 |
 |---|---|---|
-| M01 | 只有问题，没有可执行闭环。 | 普通工具调用依次读取事故包并提交方案；Trace 明确显示一个 turn 内的多个 step。相同操作另以静态 PTC TypeScript 组合示意展示，但不执行代码。 |
-| M02 | 完整遥测结果被重复送回模型，请求迅速膨胀。 | 后续请求只投影遥测头尾与省略标记；网站显示分段 token 估算、稳定前缀和首次失效位置。 |
-| M03 | 工具、Prompt 与事件监听器仍是直接装配，无法可靠替换。 | 事故工具成为插件贡献；安装／卸载测试证明服务、工具、Prompt 和 listener 一同出现、回滚和消失。 |
-| M04 | 过程只能依赖运行中的隐藏历史，无法证明请求和 Trace 的来源一致。 | 只追加 Session Log 成为唯一历史；摘要检查点覆盖早期投影但保留原始遥测事件，并可逐 step 深度相等地重建请求。 |
-| M05 | 固定组装不能在运行时验证一个新评分策略。 | Agent 先检查运行时，再从受信任目录安装 `route_scoring`、调用它、通过同一 disposer 卸载；相邻请求的 tool schemas、Prompt 和插件图随日志变化。`word_count` 另作最小机制验收。 |
-| M06 | 一次 turn 不适合清楚表达“调查—评分—提交”的长程进度和停止原因。 | 同一恢复审计跨三个 Round 推进并完成；另外用确定性测试覆盖 blocked 与轮次上限停止。 |
+| M01 | 只有 issue，没有可执行闭环。 | 普通工具调用读取 issue、源码、测试与 CI 日志，应用精确补丁、运行测试并提交；Trace 明确显示一个 Turn 内的多个 Step。相同操作另以静态 PTC TypeScript 组合示意展示，但不执行代码。 |
+| M02 | 完整测试输出被重复送回模型，请求迅速膨胀。 | 后续请求只投影长 CI／测试日志的头尾与省略标记；网站显示分段 token 估算、稳定前缀和首次失效位置。 |
+| M03 | 工作区状态、文件工具、测试工具、Prompt 与事件监听器仍是直接装配，无法可靠替换。 | 它们成为插件贡献；安装／卸载测试证明服务、工具、Prompt 和 listener 一同出现、回滚和消失。 |
+| M04 | 过程只能依赖运行中的隐藏历史，无法证明请求和 Trace 的来源一致。 | 只追加 Session Log 成为唯一历史；摘要检查点覆盖早期投影但保留完整 CI／测试事件，并可逐 Step 深度相等地重建请求。 |
+| M05 | 固定组装不能在运行时回答“这个改动影响哪些调用方、类型仍然成立吗”。 | Agent 先检查运行时，再从受信任目录安装 `typescript_analysis`，调用 `find_references` 与 `check_types`，通过同一 disposer 卸载；相邻请求的 tool schemas、Prompt 和插件图随日志变化。`word_count` 另作最小机制验收。 |
+| M06 | 一次 Turn 不适合清楚表达“诊断—修复—验证提交”的长程进度和停止原因。 | 同一修复任务跨三个 Round 推进并完成；另外用确定性测试覆盖 blocked 与轮次上限停止。 |
 
 首版范围决定如下：
 
-- **保留 M06。** 用户明确要求实现，并且该任务可自然拆成调查、评分和提交三轮；M06 不引入 Todo、Schedule、后台 Job、Subagent 或 Workflow。
-- **不加入 JSONL。** 教学验收需要的是事件作为唯一历史、请求重建与 Trace 回放；进程重启并不是这项离线事故审计的必要环节。仓库中不得留下 JSONL writer、配置或占位入口。
-- **不加入上下文溢出恢复重试。** 固定事故包通过确定性裁剪和摘要检查点即可控制上下文，没有需要重试的失败路径；普通重试同样不实现。
-- `word_count` 只用于独立的插件生命周期小场景；贯穿任务的动态能力是 `route_scoring`。
-- 网站提交 M01–M06 六个 checkpoint 的真实源码、diff 和同一事故场景生成数据；估算 token 与可复用前缀始终明确标为教学估算。
+- **保留 M06。** 用户明确要求实现，并且该任务可自然拆成诊断、修复和验证提交三轮；M06 不引入 Todo、Schedule、后台 Job、Subagent 或 Workflow。
+- **不加入 JSONL。** 教学验收需要的是事件作为唯一历史、请求重建与 Trace 回放；进程重启并不是这项离线修复任务的必要环节。仓库中不得留下 JSONL writer、配置或占位入口。
+- **不加入上下文溢出恢复重试。** 固定工作区通过确定性裁剪和摘要检查点即可控制上下文，没有需要重试的失败路径；普通重试同样不实现。
+- `word_count` 只用于独立的插件生命周期小场景；贯穿任务的动态能力是 `typescript_analysis`。
+- 网站提交 M01–M06 六个 checkpoint 的历史机制源码与 diff，并用当前 `CHECKOUT-417` 运行时生成同一修复场景的可执行证据；估算 token 与可复用前缀始终明确标为教学估算。
 
 以下范围已经确定：
 
@@ -185,13 +185,13 @@ export DEEPSEEK_MODEL=...
 pnpm dev -- --provider deepseek --workspace ./demo-workspace
 ```
 
-`DEEPSEEK_BASE_URL` 可选，默认 `https://api.deepseek.com`。首版使用非流式 Chat Completions，并关闭 thinking mode；streaming 不是教程主线。没有 API key 时，所有离线教学、测试和网站生成仍可运行。
+`DEEPSEEK_BASE_URL` 可选，默认 `https://api.deepseek.com`。提供方使用流式 Chat Completions 并关闭 thinking mode；Agent 在增量到达时组装文字与工具参数，完整消息仍作为唯一规范记录进入 Session Log。没有 API key 时，所有离线教学、测试和网站生成仍可运行。
 
 ## 5. 最小实现
 
 ### 5.1 协议与 Agent Loop
 
-- 厂商无关的 `Llm.complete(request)` 接口，以及统一的消息、工具调用和工具结果类型。
+- 厂商无关的 `Llm.stream(request)` 事件流，以及统一的消息、增量、工具调用和工具结果类型。
 - scripted fake provider 和真实 DeepSeek provider；两者只负责请求与响应映射。
 - 由贯穿任务决定的最小工具集，不预设通用 `write_file` 或 `run_command`。
 - Ajv 校验模型生成的工具参数；未知工具、参数错误和执行失败都转成 tool result 交还模型。
@@ -355,7 +355,9 @@ M06 已由范围清单选择，独立形成 `tutorial-m06` checkpoint。上下�
 - M06 展示 Goal 状态和 Round 续行。
 - 移动端把正文、代码、请求、Trace 和插件图切换为 tabs。
 
-`docs/checkpoints.json` 记录章节、tag、场景和生成入口。`pnpm tutorial:generate` 从这些 checkpoint 与确定性 fake 场景生成源码、diff、插件图、统一请求和 Session Events，写入并提交到 `website/public/generated/`；网站不手抄源码，也不请求真实模型。
+`docs/checkpoints.json` 记录章节、tag、场景和生成入口。`pnpm tutorial:generate` 从这些 checkpoint 与确定性 fake 场景生成源码、diff、插件图、统一请求和 Session Events，并合入已提交的真实流式录制，写入 `website/public/generated/`；网站不手抄源码，也不请求真实模型。
+
+真实录制由 `pnpm replay:record` 显式触发。它保存 chunk 相对时间和对应 `stepId`，但只有完整 `assistant/message` 进入 Session Log。网站压缩长停顿后离线回放，支持暂停、重播、倍速和轮次跳转。
 
 普通 `pnpm site:build` 只读取生成结果，不依赖 Git 历史。缓存前缀与 token 数属于教学估算，界面必须明确标注，不能展示为 provider 返回的真实命中数据。
 
@@ -367,7 +369,7 @@ M06 已由范围清单选择，独立形成 `tutorial-m06` checkpoint。上下�
 - 模型提供方 Prompt Cache 控制或真实命中模拟
 - 通用 shell、任意路径写入、权限、审批和生产 sandbox
 - SQLite、迁移、完整 resume／fork；JSONL 仅在明确选中时实现
-- streaming、并行工具和普通固定重试
+- 浏览器端实时模型调用、并行工具和普通固定重试
 - Schedule、后台 Job、Subagent、Workflow 和运行期间的新消息处理
 - 上下文溢出恢复的半成品或占位抽象；M06 之外的完整 Goal 能力
 
@@ -398,6 +400,7 @@ pnpm site:build
 
 - 贯穿任务及每章增量已写入本计划，fake 演示无网络可重复运行。
 - 真实 DeepSeek 使用同一 Agent Loop、上下文投影、插件和 Session Log。
+- 真实 DeepSeek 的流式增量可被手动录制并离线回放，密钥不会进入生成产物。
 - 网站展示与实际统一请求一致的请求部分、近似 token 数、可复用前缀和裁剪结果。
 - 最终模型上下文只从 Session Log、投影设置和摘要检查点重建；原始执行事件完整保留。
 - 动态安装和卸载通过普通插件生命周期改变下一次请求的 Prompt 或 tool schemas。

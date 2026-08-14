@@ -1,4 +1,5 @@
-import type { Llm, LlmResponse, UnifiedRequest } from "./protocol.js";
+import { BUGGY_RETURN, FIXED_RETURN, SOURCE_PATH } from "./checkout-workspace.js";
+import type { Llm, LlmResponse, LlmStreamEvent, UnifiedRequest } from "./protocol.js";
 
 export type ScriptedReply =
   | LlmResponse
@@ -6,76 +7,70 @@ export type ScriptedReply =
 
 export class ScriptedLlm implements Llm {
   readonly provider = "fake";
-  readonly model = "scripted-mars-audit-v1";
+  readonly model = "scripted-checkout-bug-v1";
   readonly requests: UnifiedRequest[] = [];
   #nextReply = 0;
 
   constructor(private readonly replies: ScriptedReply[]) {}
 
-  async complete(request: UnifiedRequest): Promise<LlmResponse> {
+  async *stream(request: UnifiedRequest): AsyncIterable<LlmStreamEvent> {
     this.requests.push(structuredClone(request));
     const reply = this.replies[this.#nextReply];
     if (!reply) throw new Error(`Fake LLM has no reply for request ${this.#nextReply + 1}.`);
     const index = this.#nextReply++;
-    return structuredClone(typeof reply === "function" ? reply(request, index) : reply);
+    yield {
+      type: "response",
+      response: structuredClone(typeof reply === "function" ? reply(request, index) : reply),
+    };
   }
 }
 
-export function createMarsAuditReplies(): ScriptedReply[] {
+export function createBugFixReplies(): ScriptedReply[] {
   return [
+    readWorkspaceReply("m01"),
+    patchReply("m01"),
     {
       message: {
         role: "assistant",
-        content: "I will inspect the bounded incident packet first.",
-        toolCalls: [{ id: "call-read", name: "read_incident_packet", arguments: {} }],
+        content: "The minimal source change is applied. I will run the regression suite.",
+        toolCalls: [{ id: "m01-test", name: "run_tests", arguments: {} }],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "ASTER is the only candidate within latency, loss, and energy limits.",
-        toolCalls: [
-          {
-            id: "call-submit",
-            name: "submit_recovery_plan",
-            arguments: {
-              routeId: "ASTER",
-              isolateRelay: "RELAY-7",
-              reasonCode: "THERMAL_DRIFT",
-            },
-          },
-        ],
+        content: "All 43 tests pass, so I will submit the tested patch.",
+        toolCalls: [{
+          id: "m01-submit",
+          name: "submit_patch",
+          arguments: { summary: "Apply orderDiscount exactly once in calculateTotal." },
+        }],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "Recovery plan accepted: isolate RELAY-7 and reroute through ASTER.",
+        content: "CHECKOUT-417 is fixed: the duplicate order discount was removed and all regressions pass.",
         toolCalls: [],
       },
     },
   ];
 }
 
-export function createCapabilityAuditReplies(): ScriptedReply[] {
+export function createCapabilityExperimentReplies(): ScriptedReply[] {
   return [
+    readWorkspaceReply("capability", true),
+    patchReply("capability"),
     {
       message: {
         role: "assistant",
-        content: "I will inspect the current assembly before changing it.",
-        toolCalls: [{ id: "call-inspect", name: "inspect_runtime", arguments: {} }],
-      },
-    },
-    {
-      message: {
-        role: "assistant",
-        content: "I need the incident facts and a transparent scoring experiment.",
+        content: "The regression suite should verify behavior; I will also install bounded TypeScript analysis for caller checks.",
         toolCalls: [
-          { id: "call-read", name: "read_incident_packet", arguments: {} },
+          { id: "capability-test", name: "run_tests", arguments: {} },
           {
-            id: "call-install",
+            id: "capability-install",
             name: "install_capability",
-            arguments: { name: "route_scoring" },
+            arguments: { name: "typescript_analysis" },
           },
         ],
       },
@@ -83,36 +78,31 @@ export function createCapabilityAuditReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "The trusted scoring tool is now visible; I will run it.",
-        toolCalls: [{ id: "call-score", name: "score_routes", arguments: {} }],
+        content: "The temporary TypeScript tools are now visible. I will inspect callers and diagnostics.",
+        toolCalls: [
+          {
+            id: "capability-references",
+            name: "find_references",
+            arguments: { symbol: "calculateTotal" },
+          },
+          { id: "capability-types", name: "check_types", arguments: {} },
+        ],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "ASTER is uniquely eligible, so the experiment can be removed.",
+        content: "All callers use independent discounts and type checks pass. I will remove the experiment and submit.",
         toolCalls: [
           {
-            id: "call-remove",
+            id: "capability-remove",
             name: "remove_capability",
-            arguments: { name: "route_scoring" },
+            arguments: { name: "typescript_analysis" },
           },
-        ],
-      },
-    },
-    {
-      message: {
-        role: "assistant",
-        content: "I will submit the verified recovery plan using the permanent incident tool.",
-        toolCalls: [
           {
-            id: "call-submit",
-            name: "submit_recovery_plan",
-            arguments: {
-              routeId: "ASTER",
-              isolateRelay: "RELAY-7",
-              reasonCode: "THERMAL_DRIFT",
-            },
+            id: "capability-submit",
+            name: "submit_patch",
+            arguments: { summary: "Remove the duplicate orderDiscount subtraction in calculateTotal." },
           },
         ],
       },
@@ -120,77 +110,77 @@ export function createCapabilityAuditReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "Recovery plan accepted. The temporary scoring capability is no longer mounted.",
+        content: "Patch accepted. The TypeScript analysis capability is no longer mounted.",
         toolCalls: [],
       },
     },
   ];
 }
 
-export function createLongTaskAuditReplies(): ScriptedReply[] {
+export function createLongTaskBugFixReplies(): ScriptedReply[] {
   return [
+    readWorkspaceReply("r1", true),
     {
       message: {
         role: "assistant",
-        content: "Surveying the bounded runtime and incident packet.",
-        toolCalls: [
-          { id: "r1-inspect", name: "inspect_runtime", arguments: {} },
-          { id: "r1-read", name: "read_incident_packet", arguments: {} },
-        ],
+        content: "Diagnosis complete: calculateTotal subtracts orderDiscount once in merchandise and again in the return expression.",
+        toolCalls: [],
+      },
+    },
+    patchReply("r2"),
+    {
+      message: {
+        role: "assistant",
+        content: "The smallest patch is applied. I will run the full regression suite.",
+        toolCalls: [{ id: "r2-test", name: "run_tests", arguments: {} }],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "Survey complete: RELAY-7 shows thermal drift and three routes require comparison.",
+        content: "Repair complete: all 43 tests pass. Final semantic verification remains for the next round.",
         toolCalls: [],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "Installing the bounded route scoring experiment.",
+        content: "I will temporarily install TypeScript analysis for final caller verification.",
+        toolCalls: [{
+          id: "r3-install",
+          name: "install_capability",
+          arguments: { name: "typescript_analysis" },
+        }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: "The analysis tools are visible. I will verify references and diagnostics.",
         toolCalls: [
           {
-            id: "r2-install",
-            name: "install_capability",
-            arguments: { name: "route_scoring" },
+            id: "r3-references",
+            name: "find_references",
+            arguments: { symbol: "calculateTotal" },
           },
+          { id: "r3-types", name: "check_types", arguments: {} },
         ],
       },
     },
     {
       message: {
         role: "assistant",
-        content: "The scoring tool is now available in this request.",
-        toolCalls: [{ id: "r2-score", name: "score_routes", arguments: {} }],
-      },
-    },
-    {
-      message: {
-        role: "assistant",
-        content: "Scoring complete: ASTER is the only eligible route.",
-        toolCalls: [],
-      },
-    },
-    {
-      message: {
-        role: "assistant",
-        content: "Removing the experiment, then submitting the verified plan.",
+        content: "Verification passed. I will remove the temporary capability and submit the patch.",
         toolCalls: [
           {
             id: "r3-remove",
             name: "remove_capability",
-            arguments: { name: "route_scoring" },
+            arguments: { name: "typescript_analysis" },
           },
           {
             id: "r3-submit",
-            name: "submit_recovery_plan",
-            arguments: {
-              routeId: "ASTER",
-              isolateRelay: "RELAY-7",
-              reasonCode: "THERMAL_DRIFT",
-            },
+            name: "submit_patch",
+            arguments: { summary: "Fix CHECKOUT-417 by applying each discount once." },
           },
         ],
       },
@@ -198,9 +188,44 @@ export function createLongTaskAuditReplies(): ScriptedReply[] {
     {
       message: {
         role: "assistant",
-        content: "Goal complete: ASTER accepted and the temporary capability is gone.",
+        content: "Goal complete: CHECKOUT-417 was accepted and the temporary analysis capability is gone.",
         toolCalls: [],
       },
     },
   ];
+}
+
+function readWorkspaceReply(prefix: string, inspect = false): ScriptedReply {
+  return {
+    message: {
+      role: "assistant",
+      content: "I will inspect the issue, implementation, regression test, and failing CI evidence before editing.",
+      toolCalls: [
+        ...(inspect ? [{ id: `${prefix}-inspect`, name: "inspect_runtime", arguments: {} }] : []),
+        ...(["issue.md", SOURCE_PATH, "tests/checkout.test.ts", "ci.log"] as const).map((path, index) => ({
+          id: `${prefix}-read-${index + 1}`,
+          name: "read_workspace_file",
+          arguments: { path },
+        })),
+      ],
+    },
+  };
+}
+
+function patchReply(prefix: string): ScriptedReply {
+  return {
+    message: {
+      role: "assistant",
+      content: "The order discount is already included in merchandise, so the return expression subtracts it a second time.",
+      toolCalls: [{
+        id: `${prefix}-patch`,
+        name: "apply_patch",
+        arguments: {
+          path: SOURCE_PATH,
+          oldText: BUGGY_RETURN,
+          newText: FIXED_RETURN,
+        },
+      }],
+    },
+  };
 }

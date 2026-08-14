@@ -1,10 +1,13 @@
 import {
-  createIncidentTools,
-  INCIDENT_PACKET,
-  type IncidentPacket,
-  type SubmissionState,
-} from "./incident.js";
-import { routeScoringPlugin } from "./catalog/route-scoring.js";
+  CHECKOUT_FIXTURE,
+  CHECKOUT_WORKSPACE,
+  createCheckoutState,
+  createTestTools,
+  createWorkspaceTools,
+  type CheckoutWorkspaceFixture,
+  type CheckoutWorkspaceState,
+} from "./checkout-workspace.js";
+import { typescriptAnalysisPlugin } from "./catalog/typescript-analysis.js";
 import { wordCountPlugin } from "./catalog/word-count.js";
 import type { Llm } from "./protocol.js";
 import { Context, ServiceToken, type Plugin } from "./runtime.js";
@@ -16,7 +19,6 @@ import {
 } from "./runtime-tools.js";
 
 export const LLM = new ServiceToken<Llm>("llm");
-export const SUBMISSION_STATE = new ServiceToken<SubmissionState>("submission-state");
 
 export function llmPlugin(llm: Llm): Plugin {
   return {
@@ -27,69 +29,82 @@ export function llmPlugin(llm: Llm): Plugin {
   };
 }
 
-export function submissionStatePlugin(state: SubmissionState): Plugin {
+export function checkoutWorkspaceStatePlugin(state: CheckoutWorkspaceState): Plugin {
   return {
-    name: "submission-state",
+    name: "checkout-workspace-state",
     setup(context) {
-      context.provide(SUBMISSION_STATE, state);
+      context.provide(CHECKOUT_WORKSPACE, state);
     },
   };
 }
 
-export function incidentPlugin(packet: IncidentPacket = INCIDENT_PACKET): Plugin {
+export function checkoutWorkspacePlugin(): Plugin {
   return {
-    name: "mars-incident",
+    name: "checkout-workspace",
     setup(context) {
-      const state = context.use(SUBMISSION_STATE);
+      const state = context.use(CHECKOUT_WORKSPACE);
       context.contributePrompt(
-        "incident-guardrails",
-        "Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.",
+        "checkout-editing-rules",
+        "Work only inside the bounded CHECKOUT-417 workspace. Read before editing and make the smallest exact replacement.",
       );
-      for (const tool of createIncidentTools(state, packet)) context.registerTool(tool);
+      for (const tool of createWorkspaceTools(state)) context.registerTool(tool);
       context.on("tool/executed", () => {
-        // The no-op listener exists to make lifecycle ownership observable in M03.
+        // This listener makes the workspace plugin's lifecycle visible in M03.
       });
+    },
+  };
+}
+
+export function checkoutTestsPlugin(): Plugin {
+  return {
+    name: "checkout-tests",
+    setup(context) {
+      const state = context.use(CHECKOUT_WORKSPACE);
+      context.contributePrompt(
+        "checkout-verification-rules",
+        "Run the regression suite after editing. Submit only after run_tests reports that every test passed.",
+      );
+      for (const tool of createTestTools(state)) context.registerTool(tool);
     },
   };
 }
 
 export async function composeM03Runtime(
   llm: Llm,
-  options: { packet?: IncidentPacket } = {},
+  options: { fixture?: CheckoutWorkspaceFixture; session?: SessionLog } = {},
 ): Promise<{
   context: Context;
-  state: SubmissionState;
+  state: CheckoutWorkspaceState;
   session: SessionLog;
 }> {
   const context = new Context();
-  const state: SubmissionState = { acceptedPlan: null };
-  const session = new SessionLog();
+  const state = createCheckoutState(options.fixture ?? CHECKOUT_FIXTURE);
+  const session = options.session ?? new SessionLog();
   await context.mount(sessionPlugin(session));
   await context.mount(llmPlugin(llm));
-  await context.mount(submissionStatePlugin(state));
-  await context.mount(incidentPlugin(options.packet ?? INCIDENT_PACKET));
+  await context.mount(checkoutWorkspaceStatePlugin(state));
+  await context.mount(checkoutWorkspacePlugin());
+  await context.mount(checkoutTestsPlugin());
   return { context, state, session };
 }
 
 export async function composeRuntime(
   llm: Llm,
-  options: { packet?: IncidentPacket } = {},
+  options: { fixture?: CheckoutWorkspaceFixture; session?: SessionLog } = {},
 ): Promise<{
   context: Context;
-  state: SubmissionState;
+  state: CheckoutWorkspaceState;
   session: SessionLog;
 }> {
-  const packet = options.packet ?? INCIDENT_PACKET;
-  const runtime = await composeM03Runtime(llm, { packet });
-  const { context } = runtime;
-  await context.mount(
+  const runtime = await composeM03Runtime(llm, options);
+  await runtime.context.mount(
     capabilityCatalogPlugin(
       new TrustedCapabilityCatalog({
-        route_scoring: () => routeScoringPlugin(packet),
+        typescript_analysis: typescriptAnalysisPlugin,
         word_count: wordCountPlugin,
       }),
     ),
   );
-  await context.mount(runtimeToolsPlugin());
+  await runtime.context.mount(runtimeToolsPlugin());
   return runtime;
 }

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Agent } from "../src/agent.js";
 import {
-  createCapabilityAuditReplies,
-  createMarsAuditReplies,
+  createCapabilityExperimentReplies,
   ScriptedLlm,
 } from "../src/llm-fake.js";
 import { composeRuntime } from "../src/plugins.js";
@@ -10,27 +9,28 @@ import { buildRequest } from "../src/session.js";
 
 describe("M05 trusted capability experiment", () => {
   it("changes the next request through ordinary mount and disposer lifecycles", async () => {
-    const llm = new ScriptedLlm(createCapabilityAuditReplies());
+    const llm = new ScriptedLlm(createCapabilityExperimentReplies());
     const { context, session, state } = await composeRuntime(llm);
     const result = await new Agent({
       llm,
       context,
-      systemPrompt: "Audit the relay and clean up temporary experiments.",
+      systemPrompt: "Fix CHECKOUT-417 and clean up temporary experiments.",
       maxSteps: 8,
-    }).runTurn("Recover MARS-RELAY-204.");
+    }).runTurn("Fix CHECKOUT-417.");
 
-    expect(state.acceptedPlan?.routeId).toBe("ASTER");
+    expect(state.acceptedPatch?.issueId).toBe("CHECKOUT-417");
     expect(result.steps).toBe(6);
-    expect(llm.requests[1]!.tools.map((tool) => tool.name)).not.toContain("score_routes");
-    expect(llm.requests[2]!.tools.map((tool) => tool.name)).toContain("score_routes");
-    expect(llm.requests[2]!.system).toContain("eligibility as a hard gate");
-    expect(llm.requests[4]!.tools.map((tool) => tool.name)).not.toContain("score_routes");
-    expect(llm.requests[4]!.system).not.toContain("eligibility as a hard gate");
+    expect(llm.requests[2]!.tools.map((tool) => tool.name)).not.toContain("find_references");
+    expect(llm.requests[3]!.tools.map((tool) => tool.name)).toContain("find_references");
+    expect(llm.requests[3]!.tools.map((tool) => tool.name)).toContain("check_types");
+    expect(llm.requests[3]!.system).toContain("inspect calculateTotal references");
+    expect(llm.requests[5]!.tools.map((tool) => tool.name)).not.toContain("find_references");
+    expect(llm.requests[5]!.system).not.toContain("inspect calculateTotal references");
 
     const runtimeEvents = session.events.filter(
       (event) =>
         (event.type === "runtime/plugin-mounted" || event.type === "runtime/plugin-unmounted") &&
-        event.plugin === "capability:route_scoring",
+        event.plugin === "capability:typescript_analysis",
     );
     expect(runtimeEvents.map((event) => event.type)).toEqual([
       "runtime/plugin-mounted",

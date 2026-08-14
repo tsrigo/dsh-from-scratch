@@ -1,15 +1,18 @@
 export const PTC_PRESENTATION_EXAMPLE = String.raw`// Static teaching contrast — Nano never executes this program.
-const incident = await tools.read_incident_packet({});
-const valid = incident.candidates.filter((route) =>
-  route.latencyMs <= incident.constraints.maximumLatencyMs &&
-  route.packetLossPercent <= incident.constraints.maximumPacketLossPercent &&
-  route.energyUnits <= incident.constraints.maximumEnergyUnits
-);
-await tools.submit_recovery_plan({
-  routeId: valid[0].routeId,
-  isolateRelay: "RELAY-7",
-  reasonCode: "THERMAL_DRIFT"
-});`;
+const [issue, source, test] = await Promise.all([
+  tools.read_workspace_file({ path: "issue.md" }),
+  tools.read_workspace_file({ path: "src/checkout.ts" }),
+  tools.read_workspace_file({ path: "tests/checkout.test.ts" })
+]);
+await tools.apply_patch({
+  path: "src/checkout.ts",
+  oldText: "  return merchandise + shipping - input.orderDiscount;",
+  newText: "  return merchandise + shipping;"
+});
+const result = await tools.run_tests({});
+if (result.passed) {
+  await tools.submit_patch({ summary: "Apply orderDiscount exactly once." });
+}`;
 
 export const MODE_COMPARISON = {
   standard: "Presents each tool schema; the model returns ordinary tool calls handled by the Agent Loop.",

@@ -2,6 +2,11 @@ node_modules/
 dist/
 coverage/
 website/dist/
+animations/.venv/
+animations/.native/
+animations/media/
+__pycache__/
+*.py[cod]
 .DS_Store
 *.log
 

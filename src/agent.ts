@@ -8,6 +8,7 @@ import type {
   AssistantMessage,
   JsonValue,
   Llm,
+  LlmStreamEvent,
   UnifiedRequest,
 } from "./protocol.js";
 import type { Context } from "./runtime.js";
@@ -45,6 +46,7 @@ export interface AgentOptions {
     events: readonly SessionEvent[];
   }) => CheckpointProposal | undefined;
   maxSteps?: number;
+  onModelEvent?: (event: { stepId: string; event: LlmStreamEvent }) => void;
 }
 
 export class Agent {
@@ -58,6 +60,7 @@ export class Agent {
   readonly #projection: ProjectionSettings;
   readonly #session: SessionLog;
   readonly #checkpointBeforeStep?: AgentOptions["checkpointBeforeStep"];
+  readonly #onModelEvent?: AgentOptions["onModelEvent"];
 
   constructor(options: AgentOptions) {
     this.#llm = options.llm;
@@ -68,6 +71,7 @@ export class Agent {
     this.#projection = options.projection ?? DEFAULT_PROJECTION;
     this.#session = this.#context.use(SESSION_LOG);
     this.#checkpointBeforeStep = options.checkpointBeforeStep;
+    this.#onModelEvent = options.onModelEvent;
   }
 
   async runTurn(userInput: string): Promise<RunTurnResult> {
@@ -99,7 +103,15 @@ export class Agent {
       const request = buildRequest(this.#session.events, stepId);
       requests.push(structuredClone(request));
 
-      const response = await this.#llm.complete(request);
+      let response;
+      for await (const event of this.#llm.stream(request)) {
+        this.#onModelEvent?.({ stepId, event: structuredClone(event) });
+        if (event.type === "response") {
+          if (response) throw new Error("LLM stream returned more than one final response.");
+          response = event.response;
+        }
+      }
+      if (!response) throw new Error("LLM stream ended without a final response.");
       const assistant = response.message;
       this.#session.append({ type: "assistant/message", stepId, content: assistant.content });
       for (const call of assistant.toolCalls) {

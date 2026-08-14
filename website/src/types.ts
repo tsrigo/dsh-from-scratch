@@ -69,11 +69,14 @@ export interface Chapter {
   codeGuide: {
     title: string;
     description: string;
-    observations: Array<{ text: string; lines: [number, number] }>;
+    observations: Array<{ title: string; text: string; lines: [number, number] }>;
+    folds?: Array<{ lines: [number, number]; label: string }>;
   };
   changeStory: {
     title: string;
     summary: string;
+    harnessRole: string;
+    connection: string;
     outcomes: string[];
   };
   diff: string;
@@ -91,12 +94,48 @@ export interface TutorialData {
   schemaVersion: number;
   project: {
     name: string;
+    language?: "typescript" | "python";
+    languageLabel?: string;
     scenario: string;
     dataPolicy: string;
     selectedScope: Record<string, boolean>;
     primer: string;
   };
+  liveReplay: LiveReplay;
   chapters: Chapter[];
+}
+
+export interface LiveReplay {
+  schemaVersion: number;
+  provenance: {
+    provider: string;
+    model: string;
+    recordedAt: string;
+    scenario: string;
+    stream: true;
+    durationMs: number;
+  };
+  goal: {
+    goalId: string;
+    objective: string;
+    status: string;
+    roundsStarted: number;
+    maxRounds: number;
+    reason: string;
+  };
+  outcome: {
+    acceptedPatch: string;
+    capabilityRemoved: boolean;
+  };
+  events: LiveReplayEvent[];
+}
+
+export interface LiveReplayEvent {
+  sequence: number;
+  atMs: number;
+  source: "session" | "model";
+  stepId?: string;
+  event: Record<string, unknown> & { type: string };
 }
 
 export type PanelTab = "source" | "diff" | "request" | "events" | "graph";

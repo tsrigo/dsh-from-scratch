@@ -1,34 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
-import { createMarsAuditReplies, ScriptedLlm } from "../src/llm-fake.js";
+import { createBugFixReplies, ScriptedLlm } from "../src/llm-fake.js";
 import { composeM03Runtime } from "../src/plugins.js";
 import { Context, ServiceToken } from "../src/runtime.js";
 
 describe("M03 plugin kernel", () => {
   it("inspects owned services, tools, prompts, listeners, and service relations", async () => {
     const { context } = await composeM03Runtime(
-      new ScriptedLlm(createMarsAuditReplies()),
+      new ScriptedLlm(createBugFixReplies()),
     );
     const inspection = context.inspect();
 
     expect(inspection.plugins).toEqual([
       "session-log",
       "provider:fake",
-      "submission-state",
-      "mars-incident",
+      "checkout-workspace-state",
+      "checkout-workspace",
+      "checkout-tests",
     ]);
     expect(inspection.services.map((service) => service.name)).toEqual([
       "session-log",
       "llm",
-      "submission-state",
+      "checkout-workspace",
     ]);
     expect(inspection.tools.map((tool) => tool.name)).toEqual([
-      "read_incident_packet",
-      "submit_recovery_plan",
+      "read_workspace_file",
+      "apply_patch",
+      "run_tests",
+      "submit_patch",
     ]);
-    expect(inspection.prompts).toHaveLength(1);
+    expect(inspection.prompts).toHaveLength(2);
     expect(inspection.listeners).toContainEqual({
       event: "tool/executed",
-      plugin: "mars-incident",
+      plugin: "checkout-workspace",
     });
     expect(inspection.listeners.filter((listener) => listener.plugin === "session-log")).toHaveLength(2);
     expect(inspection.listeners).toContainEqual({
@@ -36,9 +39,14 @@ describe("M03 plugin kernel", () => {
       plugin: "session-log",
     });
     expect(inspection.relations).toContainEqual({
-      consumer: "mars-incident",
-      service: "submission-state",
-      provider: "submission-state",
+      consumer: "checkout-workspace",
+      service: "checkout-workspace",
+      provider: "checkout-workspace-state",
+    });
+    expect(inspection.relations).toContainEqual({
+      consumer: "checkout-tests",
+      service: "checkout-workspace",
+      provider: "checkout-workspace-state",
     });
   });
 

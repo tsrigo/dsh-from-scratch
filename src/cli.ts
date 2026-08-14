@@ -1,14 +1,14 @@
 import { resolve } from "node:path";
-import { loadIncidentPacket } from "./incident.js";
+import { loadCheckoutWorkspace } from "./checkout-workspace.js";
 import { DeepSeekLlm } from "./llm-deepseek.js";
-import { createLongTaskAuditReplies, ScriptedLlm } from "./llm-fake.js";
+import { createLongTaskBugFixReplies, ScriptedLlm } from "./llm-fake.js";
 import type { Llm } from "./protocol.js";
-import { runMarsLongTask } from "./scenario.js";
+import { runCheckoutLongTask } from "./scenario.js";
 
 const args = new Set(process.argv.slice(2));
 const provider = valueAfter("--provider") ?? "fake";
 const workspace = resolve(valueAfter("--workspace") ?? "./demo-workspace");
-const packet = await loadIncidentPacket(workspace);
+const fixture = await loadCheckoutWorkspace(workspace);
 
 let llm: Llm;
 if (provider === "deepseek") {
@@ -22,14 +22,14 @@ if (provider === "deepseek") {
     ...(baseUrl ? { baseUrl } : {}),
   });
 } else if (provider === "fake") {
-  llm = new ScriptedLlm(createLongTaskAuditReplies());
+  llm = new ScriptedLlm(createLongTaskBugFixReplies());
 } else {
   throw new Error(`Unknown provider: ${provider}`);
 }
 
-const result = await runMarsLongTask(llm, { packet });
+const result = await runCheckoutLongTask(llm, { fixture });
 
-console.log("Mars relay audit");
+console.log("CHECKOUT-417 bounded bug fix");
 for (const event of result.session.events) {
   if (event.type === "goal/round-started") {
     console.log(`round/${event.round} · ${event.label}`);
@@ -46,7 +46,7 @@ for (const event of result.session.events) {
   }
 }
 console.log(
-  `result=${result.submission.acceptedPlan ? "accepted" : "rejected"} rounds=${result.goal.roundsStarted} provider=${llm.provider} workspace=${workspace}`,
+  `result=${result.workspace.acceptedPatch ? "accepted" : "rejected"} rounds=${result.goal.roundsStarted} provider=${llm.provider} workspace=${workspace}`,
 );
 
 function valueAfter(flag: string): string | undefined {

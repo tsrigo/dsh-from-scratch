@@ -3,20 +3,20 @@ import type {
   JsonValue,
   Llm,
   LlmResponse,
+  LlmStreamEvent,
   ModelMessage,
   UnifiedRequest,
 } from "./protocol.js";
 
-interface DeepSeekToolCall {
-  id: string;
-  function: { name: string; arguments: string };
-}
-
-interface DeepSeekResponse {
+interface DeepSeekStreamPayload {
   choices?: Array<{
-    message?: {
+    delta?: {
       content?: string | null;
-      tool_calls?: DeepSeekToolCall[];
+      tool_calls?: Array<{
+        index: number;
+        id?: string;
+        function?: { name?: string; arguments?: string };
+      }>;
     };
   }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -44,7 +44,7 @@ export class DeepSeekLlm implements Llm {
     this.#fetch = options.fetch ?? globalThis.fetch;
   }
 
-  async complete(request: UnifiedRequest): Promise<LlmResponse> {
+  async *stream(request: UnifiedRequest): AsyncIterable<LlmStreamEvent> {
     const response = await this.#fetch(`${this.#baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
@@ -53,7 +53,8 @@ export class DeepSeekLlm implements Llm {
       },
       body: JSON.stringify({
         model: this.model,
-        stream: false,
+        stream: true,
+        stream_options: { include_usage: true },
         temperature: 0,
         thinking: { type: "disabled" },
         messages: [
@@ -74,29 +75,125 @@ export class DeepSeekLlm implements Llm {
         tool_choice: "auto",
       }),
     });
-    const body = (await response.json()) as DeepSeekResponse;
     if (!response.ok) {
-      throw new Error(`DeepSeek request failed (${response.status}): ${body.error?.message ?? "unknown error"}`);
+      const message = await responseErrorMessage(response);
+      throw new Error(`DeepSeek request failed (${response.status}): ${message}`);
     }
-    const raw = body.choices?.[0]?.message;
-    if (!raw) throw new Error("DeepSeek returned no assistant message.");
+    if (!response.body) throw new Error("DeepSeek returned an empty streaming response.");
+
+    let content = "";
+    let usage: DeepSeekStreamPayload["usage"];
+    let done = false;
+    const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
+
+    for await (const data of parseServerSentEvents(response.body)) {
+      if (data === "[DONE]") {
+        done = true;
+        break;
+      }
+      let payload: DeepSeekStreamPayload;
+      try {
+        payload = JSON.parse(data) as DeepSeekStreamPayload;
+      } catch {
+        throw new Error("DeepSeek returned malformed JSON in its event stream.");
+      }
+      if (payload.error) throw new Error(`DeepSeek stream failed: ${payload.error.message ?? "unknown error"}`);
+      if (payload.usage) usage = payload.usage;
+      const delta = payload.choices?.[0]?.delta;
+      if (!delta) continue;
+      if (delta.content) {
+        content += delta.content;
+        yield { type: "content-delta", content: delta.content };
+      }
+      for (const call of delta.tool_calls ?? []) {
+        const current = toolCalls.get(call.index) ?? { id: "", name: "", arguments: "" };
+        if (call.id) current.id += call.id;
+        if (call.function?.name) current.name += call.function.name;
+        const argumentDelta = call.function?.arguments ?? "";
+        current.arguments += argumentDelta;
+        toolCalls.set(call.index, current);
+        yield {
+          type: "tool-call-delta",
+          index: call.index,
+          ...(call.id ? { id: call.id } : {}),
+          ...(call.function?.name ? { name: call.function.name } : {}),
+          arguments: argumentDelta,
+        };
+      }
+    }
+    if (!done) throw new Error("DeepSeek event stream ended before [DONE].");
 
     const message: AssistantMessage = {
       role: "assistant",
-      content: raw.content ?? "",
-      toolCalls: (raw.tool_calls ?? []).map((call) => ({
-        id: call.id,
-        name: call.function.name,
-        arguments: parseArguments(call.function.arguments),
-      })),
+      content,
+      toolCalls: [...toolCalls.entries()]
+        .sort(([left], [right]) => left - right)
+        .map(([index, call]) => {
+          if (!call.id || !call.name) {
+            throw new Error(`DeepSeek tool call ${index} is missing its id or name.`);
+          }
+          return {
+            id: call.id,
+            name: call.name,
+            arguments: parseArguments(call.arguments),
+          };
+        }),
     };
-    return {
+    const completed: LlmResponse = {
       message,
       providerMetadata: {
-        promptTokens: body.usage?.prompt_tokens ?? null,
-        completionTokens: body.usage?.completion_tokens ?? null,
+        promptTokens: usage?.prompt_tokens ?? null,
+        completionTokens: usage?.completion_tokens ?? null,
       },
     };
+    yield { type: "response", response: completed };
+  }
+}
+
+export async function* parseServerSentEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncIterable<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const normalized = buffer.replace(/\r\n/gu, "\n");
+      const blocks = normalized.split("\n\n");
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const data = block
+          .split("\n")
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice(5).replace(/^ /u, ""))
+          .join("\n");
+        if (data) yield data;
+      }
+      if (done) break;
+    }
+    const trailing = buffer.trim();
+    if (trailing) {
+      const data = trailing
+        .split(/\r?\n/u)
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).replace(/^ /u, ""))
+        .join("\n");
+      if (data) yield data;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function responseErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const body = JSON.parse(text) as DeepSeekStreamPayload;
+    return body.error?.message ?? "unknown error";
+  } catch {
+    return text.trim() || "unknown error";
   }
 }
 

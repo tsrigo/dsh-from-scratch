@@ -83,6 +83,7 @@ export interface TraceItem {
 
 export class SessionLog {
   readonly #events: SessionEvent[] = [];
+  readonly #listeners = new Set<(event: SessionEvent) => void>();
   #nextId = 1;
   #nextTurn = 1;
 
@@ -93,7 +94,13 @@ export class SessionLog {
   append(event: NewSessionEvent): SessionEvent {
     const stored = { ...structuredClone(event), id: this.#nextId++ } as SessionEvent;
     this.#events.push(stored);
+    for (const listener of this.#listeners) listener(structuredClone(stored));
     return stored;
+  }
+
+  subscribe(listener: (event: SessionEvent) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
   }
 
   nextTurnId(): string {

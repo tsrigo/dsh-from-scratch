@@ -1,102 +1,104 @@
 import { describe, expect, it, vi } from "vitest";
+import { BUGGY_RETURN, FIXED_RETURN, SOURCE_PATH } from "../src/checkout-workspace.js";
 import { LongTaskRunner } from "../src/long-task.js";
-import { createLongTaskAuditReplies, ScriptedLlm } from "../src/llm-fake.js";
-import { runMarsLongTask } from "../src/scenario.js";
+import { createLongTaskBugFixReplies, ScriptedLlm } from "../src/llm-fake.js";
+import { runCheckoutLongTask } from "../src/scenario.js";
 import { SessionLog } from "../src/session.js";
 
 describe("M06 long task rounds", () => {
-  it("advances the same relay goal through survey, score, and submit rounds", async () => {
-    const llm = new ScriptedLlm(createLongTaskAuditReplies());
-    const result = await runMarsLongTask(llm);
+  it("advances CHECKOUT-417 through diagnosis, repair, and verified submission", async () => {
+    const llm = new ScriptedLlm(createLongTaskBugFixReplies());
+    const result = await runCheckoutLongTask(llm);
 
     expect(result.goal).toMatchObject({ status: "completed", roundsStarted: 3 });
-    expect(result.submission.acceptedPlan?.routeId).toBe("ASTER");
-    expect(result.context.inspect().plugins).not.toContain("capability:route_scoring");
+    expect(result.workspace.acceptedPatch?.issueId).toBe("CHECKOUT-417");
+    expect(result.context.inspect().plugins).not.toContain("capability:typescript_analysis");
     expect(
       result.session.events
         .filter((event) => event.type === "goal/round-started")
         .map((event) => (event.type === "goal/round-started" ? event.label : "")),
-    ).toEqual(["survey", "score", "submit"]);
+    ).toEqual(["diagnose", "repair", "verify-submit"]);
   });
 
   it("uses one bounded follow-up turn after concrete installation progress", async () => {
     const llm = new ScriptedLlm([
-      ...createLongTaskAuditReplies().slice(0, 2),
+      ...createLongTaskBugFixReplies().slice(0, 5),
       {
         message: {
           role: "assistant",
           content: "Install first.",
-          toolCalls: [{ id: "install-only", name: "install_capability", arguments: { name: "route_scoring" } }],
+          toolCalls: [{
+            id: "install-only",
+            name: "install_capability",
+            arguments: { name: "typescript_analysis" },
+          }],
         },
       },
       { message: { role: "assistant", content: "Installation complete.", toolCalls: [] } },
       {
         message: {
           role: "assistant",
-          content: "Now use the newly visible tool.",
-          toolCalls: [{ id: "score-follow-up", name: "score_routes", arguments: {} }],
+          content: "Complete the explicit follow-up.",
+          toolCalls: [
+            { id: "references-follow-up", name: "find_references", arguments: { symbol: "calculateTotal" } },
+            { id: "types-follow-up", name: "check_types", arguments: {} },
+            { id: "remove-follow-up", name: "remove_capability", arguments: { name: "typescript_analysis" } },
+            { id: "submit-follow-up", name: "submit_patch", arguments: { summary: "Fix duplicate discount." } },
+          ],
         },
       },
-      { message: { role: "assistant", content: "ASTER is eligible.", toolCalls: [] } },
-      ...createLongTaskAuditReplies().slice(5),
+      { message: { role: "assistant", content: "Patch accepted.", toolCalls: [] } },
     ]);
-    const result = await runMarsLongTask(llm);
+    const result = await runCheckoutLongTask(llm);
 
     expect(result.goal).toMatchObject({ status: "completed", roundsStarted: 3 });
-    expect(
-      result.session.events.filter((event) => event.type === "turn/start"),
-    ).toHaveLength(4);
+    expect(result.session.events.filter((event) => event.type === "turn/start")).toHaveLength(4);
     expect(
       result.session.events.filter(
-        (event) => event.type === "tool/result" && event.name === "score_routes",
+        (event) => event.type === "tool/result" && event.name === "find_references",
       ),
     ).toHaveLength(1);
   });
 
-  it("uses one bounded follow-up after a rejected submission", async () => {
-    const replies = createLongTaskAuditReplies().slice(0, 5);
+  it("uses one bounded follow-up after a rejected patch submission", async () => {
+    const replies = createLongTaskBugFixReplies().slice(0, 7);
     replies.push(
       {
         message: {
           role: "assistant",
-          content: "Remove the experiment and attempt a plan.",
+          content: "Accidentally restore the buggy line before submitting.",
           toolCalls: [
-            { id: "remove-before-correction", name: "remove_capability", arguments: { name: "route_scoring" } },
             {
-              id: "rejected-plan",
-              name: "submit_recovery_plan",
-              arguments: {
-                routeId: "BOREAL",
-                isolateRelay: "RELAY-7",
-                reasonCode: "THERMAL_DRIFT",
-              },
+              id: "regress-patch",
+              name: "apply_patch",
+              arguments: { path: SOURCE_PATH, oldText: FIXED_RETURN, newText: BUGGY_RETURN },
             },
+            { id: "remove-before-rejection", name: "remove_capability", arguments: { name: "typescript_analysis" } },
+            { id: "rejected-submit", name: "submit_patch", arguments: { summary: "Incorrect patch." } },
           ],
         },
       },
-      { message: { role: "assistant", content: "That attempt finished.", toolCalls: [] } },
+      { message: { role: "assistant", content: "That submission was rejected.", toolCalls: [] } },
       {
         message: {
           role: "assistant",
-          content: "Correcting the rejected plan.",
+          content: "Restore, retest, and resubmit the exact fix.",
           toolCalls: [
             {
-              id: "corrected-plan",
-              name: "submit_recovery_plan",
-              arguments: {
-                reasonCode: "THERMAL_DRIFT",
-                isolateRelay: "RELAY-7",
-                routeId: "ASTER",
-              },
+              id: "restore-fix",
+              name: "apply_patch",
+              arguments: { path: SOURCE_PATH, oldText: BUGGY_RETURN, newText: FIXED_RETURN },
             },
+            { id: "retest", name: "run_tests", arguments: {} },
+            { id: "correct-submit", name: "submit_patch", arguments: { summary: "Apply each discount once." } },
           ],
         },
       },
       { message: { role: "assistant", content: "Correction accepted.", toolCalls: [] } },
     );
-    const result = await runMarsLongTask(new ScriptedLlm(replies));
+    const result = await runCheckoutLongTask(new ScriptedLlm(replies));
     expect(result.goal.status).toBe("completed");
-    expect(result.submission.acceptedPlan?.routeId).toBe("ASTER");
+    expect(result.workspace.acceptedPatch?.issueId).toBe("CHECKOUT-417");
   });
 
   it("stops blocked when a round reports no progress", async () => {
