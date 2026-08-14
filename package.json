@@ -17,7 +17,7 @@
     "dev": "tsx src/cli.ts",
     "python:hello": "tsx scripts/run-python-hello.ts",
     "replay:record": "tsx scripts/record-live-replay.ts",
-    "tutorial:generate": "tsx scripts/generate-tutorial-data.ts && TUTORIAL_LOCALE=en tsx scripts/generate-tutorial-data.ts && tsx scripts/generate-python-tutorial-data.ts",
+    "tutorial:generate": "tsx scripts/generate-tutorial-data.ts && TUTORIAL_LOCALE=en tsx scripts/generate-tutorial-data.ts && tsx scripts/generate-python-tutorial-data.ts && TUTORIAL_LOCALE=en tsx scripts/generate-python-tutorial-data.ts",
     "site:dev": "vite --config website/vite.config.ts",
     "site:build": "vite build --config website/vite.config.ts"
   },

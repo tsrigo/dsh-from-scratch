@@ -9,10 +9,17 @@ interface PythonChapterConfig {
   fills: Array<{ label: string; kind: "skeleton" | "body"; ranges: Array<[number, number]> }>;
 }
 
+interface PythonEnglishOverlay {
+  observations: Array<{ title: string; text: string; lines: [number, number] }>;
+  fills: Array<{ label: string }>;
+}
+
 const root = resolve(import.meta.dirname, "..");
 const generated = resolve(root, "website/public/generated");
-const base = JSON.parse(await readFile(resolve(generated, "tutorial.json"), "utf8"));
-const primer = await readFile(resolve(root, "docs/python-primer.md"), "utf8");
+const tutorialLocale = process.env.TUTORIAL_LOCALE === "en" ? "en" : "zh";
+const english = tutorialLocale === "en";
+const base = JSON.parse(await readFile(resolve(generated, english ? "tutorial.en.json" : "tutorial.json"), "utf8"));
+const primer = await readFile(resolve(root, english ? "docs/python-primer.en.md" : "docs/python-primer.md"), "utf8");
 
 const configs: PythonChapterConfig[] = [
   {
@@ -124,6 +131,31 @@ const configs: PythonChapterConfig[] = [
   },
 ];
 
+const englishOverlays = english
+  ? JSON.parse(await readFile(resolve(root, "docs/python-chapters.en.json"), "utf8")) as PythonEnglishOverlay[]
+  : [];
+
+if (english) {
+  if (englishOverlays.length !== configs.length) {
+    throw new Error(`Expected ${configs.length} Python English overlays, received ${englishOverlays.length}`);
+  }
+  configs.forEach((config, chapterIndex) => {
+    const overlay = englishOverlays[chapterIndex]!;
+    if (overlay.observations.length !== config.observations.length) {
+      throw new Error(`Python chapter ${chapterIndex + 1}: observation translation count does not match`);
+    }
+    if (overlay.fills.length !== config.fills.length) {
+      throw new Error(`Python chapter ${chapterIndex + 1}: fill translation count does not match`);
+    }
+    overlay.observations.forEach((observation, observationIndex) => {
+      const sourceLines = config.observations[observationIndex]!.lines;
+      if (observation.lines[0] !== sourceLines[0] || observation.lines[1] !== sourceLines[1]) {
+        throw new Error(`Python chapter ${chapterIndex + 1}: observation ${observationIndex + 1} line range changed`);
+      }
+    });
+  });
+}
+
 const PYTHON_MAIN_FILES = [
   "python_harness/agent.py",
   "python_harness/context.py",
@@ -135,8 +167,12 @@ const PYTHON_MAIN_FILES = [
 
 const chapters = await Promise.all(base.chapters.map(async (chapter: any, index: number) => {
   const config = configs[index]!;
+  const overlay = englishOverlays[index];
   const source = await readFile(resolve(root, config.sourcePath), "utf8");
-  const lesson = await readFile(resolve(root, config.lessonPath), "utf8");
+  const lessonPath = english
+    ? config.lessonPath.replace("docs/lessons-python/", "docs/lessons-python-en/")
+    : config.lessonPath;
+  const lesson = await readFile(resolve(root, lessonPath), "utf8");
   const lines = source.trimEnd().split(/\r?\n/u);
   const diff = additionDiff(config.sourcePath, lines);
   // 文件 tab：主文件 + 该章为止已出现的其余主文件（与 TS 版同一规则）
@@ -149,7 +185,14 @@ const chapters = await Promise.all(base.chapters.map(async (chapter: any, index:
   return {
     ...chapter,
     lesson,
-    codeGuide: { ...chapter.codeGuide, observations: config.observations, folds: [], fills: config.fills },
+    codeGuide: {
+      ...chapter.codeGuide,
+      observations: overlay?.observations ?? config.observations,
+      folds: [],
+      fills: overlay
+        ? config.fills.map((fill, fillIndex) => ({ ...fill, label: overlay.fills[fillIndex]?.label ?? fill.label }))
+        : config.fills,
+    },
     extraFiles,
     source: {
       path: config.sourcePath,
@@ -176,13 +219,16 @@ const output = {
     language: "python",
     languageLabel: "Python",
     primer,
-    dataPolicy: "Python 源码可独立运行并由标准库测试验证；请求、事件与能力图使用与 TypeScript 版相同的最小确定性样本。顶部静态回放仍保留完整编码任务。文本量与相同前缀均为教学估算。",
+    dataPolicy: english
+      ? "The Python source runs independently and is verified with standard-library tests. Requests, events, and capability graphs reuse the same minimal deterministic examples as the TypeScript version. The static replay at the top retains a complete coding task. Text size and shared-prefix figures are teaching estimates."
+      : "Python 源码可独立运行并由标准库测试验证；请求、事件与能力图使用与 TypeScript 版相同的最小确定性样本。顶部静态回放仍保留完整编码任务。文本量与相同前缀均为教学估算。",
   },
   chapters,
 };
 
-await writeFile(resolve(generated, "tutorial-python.json"), `${JSON.stringify(output, null, 2)}\n`);
-console.log(`generated Python tutorial · ${chapters.length} chapters`);
+const outputName = english ? "tutorial-python.en.json" : "tutorial-python.json";
+await writeFile(resolve(generated, outputName), `${JSON.stringify(output, null, 2)}\n`);
+console.log(`generated ${outputName} · ${chapters.length} chapters`);
 
 function additionDiff(path: string, lines: string[]): string {
   return [

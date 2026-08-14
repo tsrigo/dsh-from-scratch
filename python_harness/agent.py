@@ -53,7 +53,7 @@ class Agent:
 
         for step in range(1, self.max_steps + 1):
             request = {
-                "system": "使用给定工具完成目标；根据工具结果继续，完成后停止调用工具。",
+                "system": "Use the provided tools to complete the goal. Continue from each tool result and stop calling tools when the work is complete.",
                 "tools": schemas,
                 "messages": messages,
                 "dynamic_context": f"step={step}",

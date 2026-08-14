@@ -1,0 +1,163 @@
+[
+  {
+    "observations": [
+      {
+        "title": "Each request captures the current state when it is built",
+        "text": "The user objective first enters messages. For each Step, the Harness then combines the fixed rules, Tool schemas, complete history, and current Step number into a model request.",
+        "lines": [47, 60]
+      },
+      {
+        "title": "Tool calls determine whether execution continues",
+        "text": "The model response first enters the history. If it contains no tool_calls, the Turn ends. If it contains calls, the Harness runs them and starts the next Step after appending the results.",
+        "lines": [61, 66]
+      },
+      {
+        "title": "Failures also become feedback",
+        "text": "Unknown tools, invalid arguments, and execution errors all become results in messages. If the Agent reaches max_steps, the Harness raises an explicit error.",
+        "lines": [67, 79]
+      }
+    ],
+    "fills": [
+      { "label": "Type declarations and Agent structure" },
+      { "label": "validate_arguments: validate arguments" },
+      { "label": "Constructor: inject the model adapter and tools" },
+      { "label": "run: assemble the request and call the model" },
+      { "label": "Stop condition: return when there are no calls" },
+      { "label": "Tool execution and error feedback" }
+    ]
+  },
+  {
+    "observations": [
+      {
+        "title": "Projection preserves the original messages",
+        "text": "Short results are returned in full. Long results retain the beginning and end and report the amount omitted. This function creates the model view while preserving the original content in the Session.",
+        "lines": [9, 18]
+      },
+      {
+        "title": "Content that changes less often comes first",
+        "text": "build_request places system rules and tools first, followed by the projected history. The dynamicContext that changes in each Step comes last.",
+        "lines": [21, 38]
+      },
+      {
+        "title": "Prefix comparison provides a teaching estimate",
+        "text": "Character counts provide an approximate token count. shared_prefix compares content in a fixed order from the beginning until the first difference; it does not query the provider's actual cache.",
+        "lines": [41, 51]
+      }
+    ],
+    "fills": [
+      { "label": "Four function signatures" },
+      { "label": "project_tool_result: clip long results" },
+      { "label": "build_request: order the stable prefix" },
+      { "label": "approximate_tokens: estimate from characters" },
+      { "label": "shared_prefix: locate the first difference" }
+    ]
+  },
+  {
+    "observations": [
+      {
+        "title": "Context records each contribution's owner and effect",
+        "text": "The runtime Registry stores Contributions. The plugin being installed determines the owner, and each plugin has its own list of cleanup functions.",
+        "lines": [25, 38]
+      },
+      {
+        "title": "Contributions take effect after mounting and roll back after failure",
+        "text": "If setup raises an error, Context removes registered content in reverse order. After setup succeeds, mount returns an idempotent unmount function. Explicit removal uses the same cleanup functions.",
+        "lines": [39, 65]
+      },
+      {
+        "title": "Registration also adds a cleanup function",
+        "text": "Tools and Prompts can enter the Registry only during installation. Each registration immediately adds a cleanup function that removes the owner's contribution. inspect then generates a view of the current runtime.",
+        "lines": [67, 89]
+      }
+    ],
+    "fills": [
+      { "label": "Type declarations and Context structure" },
+      { "label": "Constructor: Registry state" },
+      { "label": "effect: register cleanup functions" },
+      { "label": "mount: install, roll back, and remove" },
+      { "label": "_rollback: remove in reverse order" },
+      { "label": "Register tools and prompts" },
+      { "label": "inspect and the owner guard" }
+    ]
+  },
+  {
+    "observations": [
+      {
+        "title": "Events are appended with increasing identifiers",
+        "text": "append uses the current length to assign a stable ID. request_step_ids reads header events to identify the model Steps that can be reconstructed.",
+        "lines": [16, 26]
+      },
+      {
+        "title": "The request header defines the reconstruction range",
+        "text": "step_id first locates the target header. Content before that event forms the history for the current Step, and the latest checkpoint determines where reconstruction resumes.",
+        "lines": [28, 54]
+      },
+      {
+        "title": "Requests and Traces use the same log",
+        "text": "Message projection reads recognized events, while trace formats every Event. Both views are generated from the Session Log.",
+        "lines": [56, 68]
+      }
+    ],
+    "fills": [
+      { "label": "Event types and SessionLog structure" },
+      { "label": "append: write increasing identifiers" },
+      { "label": "request_step_ids: reconstruction index" },
+      { "label": "build_request: locate the header and summary" },
+      { "label": "_message_from: convert an event to a message" },
+      { "label": "trace: a timeline from the same log" }
+    ]
+  },
+  {
+    "observations": [
+      {
+        "title": "The definition table stores code and runtime state",
+        "text": "setup creates the definition table and increasing identifiers, and registers an effect that clears them during removal. cordis_inspect returns a view of the current runtime.",
+        "lines": [29, 40]
+      },
+      {
+        "title": "Definition and execution are separate actions",
+        "text": "cordis_define compiles, validates, and stores the Python plugin code submitted by the Agent. cordis_run retrieves the code by plugin_id, executes it to obtain a Plugin, and mounts it through context.mount().",
+        "lines": [42, 71]
+      },
+      {
+        "title": "Stopping and deletion use the same unmount function",
+        "text": "cordis_stop runs the unmount function but retains the definition. cordis_undefine stops the plugin and deletes its definition. Context removes the plugin's contributions as part of the same lifecycle.",
+        "lines": [73, 94]
+      }
+    ],
+    "fills": [
+      { "label": "Tool wrapper and runtime_tools_plugin structure" },
+      { "label": "Definition table, cleanup, and inspection tool" },
+      { "label": "Register plugin code" },
+      { "label": "Run a dynamic plugin" },
+      { "label": "Stop and delete plugins" },
+      { "label": "Register the five cordis tools" },
+      { "label": "Compile, instantiate, and read arguments" }
+    ]
+  },
+  {
+    "observations": [
+      {
+        "title": "Goal keeps cross-Round state in one place",
+        "text": "The objective, status, number of started Rounds, and Round limit are stored in one object. The phase description for each Round is defined externally in advance.",
+        "lines": [13, 26]
+      },
+      {
+        "title": "Every Round restates the objective and current phase",
+        "text": "run_long_task continues only while the Goal is active and below its limit. Every call to run_round receives the same objective and the description of the current phase.",
+        "lines": [29, 33]
+      },
+      {
+        "title": "Status determines whether execution continues",
+        "text": "accepted and blocked end the Goal. A Goal that remains active at the Round boundary is marked limit_reached.",
+        "lines": [34, 41]
+      }
+    ],
+    "fills": [
+      { "label": "Type declarations and run_long_task structure" },
+      { "label": "Round phase descriptions" },
+      { "label": "Loop: advance and call run_round" },
+      { "label": "Final status: accepted, blocked, or limit reached" }
+    ]
+  }
+]

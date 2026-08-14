@@ -160,7 +160,9 @@ export function App() {
     setData(null);
     setError(null);
     const source = language === "python"
-      ? "/generated/tutorial-python.json"
+      ? locale === "en"
+        ? "/generated/tutorial-python.en.json"
+        : "/generated/tutorial-python.json"
       : locale === "en"
         ? "/generated/tutorial.en.json"
         : "/generated/tutorial.json";
@@ -1286,8 +1288,8 @@ function Header({
         </div>
         <div className="locale-control">
           <div className="locale-switch" role="group" aria-label={locale === "en" ? "Page language" : "网页语言"}>
-            <button className={locale === "zh" ? "active" : ""} onClick={() => onLocale("zh")} aria-pressed={locale === "zh"}>中文</button>
             <button className={locale === "en" ? "active" : ""} onClick={() => onLocale("en")} aria-pressed={locale === "en"}>EN</button>
+            <button className={locale === "zh" ? "active" : ""} onClick={() => onLocale("zh")} aria-pressed={locale === "zh"}>中文</button>
           </div>
         </div>
         <div className="github-links">
