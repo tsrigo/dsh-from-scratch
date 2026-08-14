@@ -9452,7 +9452,101 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "类型声明与 Agent 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                9,
+                9
+              ],
+              [
+                12,
+                13
+              ],
+              [
+                16,
+                16
+              ],
+              [
+                19,
+                24
+              ],
+              [
+                41,
+                41
+              ],
+              [
+                79,
+                79
+              ]
+            ]
+          },
+          {
+            "label": "validate_arguments：参数校验",
+            "kind": "body",
+            "ranges": [
+              [
+                27,
+                38
+              ]
+            ]
+          },
+          {
+            "label": "构造器：注入 LLM 与工具",
+            "kind": "body",
+            "ranges": [
+              [
+                42,
+                45
+              ]
+            ]
+          },
+          {
+            "label": "run：组装请求并调用模型",
+            "kind": "body",
+            "ranges": [
+              [
+                47,
+                60
+              ]
+            ]
+          },
+          {
+            "label": "停止条件：无调用即返回",
+            "kind": "body",
+            "ranges": [
+              [
+                61,
+                66
+              ]
+            ]
+          },
+          {
+            "label": "工具执行与错误反馈",
+            "kind": "body",
+            "ranges": [
+              [
+                67,
+                79
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "模型选择动作，Harness 校验并执行",
@@ -9768,7 +9862,83 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "四个函数签名",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                9,
+                9
+              ],
+              [
+                21,
+                21
+              ],
+              [
+                41,
+                41
+              ],
+              [
+                46,
+                46
+              ]
+            ]
+          },
+          {
+            "label": "project_tool_result：裁剪长结果",
+            "kind": "body",
+            "ranges": [
+              [
+                10,
+                18
+              ]
+            ]
+          },
+          {
+            "label": "build_request：稳定前缀排序",
+            "kind": "body",
+            "ranges": [
+              [
+                22,
+                38
+              ]
+            ]
+          },
+          {
+            "label": "approximate_tokens：字符估算",
+            "kind": "body",
+            "ranges": [
+              [
+                42,
+                43
+              ]
+            ]
+          },
+          {
+            "label": "shared_prefix：首个差异定位",
+            "kind": "body",
+            "ranges": [
+              [
+                47,
+                51
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "完整记录、较短输入与稳定前缀可以同时成立",
@@ -10089,7 +10259,107 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "类型声明与 Context 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                7
+              ],
+              [
+                10,
+                10
+              ],
+              [
+                13,
+                16
+              ],
+              [
+                19,
+                22
+              ],
+              [
+                25,
+                25
+              ],
+              [
+                89,
+                89
+              ]
+            ]
+          },
+          {
+            "label": "构造器：Registry 状态",
+            "kind": "body",
+            "ranges": [
+              [
+                26,
+                32
+              ]
+            ]
+          },
+          {
+            "label": "effect：登记清理函数",
+            "kind": "body",
+            "ranges": [
+              [
+                34,
+                37
+              ]
+            ]
+          },
+          {
+            "label": "mount：安装、回滚与卸载",
+            "kind": "body",
+            "ranges": [
+              [
+                39,
+                61
+              ]
+            ]
+          },
+          {
+            "label": "_rollback：逆序撤销",
+            "kind": "body",
+            "ranges": [
+              [
+                63,
+                65
+              ]
+            ]
+          },
+          {
+            "label": "工具与提示词注册",
+            "kind": "body",
+            "ranges": [
+              [
+                67,
+                77
+              ]
+            ]
+          },
+          {
+            "label": "inspect 与 owner 守卫",
+            "kind": "body",
+            "ranges": [
+              [
+                79,
+                89
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "运行时能力使用统一的安装与卸载流程",
@@ -10342,7 +10612,89 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "事件类型与 SessionLog 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                9,
+                13
+              ],
+              [
+                16,
+                16
+              ],
+              [
+                68,
+                68
+              ]
+            ]
+          },
+          {
+            "label": "append：递增编号写入",
+            "kind": "body",
+            "ranges": [
+              [
+                17,
+                23
+              ]
+            ]
+          },
+          {
+            "label": "request_step_ids：重建索引",
+            "kind": "body",
+            "ranges": [
+              [
+                25,
+                26
+              ]
+            ]
+          },
+          {
+            "label": "build_request：定位头部与摘要",
+            "kind": "body",
+            "ranges": [
+              [
+                28,
+                54
+              ]
+            ]
+          },
+          {
+            "label": "_message_from：事件转消息",
+            "kind": "body",
+            "ranges": [
+              [
+                56,
+                65
+              ]
+            ]
+          },
+          {
+            "label": "trace：同一份日志的时间线",
+            "kind": "body",
+            "ranges": [
+              [
+                67,
+                68
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "请求与时间线来自同一份记录",
@@ -10807,7 +11159,83 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "类型别名与 RuntimeTools 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                8,
+                8
+              ],
+              [
+                11,
+                11
+              ],
+              [
+                14,
+                14
+              ],
+              [
+                42,
+                42
+              ]
+            ]
+          },
+          {
+            "label": "构造器：上下文、目录与实验表",
+            "kind": "body",
+            "ranges": [
+              [
+                15,
+                18
+              ]
+            ]
+          },
+          {
+            "label": "inspect_runtime：当前快照",
+            "kind": "body",
+            "ranges": [
+              [
+                20,
+                21
+              ]
+            ]
+          },
+          {
+            "label": "install_capability：受信任安装",
+            "kind": "body",
+            "ranges": [
+              [
+                23,
+                35
+              ]
+            ]
+          },
+          {
+            "label": "remove_capability：卸载恢复",
+            "kind": "body",
+            "ranges": [
+              [
+                37,
+                42
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "Agent 可以做可验证、可撤销的能力实验",
@@ -11564,7 +11992,73 @@
             ]
           }
         ],
-        "fills": []
+        "fills": [
+          {
+            "label": "类型声明与 run_long_task 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                1,
+                1
+              ],
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                6
+              ],
+              [
+                9,
+                10
+              ],
+              [
+                13,
+                19
+              ],
+              [
+                29,
+                29
+              ],
+              [
+                41,
+                41
+              ]
+            ]
+          },
+          {
+            "label": "轮次说明常量",
+            "kind": "body",
+            "ranges": [
+              [
+                22,
+                26
+              ]
+            ]
+          },
+          {
+            "label": "循环：推进与调用 run_round",
+            "kind": "body",
+            "ranges": [
+              [
+                30,
+                33
+              ]
+            ]
+          },
+          {
+            "label": "状态落定：完成、受阻、上限",
+            "kind": "body",
+            "ranges": [
+              [
+                34,
+                41
+              ]
+            ]
+          }
+        ],
+        "folds": []
       },
       "changeStory": {
         "title": "Turn 可以停止，Goal 再决定是否续行",

@@ -37,9 +37,20 @@ describe("chapterFills", () => {
     }
   });
 
-  it("Python chapters fall back to an empty fill sequence", () => {
+  it("Python chapters also carry a skeleton-first fill sequence", () => {
     for (const chapter of pythonTutorial.chapters) {
-      expect(chapterFills(chapter)).toEqual([]);
+      const fills = chapterFills(chapter);
+      expect(fills.length).toBeGreaterThanOrEqual(2);
+      expect(fills[0]!.kind).toBe("skeleton");
+      expect(fills.slice(1).every((fill) => fill.kind === "body")).toBe(true);
+      for (const fill of fills) {
+        for (const [start, end] of fill.ranges) {
+          expect(start).toBeGreaterThanOrEqual(1);
+          expect(end).toBeLessThanOrEqual(
+            chapter.source.content.trimEnd().split("\n").length,
+          );
+        }
+      }
     }
   });
 });
@@ -49,9 +60,10 @@ describe("snapshotForCheckpoint", () => {
     const m01 = tutorial.chapters[0]!;
     const skeleton = snapshotForCheckpoint(m01, 0);
     const numbers = skeleton.map((line) => line.number);
-    // 骨架 = 接口声明 11-30 + class 声明 32 + 收尾大括号 115
-    expect(numbers[0]).toBe(11);
+    // 骨架 = imports 1-9 + 接口声明 11-30 + class 声明 32 + 字段 33-39 + 收尾大括号 115
+    expect(numbers[0]).toBe(1);
     expect(numbers).toContain(32);
+    expect(numbers).toContain(33);
     expect(numbers[numbers.length - 1]).toBe(115);
     expect(skeleton.at(-1)!.text).toBe("}");
     expect(skeleton.every((line) => line.number !== 53)).toBe(true);
@@ -72,11 +84,15 @@ describe("snapshotForCheckpoint", () => {
     }
   });
 
-  it("without fills the whole source is shown at once", () => {
+  it("Python chapters also fill progressively from the skeleton", () => {
     const m01 = pythonTutorial.chapters[0]!;
-    const snapshot = snapshotForCheckpoint(m01, 0);
-    expect(snapshot.length).toBe(m01.source.content.trimEnd().split(/\r?\n/u).length);
-    expect(isFinalCheckpoint(m01, 0)).toBe(true);
+    const skeleton = snapshotForCheckpoint(m01, 0);
+    const full = snapshotForCheckpoint(m01, chapterFills(m01).length - 1);
+    const total = m01.source.content.trimEnd().split(/\r?\n/u).length;
+    // 骨架 = 部分行（类型声明 + 收尾），最终快照覆盖全部已讲行
+    expect(skeleton.length).toBeLessThan(full.length);
+    expect(full.length).toBeLessThanOrEqual(total);
+    expect(isFinalCheckpoint(m01, chapterFills(m01).length - 1)).toBe(true);
   });
 
   it("keeps every displayed line mapped to its source line", () => {
