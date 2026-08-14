@@ -85,7 +85,7 @@ const chapters = await Promise.all(base.chapters.map(async (chapter: any, index:
   return {
     ...chapter,
     lesson,
-    codeGuide: { ...chapter.codeGuide, observations: config.observations, folds: [] },
+    codeGuide: { ...chapter.codeGuide, observations: config.observations, folds: [], fills: [] },
     source: {
       path: config.sourcePath,
       content: source,

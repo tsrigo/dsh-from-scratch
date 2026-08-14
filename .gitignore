@@ -10,6 +10,9 @@ __pycache__/
 .DS_Store
 *.log
 
+# ci.log is a fixed checkout-demo fixture (regression output), not a runtime log.
+!demo-workspace/ci.log
+
 # Read-only local references; they are not part of the original implementation.
 deepseek-harness/
 ref/

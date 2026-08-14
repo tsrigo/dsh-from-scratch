@@ -1,0 +1,51 @@
+ RUN  v3.2.4 /workspace/checkout-demo
+
+ ✓ checkout regression / ordinary basket fixture 01
+ ✓ checkout regression / ordinary basket fixture 02
+ ✓ checkout regression / ordinary basket fixture 03
+ ✓ checkout regression / ordinary basket fixture 04
+ ✓ checkout regression / ordinary basket fixture 05
+ ✓ checkout regression / ordinary basket fixture 06
+ ✓ checkout regression / ordinary basket fixture 07
+ ✓ checkout regression / ordinary basket fixture 08
+ ✓ checkout regression / ordinary basket fixture 09
+ ✓ checkout regression / ordinary basket fixture 10
+ ✓ checkout regression / ordinary basket fixture 11
+ ✓ checkout regression / ordinary basket fixture 12
+ ✓ checkout regression / ordinary basket fixture 13
+ ✓ checkout regression / ordinary basket fixture 14
+ ✓ checkout regression / ordinary basket fixture 15
+ ✓ checkout regression / ordinary basket fixture 16
+ ✓ checkout regression / ordinary basket fixture 17
+ ✓ checkout regression / ordinary basket fixture 18
+ ✓ checkout regression / ordinary basket fixture 19
+ ✓ checkout regression / ordinary basket fixture 20
+ ✓ checkout regression / ordinary basket fixture 21
+ ✓ checkout regression / ordinary basket fixture 22
+ ✓ checkout regression / ordinary basket fixture 23
+ ✓ checkout regression / ordinary basket fixture 24
+ ✓ checkout regression / ordinary basket fixture 25
+ ✓ checkout regression / ordinary basket fixture 26
+ ✓ checkout regression / ordinary basket fixture 27
+ ✓ checkout regression / ordinary basket fixture 28
+ ✓ checkout regression / ordinary basket fixture 29
+ ✓ checkout regression / ordinary basket fixture 30
+ ✓ checkout regression / ordinary basket fixture 31
+ ✓ checkout regression / ordinary basket fixture 32
+ ✓ checkout regression / ordinary basket fixture 33
+ ✓ checkout regression / ordinary basket fixture 34
+ ✓ checkout regression / ordinary basket fixture 35
+ ✓ checkout regression / ordinary basket fixture 36
+ ✓ checkout regression / ordinary basket fixture 37
+ ✓ checkout regression / ordinary basket fixture 38
+ ✓ checkout regression / ordinary basket fixture 39
+ ✓ checkout regression / keeps shipping when no shipping discount exists
+ ✓ checkout regression / never makes merchandise negative
+ ✓ checkout regression / handles an empty basket
+ × checkout regression / applies order and shipping discounts once
+   AssertionError: expected 80 to be 100
+   at tests/checkout.test.ts:23:18
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 42 passed (43)
+   Duration  418ms

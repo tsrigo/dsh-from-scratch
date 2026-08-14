@@ -9467,6 +9467,66 @@
             ],
             "label": "Tool Result 消息字段"
           }
+        ],
+        "fills": [
+          {
+            "label": "接口声明与 Agent 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                11,
+                30
+              ],
+              [
+                32,
+                32
+              ],
+              [
+                115,
+                115
+              ]
+            ]
+          },
+          {
+            "label": "构造器：注入 LLM 与工具",
+            "kind": "body",
+            "ranges": [
+              [
+                41,
+                51
+              ]
+            ]
+          },
+          {
+            "label": "runTurn：组装请求并调用模型",
+            "kind": "body",
+            "ranges": [
+              [
+                53,
+                76
+              ]
+            ]
+          },
+          {
+            "label": "停止条件与工具执行",
+            "kind": "body",
+            "ranges": [
+              [
+                78,
+                95
+              ]
+            ]
+          },
+          {
+            "label": "工具执行：校验与异常包装",
+            "kind": "body",
+            "ranges": [
+              [
+                98,
+                113
+              ]
+            ]
+          }
         ]
       },
       "changeStory": {
@@ -9796,6 +9856,100 @@
               114
             ],
             "label": "首次请求的基线统计"
+          }
+        ],
+        "fills": [
+          {
+            "label": "四个接口：投影、部件、比较、裁剪",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                3,
+                7
+              ],
+              [
+                15,
+                23
+              ],
+              [
+                25,
+                31
+              ],
+              [
+                33,
+                36
+              ]
+            ]
+          },
+          {
+            "label": "默认投影设置",
+            "kind": "body",
+            "ranges": [
+              [
+                9,
+                13
+              ]
+            ]
+          },
+          {
+            "label": "projectMessages：只裁剪工具结果",
+            "kind": "body",
+            "ranges": [
+              [
+                38,
+                48
+              ]
+            ]
+          },
+          {
+            "label": "clipToolResult：头尾保留、中间省略",
+            "kind": "body",
+            "ranges": [
+              [
+                49,
+                67
+              ]
+            ]
+          },
+          {
+            "label": "describeRequest：请求拆成教学部件",
+            "kind": "body",
+            "ranges": [
+              [
+                70,
+                99
+              ]
+            ]
+          },
+          {
+            "label": "compareRequestPrefix：稳定前缀比较",
+            "kind": "body",
+            "ranges": [
+              [
+                101,
+                138
+              ]
+            ]
+          },
+          {
+            "label": "估算 token 与工具 Schema",
+            "kind": "body",
+            "ranges": [
+              [
+                140,
+                147
+              ]
+            ]
+          },
+          {
+            "label": "私有辅助：规范化排序比较",
+            "kind": "body",
+            "ranges": [
+              [
+                149,
+                173
+              ]
+            ]
           }
         ]
       },
@@ -10127,6 +10281,108 @@
             ],
             "label": "Service 查找与依赖记录"
           }
+        ],
+        "fills": [
+          {
+            "label": "三类声明与 Context 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                3,
+                6
+              ],
+              [
+                8,
+                11
+              ],
+              [
+                13,
+                20
+              ],
+              [
+                36,
+                36
+              ],
+              [
+                194,
+                194
+              ]
+            ]
+          },
+          {
+            "label": "内部类型与私有字段",
+            "kind": "body",
+            "ranges": [
+              [
+                22,
+                34
+              ],
+              [
+                37,
+                43
+              ]
+            ]
+          },
+          {
+            "label": "mount：安装、回滚与卸载",
+            "kind": "body",
+            "ranges": [
+              [
+                45,
+                77
+              ]
+            ]
+          },
+          {
+            "label": "effect、provide 与 use",
+            "kind": "body",
+            "ranges": [
+              [
+                79,
+                105
+              ]
+            ]
+          },
+          {
+            "label": "工具、提示词与监听器注册",
+            "kind": "body",
+            "ranges": [
+              [
+                107,
+                135
+              ]
+            ]
+          },
+          {
+            "label": "读取与检视：emit 到 inspect",
+            "kind": "body",
+            "ranges": [
+              [
+                137,
+                175
+              ]
+            ]
+          },
+          {
+            "label": "私有辅助：挂载守卫与回滚",
+            "kind": "body",
+            "ranges": [
+              [
+                177,
+                193
+              ]
+            ]
+          },
+          {
+            "label": "模块级工具：once 与关系比较",
+            "kind": "body",
+            "ranges": [
+              [
+                196,
+                214
+              ]
+            ]
+          }
         ]
       },
       "changeStory": {
@@ -10377,6 +10633,104 @@
               128
             ],
             "label": "Runtime 事件写入 Session 的桥接代码"
+          }
+        ],
+        "fills": [
+          {
+            "label": "事件类型系统与 SessionLog 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                11,
+                14
+              ],
+              [
+                16,
+                69
+              ],
+              [
+                77,
+                82
+              ],
+              [
+                84,
+                84
+              ],
+              [
+                109,
+                109
+              ]
+            ]
+          },
+          {
+            "label": "私有状态与只读事件视图",
+            "kind": "body",
+            "ranges": [
+              [
+                85,
+                91
+              ]
+            ]
+          },
+          {
+            "label": "append、编号与检查点",
+            "kind": "body",
+            "ranges": [
+              [
+                93,
+                108
+              ]
+            ]
+          },
+          {
+            "label": "服务令牌与日志插件",
+            "kind": "body",
+            "ranges": [
+              [
+                111,
+                128
+              ]
+            ]
+          },
+          {
+            "label": "buildRequest：定位头部与摘要",
+            "kind": "body",
+            "ranges": [
+              [
+                130,
+                153
+              ]
+            ]
+          },
+          {
+            "label": "事件投影为模型消息",
+            "kind": "body",
+            "ranges": [
+              [
+                155,
+                186
+              ]
+            ]
+          },
+          {
+            "label": "统一请求组装与轨迹工具",
+            "kind": "body",
+            "ranges": [
+              [
+                188,
+                211
+              ]
+            ]
+          },
+          {
+            "label": "私有辅助：标题、详情与插件名",
+            "kind": "body",
+            "ranges": [
+              [
+                213,
+                266
+              ]
+            ]
           }
         ]
       },
@@ -10843,6 +11197,82 @@
               88
             ],
             "label": "卸载成功后的返回字段"
+          }
+        ],
+        "fills": [
+          {
+            "label": "类型别名与受信任目录类",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                4,
+                4
+              ],
+              [
+                6,
+                20
+              ]
+            ]
+          },
+          {
+            "label": "目录服务令牌",
+            "kind": "body",
+            "ranges": [
+              [
+                22,
+                24
+              ]
+            ]
+          },
+          {
+            "label": "注册目录服务",
+            "kind": "body",
+            "ranges": [
+              [
+                26,
+                33
+              ]
+            ]
+          },
+          {
+            "label": "实验边界提示词与检查工具",
+            "kind": "body",
+            "ranges": [
+              [
+                35,
+                49
+              ]
+            ]
+          },
+          {
+            "label": "安装能力工具",
+            "kind": "body",
+            "ranges": [
+              [
+                50,
+                73
+              ]
+            ]
+          },
+          {
+            "label": "移除能力工具",
+            "kind": "body",
+            "ranges": [
+              [
+                74,
+                90
+              ]
+            ]
+          },
+          {
+            "label": "参数 Schema 与名称读取",
+            "kind": "body",
+            "ranges": [
+              [
+                95,
+                106
+              ]
+            ]
           }
         ]
       },
@@ -11580,6 +12010,102 @@
             "lines": [
               83,
               114
+            ]
+          }
+        ],
+        "fills": [
+          {
+            "label": "类型声明与 LongTaskRunner 骨架",
+            "kind": "skeleton",
+            "ranges": [
+              [
+                3,
+                3
+              ],
+              [
+                5,
+                12
+              ],
+              [
+                14,
+                17
+              ],
+              [
+                19,
+                23
+              ],
+              [
+                25,
+                31
+              ],
+              [
+                33,
+                33
+              ],
+              [
+                115,
+                115
+              ]
+            ]
+          },
+          {
+            "label": "私有状态：轮次、会话与运行函数",
+            "kind": "body",
+            "ranges": [
+              [
+                34,
+                38
+              ]
+            ]
+          },
+          {
+            "label": "构造器：初始化目标状态",
+            "kind": "body",
+            "ranges": [
+              [
+                39,
+                52
+              ]
+            ]
+          },
+          {
+            "label": "run：写入目标创建事件",
+            "kind": "body",
+            "ranges": [
+              [
+                54,
+                60
+              ]
+            ]
+          },
+          {
+            "label": "轮次循环：推进与记录",
+            "kind": "body",
+            "ranges": [
+              [
+                62,
+                81
+              ]
+            ]
+          },
+          {
+            "label": "停止条件：完成、受阻、上限",
+            "kind": "body",
+            "ranges": [
+              [
+                83,
+                102
+              ]
+            ]
+          },
+          {
+            "label": "收束：状态落定与事件写入",
+            "kind": "body",
+            "ranges": [
+              [
+                104,
+                114
+              ]
             ]
           }
         ]

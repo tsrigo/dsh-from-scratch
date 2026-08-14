@@ -9452,7 +9452,8 @@
             ]
           }
         ],
-        "folds": []
+        "folds": [],
+        "fills": []
       },
       "changeStory": {
         "title": "模型负责选择，Harness 负责执行与收束",
@@ -9767,7 +9768,8 @@
             ]
           }
         ],
-        "folds": []
+        "folds": [],
+        "fills": []
       },
       "changeStory": {
         "title": "完整记录、较短输入与稳定前缀可以同时成立",
@@ -10082,7 +10084,8 @@
             ]
           }
         ],
-        "folds": []
+        "folds": [],
+        "fills": []
       },
       "changeStory": {
         "title": "运行时能力拥有统一的安装边界",
@@ -10325,7 +10328,8 @@
             ]
           }
         ],
-        "folds": []
+        "folds": [],
+        "fills": []
       },
       "changeStory": {
         "title": "请求与时间线来自同一份记录",
@@ -10776,7 +10780,8 @@
             ]
           }
         ],
-        "folds": []
+        "folds": [],
+        "fills": []
       },
       "changeStory": {
         "title": "Agent 可以做可验证、可撤销的能力实验",
@@ -11515,6 +11520,7 @@
             ]
           }
         ],
+        "fills": [],
         "folds": []
       },
       "changeStory": {

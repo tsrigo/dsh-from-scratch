@@ -35,6 +35,7 @@ interface CheckpointConfig {
     description: string;
     observations: Array<{ title: string; text: string; lines: [number, number] }>;
     folds?: Array<{ lines: [number, number]; label: string }>;
+    fills?: Array<{ label: string; kind: "skeleton" | "body"; ranges: Array<[number, number]> }>;
   };
   changeStory: {
     title: string;
@@ -102,6 +103,7 @@ for (const config of configs) {
   });
   const sourceLines = source.split(/\r?\n/u);
   verifyCodeGuideCoverage(config, sourceLines.length);
+  verifyFills(config, sourceLines);
   chapters.push({
     id: `chapter-${Number(config.number)}`,
     number: config.number,
@@ -517,6 +519,56 @@ function verifyCodeGuideCoverage(config: CheckpointConfig, sourceLineCount: numb
         `${config.id}: folded range ${foldStart}-${foldEnd} hides all of ${observation.title}`,
       );
     }
+  }
+}
+
+function verifyFills(config: CheckpointConfig, sourceLines: string[]): void {
+  const fills = config.codeGuide.fills;
+  if (!fills || fills.length === 0) return;
+  assert(fills[0]?.kind === "skeleton", `${config.id}: the first fill must be a skeleton`);
+
+  let previousBodyEnd = 0;
+  for (const fill of fills) {
+    assert(fill.label.trim().length > 0, `${config.id}: fill needs a label`);
+    assert(
+      fill.kind === "skeleton" || fill.kind === "body",
+      `${config.id}: fill ${fill.label} has unknown kind ${fill.kind}`,
+    );
+    assert(fill.ranges.length > 0, `${config.id}: fill ${fill.label} needs ranges`);
+    for (const [fillStart, fillEnd] of fill.ranges) {
+      assert(
+        fillStart >= 1 && fillStart <= fillEnd && fillEnd <= sourceLines.length,
+        `${config.id}: fill ${fill.label} range ${fillStart}-${fillEnd} falls outside 1-${sourceLines.length}`,
+      );
+      if (fill.kind === "body") {
+        assert(
+          fillStart > previousBodyEnd,
+          `${config.id}: body fill ${fill.label} range ${fillStart}-${fillEnd} overlaps or is out of order after ${previousBodyEnd}`,
+        );
+        previousBodyEnd = fillEnd;
+      }
+    }
+  }
+
+  // 观察点与折叠区逐行覆盖（空行豁免：空行不承载内容，允许落在 fills 之外）
+  const covered = new Set<number>();
+  for (const fill of fills) {
+    for (const [fillStart, fillEnd] of fill.ranges) {
+      for (let line = fillStart; line <= fillEnd; line += 1) covered.add(line);
+    }
+  }
+  const assertCovered = (label: string, start: number, end: number): void => {
+    for (let line = start; line <= end; line += 1) {
+      if (!covered.has(line) && sourceLines[line - 1]?.trim() !== "") {
+        throw new Error(`${config.id}: ${label} line ${line} is not covered by any fill`);
+      }
+    }
+  };
+  for (const observation of config.codeGuide.observations) {
+    assertCovered(`observation ${observation.title}`, observation.lines[0], observation.lines[1]);
+  }
+  for (const fold of config.codeGuide.folds ?? []) {
+    assertCovered(`fold ${fold.lines[0]}-${fold.lines[1]}`, fold.lines[0], fold.lines[1]);
   }
 }
 

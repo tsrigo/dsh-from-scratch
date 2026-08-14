@@ -71,6 +71,11 @@ export interface Chapter {
     description: string;
     observations: Array<{ title: string; text: string; lines: [number, number] }>;
     folds?: Array<{ lines: [number, number]; label: string }>;
+    fills?: Array<{
+      label: string;
+      kind: "skeleton" | "body";
+      ranges: Array<[number, number]>;
+    }>;
   };
   changeStory: {
     title: string;
