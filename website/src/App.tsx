@@ -64,7 +64,7 @@ function initialLocale(): UiLocale {
   if (query === "en" || query === "zh") return query;
   const stored = window.localStorage.getItem("tutorial-locale");
   if (stored === "en" || stored === "zh") return stored;
-  return "zh";
+  return "en";
 }
 
 type MobileTab = "article" | PanelTab | "more";

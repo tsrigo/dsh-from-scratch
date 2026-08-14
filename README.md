@@ -1,127 +1,111 @@
 # DeepSeek Harness from Scratch
 
-[中文](./README.md) | [English](./README.en.md)
+[中文](./README.zh.md) | [English](./README.md)
 
-一个可离线运行的 TypeScript 教程，用六个逐步增加的实现解释 DeepSeek Harness 的主要运行机制。
+An offline-capable TypeScript tutorial that explains the main runtime mechanisms of DeepSeek Harness through six incremental implementations.
 
-DeepSeek Harness（DSH）为语言模型执行任务提供运行环境。它组织模型输入，向模型提供工具，执行经过校验的工具调用，保存运行过程，并在一次模型回复不足以完成任务时继续推进。这个仓库把上述机制整理成一套可以阅读、运行和测试的最小实现，同时提供一个与源码同步的交互式教学网站。
+DeepSeek Harness, abbreviated as DSH, provides the runtime in which a language model performs tasks. It assembles model input, exposes tools, executes validated tool calls, records the run, and continues when one model response is not enough to finish the task. This repository reduces those mechanisms to an implementation that can be read, executed, and tested. It also includes an interactive tutorial site generated from the source code.
 
-六章各自使用一个独立的确定性样本，只保留当前问题需要的输入和运行事件。章节之间逐步加入上下文投影、插件生命周期、会话日志、动态插件和长程任务续行。读者可以分别检查每项机制引起的源码、模型请求和运行状态变化。
+Each chapter uses an independent deterministic example with only the inputs and runtime events needed for its question. The chapters progressively add context projection, plugin lifecycles, a session log, dynamic plugins, and long-task continuation. Readers can inspect the source, model requests, and runtime state changed by each mechanism.
 
-本项目面向机制教学，代码规模和运行边界都有意保持有限。它不提供 DeepSeek Harness 的兼容接口，也不覆盖完整产品中的权限、持久化、任务调度和多 Agent 协作能力。
+This project focuses on teaching the runtime mechanisms with a deliberately small codebase and explicit execution boundaries. It does not provide a compatibility layer for DeepSeek Harness or cover the full product's permissions, persistence, scheduling, and multi-agent features.
 
-## 快速开始
+## Quick start
 
-需要 Node.js 22 或更高版本。项目使用 pnpm 11，版本已经写入 `package.json`。
+You need Node.js 22 or later. The pnpm 11 version is pinned in `package.json`.
 
 ```sh
 git clone https://github.com/tsrigo/dsh-from-scratch.git
 cd dsh-from-scratch
 corepack enable
 pnpm install
-pnpm exec tsx scripts/generate-tutorial-data.ts
+TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:dev
 ```
 
-`scripts/generate-tutorial-data.ts` 默认生成中文版 TypeScript 数据。如需同时生成英文数据，可以另外执行：
+The command above generates the English TypeScript data. To generate the Chinese data, run the generator without `TUTORIAL_LOCALE`:
 
 ```sh
-TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
+pnpm exec tsx scripts/generate-tutorial-data.ts
 ```
 
-生成过程与网站浏览都不调用模型，也不需要模型服务的应用程序编程接口（Application Programming Interface，API）密钥。
+Data generation and site browsing make no model requests and require no application programming interface (API) key.
 
-## 浏览教学网站
+## Run the tutorial site
 
-网站包含以下内容：
+The site contains:
 
-- 四张 TypeScript 阅读准备卡，解释教程使用的类型标注、`interface`、`async` / `await` 和可区分联合类型。
-- 六个彼此独立的最小机制样本，以及与当前段落对应的源码、逐章差异、模型请求、Session Event（会话事件）、执行过程和插件关系。
-- 相邻请求的稳定前缀、首次变化位置和 token（模型处理文本的计量单位）数量估算。这些数据只用于解释请求结构，实际缓存命中与计费以模型服务返回的数据为准。
+- Four TypeScript primer cards covering type annotations, `interface`, `async` / `await`, and discriminated unions.
+- Six independent mechanism examples with source code, per-chapter diffs, model requests, Session Events, execution traces, and plugin relationships aligned with the prose.
+- Estimates of the stable prefix, first changed part, and token count for adjacent requests. These values explain request structure only. Provider cache hits and billing must be determined from provider data.
 
-生成器读取 [`docs/checkpoints.json`](./docs/checkpoints.json) 中的章节配置，从教学 checkpoint（检查点）和当前 TypeScript 源码提取内容，并把中文版结果写入 [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json)。英文版使用 [`docs/checkpoints.en.json`](./docs/checkpoints.en.json)、[`docs/lessons-en/`](./docs/lessons-en/) 和 [`docs/typescript-primer.en.md`](./docs/typescript-primer.en.md)，输出为 [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json)。生成期间还会检查源码行号、代码讲解覆盖范围，以及可以从事件重建的模型请求是否与原请求一致。
+The generator reads the English chapter configuration in [`docs/checkpoints.en.json`](./docs/checkpoints.en.json), the lessons in [`docs/lessons-en/`](./docs/lessons-en/), and [`docs/typescript-primer.en.md`](./docs/typescript-primer.en.md). It extracts material from tutorial checkpoints and the current TypeScript source, then writes [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json). The Chinese build uses [`docs/checkpoints.json`](./docs/checkpoints.json) and writes [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json). Generation also checks source ranges, code-guide coverage, and exact request reconstruction where request evidence comes from Session Events.
 
-## 六章内容
+## The six chapters
+
+The Chinese chapter titles and questions below are fixed by the tutorial. English translations follow each question.
 
 ### 第一章·Agent Loop
 
 > DSH 的 Agent Loop 是什么样的?
 
-`Agent.runTurn()` 把一个 Turn（一次连续执行）分成多个 Step（一次模型请求及其工具执行）。每个 Step 都从当前状态构造请求。模型返回 Tool Call（工具调用）后，Harness 使用 JSON Schema 校验参数，执行工具，再把 Tool Result（工具结果）加入下一次请求。模型没有继续调用工具时结束 Turn，超过 `maxSteps` 时明确终止。
+What does the DSH Agent Loop look like?
 
-本章还对照程序化工具调用（Programmatic Tool Calling，PTC）怎样把多个动作组织成 TypeScript 程序。仓库只提供静态对照，不实现 Code Runtime（代码运行环境）。
+`Agent.runTurn()` divides a Turn, one continuous execution, into Steps. Each Step contains one model request and its tool execution. The Harness builds a request from the current state. When the model returns a Tool Call, the Harness validates its arguments with JSON Schema, executes the tool, and adds the Tool Result to the next request. A Turn ends when the model stops calling tools. Exceeding `maxSteps` terminates it with an explicit error.
+
+The chapter also shows how Programmatic Tool Calling (PTC) can organize several actions as a TypeScript program. The repository presents this as a static comparison and does not implement a Code Runtime.
 
 ### 第二章·上下文与缓存复用
 
 > 上下文是怎样组织的，为缓存复用做了什么优化？
 
-模型请求从完整记录投影得到。长工具结果只在模型视图中保留开头、结尾和省略字符数，原始结果继续保存在会话记录中。请求把稳定的系统提示词和工具定义放在前面，按顺序追加消息，把当前 Step 的动态说明放在最后，以保留较长的相同前缀。
+How is context organized, and what does it do to improve cache reuse?
 
-页面比较相邻请求经过规范化后的最长相同前缀，并估算对应的 token 数量。这里没有调用或模拟模型服务的 Prompt Cache（提示词缓存）。
+Each model request is a projection of the complete record. For long tool results, the model view keeps the beginning, the end, and an explicit omitted-character count. The original result remains in the session record. Stable system instructions and tool schemas appear first, messages are appended in order, and Step-specific context appears last. This ordering preserves a longer identical prefix between adjacent requests.
+
+The site compares the longest identical canonical prefix and estimates its token count. The implementation does not call or simulate a provider Prompt Cache.
 
 ### 第三章·一切皆插件
 
 > 如何实现“一切皆插件”？
 
-`Context` 是插件统一使用的注册入口。插件可以提供 Service（运行时服务）、注册 Tool、贡献系统 Prompt（提示词），以及添加 Event Listener（事件监听器）。每项贡献都记录来源和 effect（随插件生命周期管理的操作）。插件安装失败或主动卸载时，`Context` 按相反顺序执行 effect 中登记的清理函数。
+How is everything implemented as a plugin?
 
-这个最小运行时保留了 Cordis 插件生命周期中与教程直接相关的部分：依赖获取、能力归属、安装回滚、幂等卸载和运行时检查。
+`Context` is the shared registration interface for plugins. A plugin can provide a runtime Service, register a Tool, contribute a system Prompt, and add an Event Listener. Every contribution records its owner and an effect that manages cleanup over the plugin lifecycle. If setup fails or a mounted plugin is removed, `Context` runs those cleanup functions in reverse order.
+
+The small runtime retains the Cordis lifecycle features needed by the tutorial: dependency access, capability ownership, setup rollback, idempotent removal, and runtime inspection.
 
 ### 第四章·让运行有迹可循
 
 > DSH 怎么记录和保存 Agent 执行过程?
 
-`SessionLog` 按发生顺序追加 Turn、Step、用户消息、模型回复、工具调用、工具结果、请求头、上下文检查点、插件变化和 Goal 状态。每个事件取得连续编号，已经写入的事件不会原地修改。
+How does DSH record and save an Agent run?
 
-`buildRequest()` 从这些事件重建指定 Step 的模型输入，`replayTrace()` 从同一组事件生成执行过程。上下文检查点只替换后续模型请求看到的较早历史，原始事件仍然保留。当前最小实现把日志保存在内存中；教程生成器将它序列化为网站使用的静态 JSON 数据。
+`SessionLog` appends Turn and Step boundaries, user messages, model responses, tool calls, tool results, request headers, context checkpoints, plugin changes, and Goal state changes in execution order. Each event receives a monotonically increasing identifier, and stored events are not edited in place.
+
+`buildRequest()` reconstructs the input for a selected Step from these events. `replayTrace()` derives the execution trace from the same source. A context checkpoint replaces earlier history only in later model projections; the original events remain available. The minimal runtime keeps the log in memory, and the tutorial generator serializes it into static JSON for the site.
 
 ### 第五章·运行时自进化
 
 > DSH 是如何持续自进化的?
 
-常驻的 Runtime Tools（运行时工具）向 Agent 提供 `cordis_inspect`、`cordis_define`、`cordis_run`、`cordis_stop` 和 `cordis_undefine`。Agent 可以检查已有能力，提交一段 Cordis 插件代码，挂载插件，调用新增工具验证结果，再停止插件或删除定义。
+How does DSH evolve its runtime capabilities?
 
-动态插件仍然经过第三章的 `Context.mount()`，所以新增工具与 Prompt 会进入后续模型请求，卸载时也使用相同的清理路径。代码通过 Node.js 的 `node:vm` 执行环境加载；这项实现用于可信教学样本，不构成面向不可信代码的安全沙箱。
+The resident Runtime Tools expose `cordis_inspect`, `cordis_define`, `cordis_run`, `cordis_stop`, and `cordis_undefine` to the Agent. The Agent can inspect current capabilities, submit Cordis plugin code, mount the plugin, call a new tool to verify its behavior, and then stop the plugin or delete its definition.
+
+Dynamic plugins still pass through `Context.mount()` from Chapter 3, so new tools and prompts appear in subsequent model requests and use the same cleanup path on removal. Node.js loads the code with `node:vm`. This mechanism is intended for trusted tutorial fixtures and is not a security sandbox for untrusted code.
 
 ### 第六章·长程任务续行
 
 > DSH 是如何持续完成长程任务的？
 
-`LongTaskRunner` 在 Agent Loop 外保存 Goal（长期目标）、当前状态、已经开始的 Round（续行轮次）和轮数上限。每个 Round 启动一个普通 Agent Turn，并沿用同一个 `Context`、工作区和 `SessionLog`。单轮返回结构化的进展、完成或受阻结果，外层据此继续下一轮，或者以 `completed`、`blocked`、`max-rounds` 结束。
+How does DSH continue working on long-running tasks?
 
-Goal、Round、Turn 和 Step 分别处理长期目标、跨轮续行、一次连续执行和一次模型请求。测试覆盖正常完成、没有可观察进展、显式受阻和达到轮数上限。
+`LongTaskRunner` stores a Goal, its current status, the number of started Rounds, and a round limit outside the Agent Loop. Each Round starts a regular Agent Turn and reuses the same `Context`, workspace, and `SessionLog`. A Round returns structured progress, completion, or blocked information. The outer runner then starts another Round or finishes with `completed`, `blocked`, or `max-rounds`.
 
-## 实现关系
+Goal, Round, Turn, and Step represent a long-term objective, one continuation attempt, one continuous execution, and one model request respectively. Tests cover normal completion, no observable progress, an explicit block, and the configured round limit.
 
-```mermaid
-flowchart LR
-    Goal[LongTaskRunner<br/>Goal 与 Round] --> Agent[Agent.runTurn<br/>Turn 与 Step]
-    Session[SessionLog<br/>只追加事件] --> Request[buildRequest<br/>模型请求]
-    Context[Context<br/>插件、工具与 Prompt] --> Agent
-    Context --> Request
-    Agent --> Session
-    Agent --> Request
-    Request --> Provider[模型适配器]
-    Provider --> Agent
-    Agent --> Tool[工具执行]
-    Tool --> Agent
-```
-
-主要文件的职责如下：
-
-| 文件 | 职责 |
-|---|---|
-| [`src/protocol.ts`](./src/protocol.ts) | 厂商无关的消息、请求、流式事件和工具协议 |
-| [`src/agent.ts`](./src/agent.ts) | Agent Loop、停止条件、参数校验和工具执行 |
-| [`src/context.ts`](./src/context.ts) | 工具结果投影、请求分段、token 估算和稳定前缀比较 |
-| [`src/runtime.ts`](./src/runtime.ts) | 插件挂载、Service、Tool、Prompt、事件和 effect 生命周期 |
-| [`src/session.ts`](./src/session.ts) | 只追加事件、上下文检查点、请求重建和执行过程生成 |
-| [`src/runtime-tools.ts`](./src/runtime-tools.ts) | 动态插件的检查、定义、运行、停止和删除 |
-| [`src/long-task.ts`](./src/long-task.ts) | Goal 状态、Round 推进和停止原因 |
-| [`src/llm-fake.ts`](./src/llm-fake.ts) | 可离线复现的确定性模型回复 |
-| [`src/llm-deepseek.ts`](./src/llm-deepseek.ts) | DeepSeek 流式 Chat Completions 适配器 |
-
-## 验证
+## Verification
 
 ```sh
 pnpm test
@@ -130,23 +114,23 @@ pnpm build
 pnpm site:build
 ```
 
-测试覆盖 Agent Loop 的正常与失败路径、DeepSeek 流式数据解析、上下文裁剪和检查点、插件安装与回滚、请求重建、动态插件实验、长程任务停止条件，以及网站数据与交互辅助逻辑。
+The test suite covers successful and failed Agent Loop paths, DeepSeek stream parsing, context clipping and checkpoints, plugin setup and rollback, request reconstruction, dynamic plugin experiments, long-task stopping conditions, tutorial data, and the site's interaction helpers.
 
-## 实现边界
+## Deliberate scope limits
 
-当前 TypeScript 版本有意省略以下生产能力：
+The TypeScript implementation omits these production features:
 
-- 完整 DeepSeek Harness 的插件目录、preset 加载与配置热重载。
-- PTC 的 Code Runtime、通用 Shell、任意文件读写和网络工具。
-- 面向不可信插件代码的权限、审批、进程隔离和安全沙箱。
-- Session Log 的 JSON Lines（JSONL，每行一条 JSON 记录）或 SQLite 持久化，以及进程重启后的恢复。
-- Schedule（定时任务）、后台 Job（作业）、Subagent（子 Agent）和 Workflow（工作流）。
-- 模型服务端缓存命中的测量、计费模拟和通用上下文压缩策略。
+- The complete DeepSeek Harness plugin catalog, preset loading, and configuration hot reload.
+- A Code Runtime for PTC, a general-purpose shell, arbitrary file access, and network tools.
+- Permissions, approval flows, process isolation, and a security sandbox for untrusted plugin code.
+- JSON Lines persistence, SQLite persistence, and process-restart recovery for the Session Log.
+- Schedules, background jobs, subagents, and workflows.
+- Measurement of provider-side cache hits, billing simulation, and a general context-compaction policy.
 
-这些边界让每章的代码与它回答的问题保持直接对应。需要完整产品能力时，请阅读 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
+These limits keep the code in each chapter directly connected to the question it answers. See [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) for the complete product.
 
-## 参考与许可
+## References and license
 
-架构行为参考 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。章节的渐进实现、正文与源码同步方式参考 [pi-from-scratch](https://github.com/SaladDay/pi-from-scratch)。程序化动效的阶段划分与可复现状态方法参考 [vibe-motion/skills](https://github.com/vibe-motion/skills)。本仓库的源码、文案、章节组织、组件、布局、动效和过程数据均为独立创作。
+The runtime behavior is informed by [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness). The incremental chapter structure and the alignment of prose, source, and recorded execution were informed by [pi-from-scratch](https://github.com/SaladDay/pi-from-scratch). The staged, reproducible motion design was informed by [vibe-motion/skills](https://github.com/vibe-motion/skills). All source code, prose, chapter structure, components, layouts, motion, and execution data in this repository were created independently.
 
-项目使用 [MIT License](./LICENSE)。本项目为独立教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系。
+The project uses the [MIT License](./LICENSE). It is an independent educational implementation and is not affiliated with, authorized by, or developed in partnership with DeepSeek or its affiliates.
