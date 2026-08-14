@@ -36,8 +36,7 @@ interface CheckpointConfig {
     observations: Array<{ title: string; text: string; lines: [number, number] }>;
     folds?: Array<{ lines: [number, number]; label: string }>;
     fills?: Array<{ label: string; kind: "skeleton" | "body"; ranges: Array<[number, number]> }>;
-  };
-  changeStory: {
+  };  changeStory: {
     title: string;
     summary: string;
     harnessRole: string;
@@ -66,6 +65,20 @@ interface TeachingEvidence {
 }
 
 const root = resolve(import.meta.dirname, "..");
+/** 六个教学主文件（与章节一一对应，nano-dsh FILE_ORDER 精神）：
+ * 文件 tab 展示「该章为止已出现」的主文件（按此顺序），内容为该 tag 的历史快照。 */
+const SIX_MAIN_FILES = [
+  "src/agent.ts",
+  "src/context.ts",
+  "src/runtime.ts",
+  "src/session.ts",
+  "src/runtime-tools.ts",
+  "src/long-task.ts",
+];
+
+function fileExistsInTag(tag: string, path: string): boolean {
+  return git("ls-tree", "--name-only", tag, "--", path).trim() !== "";
+}
 const configs = JSON.parse(
   await readFile(resolve(root, "docs/checkpoints.json"), "utf8"),
 ) as CheckpointConfig[];
@@ -104,6 +117,12 @@ for (const config of configs) {
   const sourceLines = source.split(/\r?\n/u);
   verifyCodeGuideCoverage(config, sourceLines.length);
   verifyFills(config, sourceLines);
+  // 文件 tab：主文件 + 该章为止已出现的其余主文件（历史 tag 快照）。
+  // 章节越靠后，tab 越多：第一章只有 agent.ts，第六章集齐全部六个。
+  const mainIndex = SIX_MAIN_FILES.indexOf(config.sourcePath);
+  const extraFiles = (mainIndex > 0 ? SIX_MAIN_FILES.slice(0, mainIndex) : [])
+    .filter((path) => fileExistsInTag(config.tag, path))
+    .map((path) => ({ path, content: git("show", `${config.tag}:${path}`) }));
   chapters.push({
     id: `chapter-${Number(config.number)}`,
     number: config.number,
@@ -122,6 +141,7 @@ for (const config of configs) {
       startLine: config.sourceRange.start,
       endLine: config.sourceRange.end,
     },
+    extraFiles,
     diff: sanitizePublicText(diff),
     diffStats: summarizeDiff(diff),
     requests,

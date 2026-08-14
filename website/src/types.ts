@@ -66,6 +66,8 @@ export interface Chapter {
     startLine: number;
     endLine: number;
   };
+  /** 文件 tab 中的相关文件（完整内容，不参与渐进填充） */
+  extraFiles?: Array<{ path: string; content: string }>;
   codeGuide: {
     title: string;
     description: string;

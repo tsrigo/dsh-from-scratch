@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 interface PythonChapterConfig {
@@ -76,16 +76,33 @@ const configs: PythonChapterConfig[] = [
   },
 ];
 
+const PYTHON_MAIN_FILES = [
+  "python_harness/agent.py",
+  "python_harness/context.py",
+  "python_harness/runtime.py",
+  "python_harness/session.py",
+  "python_harness/runtime_tools.py",
+  "python_harness/scenario.py",
+];
+
 const chapters = await Promise.all(base.chapters.map(async (chapter: any, index: number) => {
   const config = configs[index]!;
   const source = await readFile(resolve(root, config.sourcePath), "utf8");
   const lesson = await readFile(resolve(root, config.lessonPath), "utf8");
   const lines = source.trimEnd().split(/\r?\n/u);
   const diff = additionDiff(config.sourcePath, lines);
+  // 文件 tab：主文件 + 该章为止已出现的其余主文件（与 TS 版同一规则）
+  const mainIndex = PYTHON_MAIN_FILES.indexOf(config.sourcePath);
+  const extraFiles = (mainIndex > 0 ? PYTHON_MAIN_FILES.slice(0, mainIndex) : [])
+    .map((path) => ({ path, content: "" }));
+  for (const file of extraFiles) {
+    file.content = await readFile(resolve(root, file.path), "utf8");
+  }
   return {
     ...chapter,
     lesson,
     codeGuide: { ...chapter.codeGuide, observations: config.observations, folds: [], fills: [] },
+    extraFiles,
     source: {
       path: config.sourcePath,
       content: source,
