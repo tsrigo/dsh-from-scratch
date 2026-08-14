@@ -307,12 +307,10 @@ export function App() {
         </div>
       </main>
       <footer>
-        <div className="site-footer-meta">
-          <span>Harness Lab · {data.project.languageLabel ?? "TypeScript"} 从零搭建</span>
-          <span>确定性模型模拟器 · 静态学习样本 · 原创实现</span>
-          <span>DeepSeek Harness / 从零搭建</span>
-        </div>
-        <p className="site-footer-disclaimer">免责声明：本项目为独立的教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系；相关名称仅用于技术学习与参考说明。</p>
+        <p className="site-footer-disclaimer">
+          免责声明：本项目为独立的教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系；<br />
+          相关名称仅用于技术学习与参考说明。
+        </p>
       </footer>
     </div>
   );
@@ -1153,10 +1151,10 @@ function Hero({ data, onStart }: { data: TutorialData; onStart: () => void }) {
         className="hero-art"
         role="img"
         aria-label="手持教鞭与书本的蓝色水彩学院导师"
-      />
-      <p className="hero-caption">
-        {data.project.scenario} · 源码与右侧样本解释同一机制，不宣称来自同一次执行
-      </p>
+      >
+        <div className="hero-art-fill" aria-hidden="true" />
+        <div className="hero-art-image" aria-hidden="true" />
+      </div>
     </section>
   );
 }

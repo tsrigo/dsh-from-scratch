@@ -627,8 +627,7 @@ pre code { font: inherit; }
 .mobile-more button b { font-size: 13px; }
 .mobile-more button span { color: #87a6bc; font-size: 12px; }
 
-footer { display: flex; justify-content: space-between; gap: 32px; padding: 30px 5vw; color: #88a8c0; background: #061522; border-top: 1px solid rgba(103, 213, 255, 0.24); font-size: 12px; }
-.site-footer-meta { display: grid; gap: 5px; }
+footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw; color: #88a8c0; background: #061522; border-top: 1px solid rgba(103, 213, 255, 0.24); font-size: 12px; }
 .site-footer-disclaimer { max-width: 480px; margin: 0; color: #7f9ab7; font-size: 11px; line-height: 1.7; text-align: right; }
 .load-state { min-height: 100vh; display: grid; place-content: center; gap: 11px; padding: 25px; color: #d7e9f6; background: var(--night); font-family: var(--body); text-align: center; }
 .load-state b { color: var(--cyan); font-size: 18px; }
@@ -2614,7 +2613,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 
 /* Homepage artwork: preserve the full 16:9 illustration on wide displays. */
 .hero {
-  min-height: clamp(620px, calc(100svh - 72px), 720px);
+  min-height: calc(100svh - 72px);
   grid-template-columns: minmax(0, 1fr) minmax(420px, 1fr);
   padding-block: clamp(58px, 7vh, 76px);
   background: #fff;
@@ -2634,10 +2633,28 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   position: absolute;
   z-index: 0;
   inset: 0;
-  background-image: url("../../ref/pic/hero-candidate-1-watercolor-academy.png");
-  background-repeat: no-repeat;
+  display: flex;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.hero-art-fill {
+  min-width: 0;
+  flex: 1 1 auto;
+  background-image: url("./assets/hero-left-fill.png");
+  background-repeat: repeat-x;
   background-position: right center;
   background-size: auto 100%;
+}
+
+.hero-art-image {
+  height: 100%;
+  aspect-ratio: 1672 / 941;
+  flex: 0 0 auto;
+  background-image: url("./assets/hero-candidate-1-watercolor-academy.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 100%;
 }
 
 .hero-copy { max-width: 760px; }
@@ -2664,8 +2681,6 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
     position: relative;
     height: min(76vw, 560px);
     margin: 28px -28px 0;
-    background-position: right center;
-    background-size: auto 100%;
   }
 
   .build-prelude { scroll-margin-top: 64px; }
