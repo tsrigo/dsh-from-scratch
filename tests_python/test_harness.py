@@ -4,7 +4,7 @@ import unittest
 from python_harness.agent import Agent, Tool
 from python_harness.context import project_tool_result
 from python_harness.runtime import Context
-from python_harness.runtime_tools import RuntimeTools
+from python_harness.runtime_tools import runtime_tools_plugin
 from python_harness.scenario import Goal, run_long_task
 from python_harness.session import SessionLog
 
@@ -20,14 +20,6 @@ class ScriptedLlm:
         return {"content": "accepted", "tool_calls": []}
 
 
-class Capability:
-    name = "capability:typescript_analysis"
-
-    def setup(self, context):
-        context.register_tool("find_references", object())
-        context.contribute_prompt("inspect calculateTotal callers")
-
-
 class HarnessTests(unittest.TestCase):
     def test_agent_loop(self):
         async def read(_arguments):
@@ -39,13 +31,45 @@ class HarnessTests(unittest.TestCase):
     def test_projection_is_bounded(self):
         self.assertIn("omitted", project_tool_result("x" * 800, limit=100))
 
-    def test_plugin_is_removed_without_residue(self):
+    def test_dynamic_plugin_defined_run_stopped_undefined(self):
         context = Context()
-        tools = RuntimeTools(context, {"typescript_analysis": Capability})
-        self.assertTrue(tools.install_capability("typescript_analysis")["ok"])
-        self.assertIn("find_references", context.tools)
-        tools.remove_capability("typescript_analysis")
-        self.assertEqual(context.inspect(), {"plugins": [], "tools": [], "prompts": []})
+        context.mount(runtime_tools_plugin())
+        code = "\n".join([
+            "def plugin_factory():",
+            "    from types import SimpleNamespace",
+            "    async def execute(arguments):",
+            "        return {'words': len(arguments['text'].split())}",
+            "    def setup(ctx):",
+            "        ctx.register_tool('word_count', SimpleNamespace(",
+            "            parameters={'type': 'object', 'properties': {'text': {'type': 'string'}}, 'required': ['text']},",
+            "            execute=execute,",
+            "        ))",
+            "    return SimpleNamespace(name='word-count', setup=setup)",
+        ])
+        tools = context.tools
+        call = lambda name: tools[name].value.execute
+        defined = asyncio.run(call("cordis_define")({
+            "name": "word-count", "purpose": "count words", "code": code,
+        }))
+        self.assertTrue(defined["ok"])
+        plugin_id = defined["pluginId"]
+        self.assertNotIn("word_count", tools)
+
+        ran = asyncio.run(call("cordis_run")({"pluginId": plugin_id}))
+        self.assertTrue(ran["ok"])
+        self.assertIn("word_count", tools)
+        self.assertEqual(
+            asyncio.run(call("word_count")({"text": "a b c"})),
+            {"words": 3},
+        )
+
+        stopped = asyncio.run(call("cordis_stop")({"pluginId": plugin_id}))
+        self.assertTrue(stopped["ok"])
+        self.assertNotIn("word_count", tools)
+
+        undefined = asyncio.run(call("cordis_undefine")({"pluginId": plugin_id}))
+        self.assertTrue(undefined["ok"])
+        self.assertNotIn(plugin_id, context.inspect()["plugins"])
 
     def test_request_reconstruction(self):
         log = SessionLog()
