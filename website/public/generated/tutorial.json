@@ -8493,36 +8493,21 @@
       "lesson": "# 把同一目标带到下一轮\n\n恢复审计包含三个工作阶段：先调查，再评分，最后清理实验并提交。把它们分成多个轮次（Round），页面就能持续回答“做到哪了”“为什么继续”和“为什么停止”。\n\n`LongTaskRunner` 保存目标、当前状态、已经开始的轮数和上限。每轮调用同一个智能体，并共享运行上下文、上下文投影和会话日志。目标与轮次变化也写入事件流，因此跨轮进度可以回到完整时间线中。\n\n续行依赖实际证据：调查轮要读到事故包，评分轮要得到评分结果，提交轮要通过验证并卸载临时插件。若一轮已经产生具体进展，却还缺少指定结果，协调器最多追加一次明确的补充指令。补充后仍无进展会进入 `blocked`；达到轮数上限会进入 `max-rounds`；成功提交则进入 `completed`。\n\n实现范围保持在单进程教学场景：同一任务可以跨轮继续，每次继续都要有证据，停止时也会留下可读原因。\n",
       "source": {
         "path": "src/scenario.ts",
-        "content": "import { Agent } from \"./agent.js\";\nimport type { SubmissionState } from \"./incident.js\";\nimport type { IncidentPacket } from \"./incident.js\";\nimport { LongTaskRunner, type LongTaskState } from \"./long-task.js\";\nimport type { Llm } from \"./protocol.js\";\nimport { composeRuntime } from \"./plugins.js\";\nimport type { Context } from \"./runtime.js\";\nimport type { SessionLog } from \"./session.js\";\n\nexport interface MarsLongTaskResult {\n  goal: LongTaskState;\n  context: Context;\n  session: SessionLog;\n  submission: SubmissionState;\n}\n\nexport async function runMarsLongTask(\n  llm: Llm,\n  options: { packet?: IncidentPacket } = {},\n): Promise<MarsLongTaskResult> {\n  const runtime = await composeRuntime(llm, options);\n  const agent = new Agent({\n    llm,\n    context: runtime.context,\n    systemPrompt:\n      \"You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\",\n    maxSteps: 8,\n    dynamicContext: (step) => `Current model step within this round: ${step}`,\n  });\n\n  const runner = new LongTaskRunner({\n    objective: \"Recover incident MARS-RELAY-204 with a verified plan.\",\n    maxRounds: 3,\n    session: runtime.session,\n    rounds: [\n      {\n        label: \"survey\",\n        input: \"Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything.\",\n      },\n      {\n        label: \"score\",\n        input: \"Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit.\",\n      },\n      {\n        label: \"submit\",\n        input: \"Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything.\",\n      },\n    ],\n    async runRound(round, roundNumber) {\n      const before = runtime.session.events.length;\n      await agent.runTurn(round.input);\n      let names = toolResultNames(runtime.session.events.slice(before));\n      const expected = expectedTool(roundNumber);\n      const hasExpectedEvidence = () =>\n        roundNumber === 3 ? runtime.state.acceptedPlan !== null : names.includes(expected);\n\n      if (!hasExpectedEvidence() && hasConcretePartialProgress(roundNumber, names, runtime.context.inspect().plugins)) {\n        await agent.runTurn(followUpInstruction(roundNumber, names));\n        names = toolResultNames(runtime.session.events.slice(before));\n      }\n\n      const progressed = hasExpectedEvidence();\n      const completed = roundNumber === 3 && runtime.state.acceptedPlan !== null &&\n        !runtime.context.inspect().plugins.includes(\"capability:route_scoring\");\n      return { progressed, completed };\n    },\n  });\n\n  const goal = await runner.run();\n  return {\n    goal,\n    context: runtime.context,\n    session: runtime.session,\n    submission: runtime.state,\n  };\n}\n\nfunction toolResultNames(events: readonly { type: string; name?: string }[]): string[] {\n  return events.flatMap((event) => event.type === \"tool/result\" && event.name ? [event.name] : []);\n}\n\nfunction expectedTool(roundNumber: number): string {\n  return roundNumber === 1\n    ? \"read_incident_packet\"\n    : roundNumber === 2\n      ? \"score_routes\"\n      : \"submit_recovery_plan\";\n}\n\nfunction hasConcretePartialProgress(\n  roundNumber: number,\n  names: string[],\n  plugins: string[],\n): boolean {\n  if (roundNumber === 1) return names.includes(\"inspect_runtime\");\n  if (roundNumber === 2) {\n    return names.includes(\"install_capability\") && plugins.includes(\"capability:route_scoring\");\n  }\n  return names.includes(\"remove_capability\") || names.includes(\"submit_recovery_plan\");\n}\n\nfunction followUpInstruction(roundNumber: number, names: string[]): string {\n  if (roundNumber === 1) {\n    return \"Round 1 follow-up — inspect_runtime succeeded. Call read_incident_packet exactly once, then finish this turn.\";\n  }\n  if (roundNumber === 2) {\n    return \"Round 2 follow-up — route_scoring is mounted and score_routes is now visible. Call score_routes exactly once, then finish this turn; do not remove it yet.\";\n  }\n  const missing = [\n    ...(names.includes(\"remove_capability\") ? [] : [\"remove route_scoring exactly once\"]),\n    ...(names.includes(\"submit_recovery_plan\")\n      ? [\"the previous submission was rejected; submit a corrected ASTER / RELAY-7 / THERMAL_DRIFT plan exactly once\"]\n      : [\"submit the ASTER / RELAY-7 / THERMAL_DRIFT recovery plan exactly once\"]),\n  ];\n  return `Round 3 follow-up — ${missing.join(\" and \")}. Then finish this turn without reinstalling anything.`;\n}\n",
-        "excerpt": "  const runner = new LongTaskRunner({\n    objective: \"Recover incident MARS-RELAY-204 with a verified plan.\",\n    maxRounds: 3,\n    session: runtime.session,\n    rounds: [\n      {\n        label: \"survey\",\n        input: \"Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything.\",\n      },\n      {\n        label: \"score\",\n        input: \"Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit.\",\n      },\n      {\n        label: \"submit\",\n        input: \"Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything.\",\n      },\n    ],",
+        "content": "import { Agent } from \"./agent.js\";\nimport type { SubmissionState } from \"./incident.js\";\nimport { LongTaskRunner, type LongTaskState } from \"./long-task.js\";\nimport type { Llm } from \"./protocol.js\";\nimport { composeRuntime } from \"./plugins.js\";\nimport type { Context } from \"./runtime.js\";\nimport type { SessionLog } from \"./session.js\";\n\nexport interface MarsLongTaskResult {\n  goal: LongTaskState;\n  context: Context;\n  session: SessionLog;\n  submission: SubmissionState;\n}\n\nexport async function runMarsLongTask(llm: Llm): Promise<MarsLongTaskResult> {\n  const runtime = await composeRuntime(llm);\n  const agent = new Agent({\n    llm,\n    context: runtime.context,\n    systemPrompt:\n      \"You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\",\n    maxSteps: 5,\n    dynamicContext: (step) => `Current model step within this round: ${step}`,\n  });\n\n  const runner = new LongTaskRunner({\n    objective: \"Recover incident MARS-RELAY-204 with a verified plan.\",\n    maxRounds: 3,\n    session: runtime.session,\n    rounds: [\n      {\n        label: \"survey\",\n        input: \"Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed.\",\n      },\n      {\n        label: \"score\",\n        input: \"Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission.\",\n      },\n      {\n        label: \"submit\",\n        input: \"Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion.\",\n      },\n    ],\n    async runRound(round, roundNumber) {\n      const before = runtime.session.events.length;\n      await agent.runTurn(round.input);\n      const events = runtime.session.events.slice(before);\n      const results = events.filter((event) => event.type === \"tool/result\");\n      const names = results.map((event) => (event.type === \"tool/result\" ? event.name : \"\"));\n      const expected = roundNumber === 1 ? \"read_incident_packet\" : roundNumber === 2 ? \"score_routes\" : \"submit_recovery_plan\";\n      const progressed = names.includes(expected);\n      const completed =\n        roundNumber === 3 &&\n        runtime.state.acceptedPlan !== null &&\n        !runtime.context.inspect().plugins.includes(\"capability:route_scoring\");\n      return { progressed, completed };\n    },\n  });\n\n  const goal = await runner.run();\n  return {\n    goal,\n    context: runtime.context,\n    session: runtime.session,\n    submission: runtime.state,\n  };\n}\n",
+        "excerpt": "    rounds: [\n      {\n        label: \"survey\",\n        input: \"Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed.\",\n      },\n      {\n        label: \"score\",\n        input: \"Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission.\",\n      },\n      {\n        label: \"submit\",\n        input: \"Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion.\",\n      },\n    ],\n    async runRound(round, roundNumber) {\n      const before = runtime.session.events.length;\n      await agent.runTurn(round.input);\n      const events = runtime.session.events.slice(before);",
         "startLine": 31,
         "endLine": 48
       },
-      "diff": "diff --git a/src/catalog/route-scoring.ts b/src/catalog/route-scoring.ts\nindex a06d2ca..0315acb 100644\n--- a/src/catalog/route-scoring.ts\n+++ b/src/catalog/route-scoring.ts\n@@ -1,4 +1,4 @@\n-import { INCIDENT_PACKET } from \"../incident.js\";\n+import { INCIDENT_PACKET, type IncidentPacket } from \"../incident.js\";\n import type { JsonValue } from \"../protocol.js\";\n import type { Plugin } from \"../runtime.js\";\n \n@@ -13,9 +13,9 @@ export interface RouteScore {\n   };\n }\n \n-export function scoreIncidentRoutes(): RouteScore[] {\n-  const limits = INCIDENT_PACKET.constraints;\n-  return INCIDENT_PACKET.candidates\n+export function scoreIncidentRoutes(packet: IncidentPacket = INCIDENT_PACKET): RouteScore[] {\n+  const limits = packet.constraints;\n+  return packet.candidates\n     .map((route) => {\n       const checks = {\n         latency: route.latencyMs <= limits.maximumLatencyMs,\n@@ -34,7 +34,7 @@ export function scoreIncidentRoutes(): RouteScore[] {\n     .sort((left, right) => Number(right.eligible) - Number(left.eligible) || left.score - right.score);\n }\n \n-export function routeScoringPlugin(): Plugin {\n+export function routeScoringPlugin(packet: IncidentPacket = INCIDENT_PACKET): Plugin {\n   return {\n     name: \"capability:route_scoring\",\n     setup(context) {\n@@ -52,7 +52,7 @@ export function routeScoringPlugin(): Plugin {\n         },\n         execute: () => ({\n           formula: \"latency + packetLoss×10 + energy×5; eligibility is a hard gate\",\n-          routes: scoreIncidentRoutes(),\n+          routes: scoreIncidentRoutes(packet),\n         }) as unknown as JsonValue,\n       });\n     },\ndiff --git a/src/cli.ts b/src/cli.ts\nindex 54e52f2..3ce5b19 100644\n--- a/src/cli.ts\n+++ b/src/cli.ts\n@@ -1,11 +1,14 @@\n-import { Agent } from \"./agent.js\";\n+import { resolve } from \"node:path\";\n+import { loadIncidentPacket } from \"./incident.js\";\n import { DeepSeekLlm } from \"./llm-deepseek.js\";\n-import { createCapabilityAuditReplies, ScriptedLlm } from \"./llm-fake.js\";\n-import { composeRuntime } from \"./plugins.js\";\n+import { createLongTaskAuditReplies, ScriptedLlm } from \"./llm-fake.js\";\n import type { Llm } from \"./protocol.js\";\n+import { runMarsLongTask } from \"./scenario.js\";\n \n const args = new Set(process.argv.slice(2));\n const provider = valueAfter(\"--provider\") ?? \"fake\";\n+const workspace = resolve(valueAfter(\"--workspace\") ?? \"./demo-workspace\");\n+const packet = await loadIncidentPacket(workspace);\n \n let llm: Llm;\n if (provider === \"deepseek\") {\n@@ -19,27 +22,32 @@ if (provider === \"deepseek\") {\n     ...(baseUrl ? { baseUrl } : {}),\n   });\n } else if (provider === \"fake\") {\n-  llm = new ScriptedLlm(createCapabilityAuditReplies());\n+  llm = new ScriptedLlm(createLongTaskAuditReplies());\n } else {\n   throw new Error(`Unknown provider: ${provider}`);\n }\n \n-const runtime = await composeRuntime(llm);\n-const runtimeAgent = new Agent({\n-  llm,\n-  context: runtime.context,\n-  systemPrompt:\n-    \"You are a careful relay recovery auditor. Use only the incident tools and submit a constraint-valid plan.\",\n-});\n-const result = await runtimeAgent.runTurn(\n-  \"Audit incident MARS-RELAY-204 and submit the uniquely valid recovery plan.\",\n-);\n+const result = await runMarsLongTask(llm, { packet });\n \n console.log(\"Mars relay audit\");\n-for (const entry of result.trace) {\n-  console.log(`${entry.title}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : \"\"}`);\n+for (const event of result.session.events) {\n+  if (event.type === \"goal/round-started\") {\n+    console.log(`round/${event.round} · ${event.label}`);\n+  } else if (event.type === \"tool/call\") {\n+    console.log(`call · ${event.call.name}`);\n+  } else if (event.type === \"tool/result\") {\n+    console.log(`result · ${event.name} · ${shorten(event.content, 86)}`);\n+  } else if (event.type === \"runtime/plugin-mounted\" && event.plugin.startsWith(\"capability:\")) {\n+    console.log(`mounted · ${event.plugin}`);\n+  } else if (event.type === \"runtime/plugin-unmounted\" && event.plugin.startsWith(\"capability:\")) {\n+    console.log(`unmounted · ${event.plugin}`);\n+  } else if (event.type === \"goal/status-changed\") {\n+    console.log(`goal/${event.status} · ${event.reason}`);\n+  }\n }\n-console.log(`result=${runtime.state.acceptedPlan ? \"accepted\" : \"rejected\"} steps=${result.steps} provider=${llm.provider}`);\n+console.log(\n+  `result=${result.submission.acceptedPlan ? \"accepted\" : \"rejected\"} rounds=${result.goal.roundsStarted} provider=${llm.provider} workspace=${workspace}`,\n+);\n \n function valueAfter(flag: string): string | undefined {\n   const values = [...args];\ndiff --git a/src/incident.ts b/src/incident.ts\nindex db67925..6269d1e 100644\n--- a/src/incident.ts\n+++ b/src/incident.ts\n@@ -1,3 +1,6 @@\n+import { readFile, readFileSync } from \"node:fs\";\n+import { join } from \"node:path\";\n+import { promisify } from \"node:util\";\n import type { JsonValue, ToolDefinition } from \"./protocol.js\";\n \n export const RECOVERY_PLAN = {\n@@ -6,33 +9,52 @@ export const RECOVERY_PLAN = {\n   reasonCode: \"THERMAL_DRIFT\",\n } as const;\n \n-const telemetry = Array.from({ length: 36 }, (_, index) => {\n-  const minute = String(index).padStart(2, \"0\");\n-  const temperature = index < 30 ? 41 + (index % 4) : 74 + index - 30;\n-  return `T+${minute} relay=RELAY-7 temp=${temperature}C jitter=${3 + (index % 5)}ms`;\n-});\n-\n-export const INCIDENT_PACKET = {\n-  incidentId: \"MARS-RELAY-204\",\n-  symptom: \"Surface packets disappear whenever RELAY-7 warms past 76C.\",\n+export interface IncidentPacket {\n+  incidentId: string;\n+  symptom: string;\n   constraints: {\n-    maximumLatencyMs: 65,\n-    maximumPacketLossPercent: 2,\n-    maximumEnergyUnits: 5,\n-  },\n-  candidates: [\n-    { routeId: \"BOREAL\", latencyMs: 42, packetLossPercent: 6.5, energyUnits: 4 },\n-    { routeId: \"ASTER\", latencyMs: 58, packetLossPercent: 1.2, energyUnits: 3 },\n-    { routeId: \"CRATER\", latencyMs: 75, packetLossPercent: 0.5, energyUnits: 8 },\n-  ],\n-  telemetry,\n-};\n+    maximumLatencyMs: number;\n+    maximumPacketLossPercent: number;\n+    maximumEnergyUnits: number;\n+  };\n+  candidates: Array<{\n+    routeId: string;\n+    latencyMs: number;\n+    packetLossPercent: number;\n+    energyUnits: number;\n+  }>;\n+  telemetry: string[];\n+}\n+\n+const readFileAsync = promisify(readFile);\n+const defaultFixture = new URL(\"../demo-workspace/incident.json\", import.meta.url);\n+\n+export const INCIDENT_PACKET = parseIncidentPacket(\n+  JSON.parse(readFileSync(defaultFixture, \"utf8\")),\n+  defaultFixture.pathname,\n+);\n+\n+export async function loadIncidentPacket(workspace: string): Promise<IncidentPacket> {\n+  const path = join(workspace, \"incident.json\");\n+  let parsed: unknown;\n+  try {\n+    parsed = JSON.parse(await readFileAsync(path, \"utf8\"));\n+  } catch (error) {\n+    throw new Error(\n+      `Cannot load the bounded incident packet at ${path}: ${error instanceof Error ? error.message : String(error)}`,\n+    );\n+  }\n+  return parseIncidentPacket(parsed, path);\n+}\n \n export interface SubmissionState {\n   acceptedPlan: typeof RECOVERY_PLAN | null;\n }\n \n-export function createIncidentTools(state: SubmissionState): ToolDefinition[] {\n+export function createIncidentTools(\n+  state: SubmissionState,\n+  packet: IncidentPacket = INCIDENT_PACKET,\n+): ToolDefinition[] {\n   return [\n     {\n       name: \"read_incident_packet\",\n@@ -42,7 +64,7 @@ export function createIncidentTools(state: SubmissionState): ToolDefinition[] {\n         properties: {},\n         additionalProperties: false,\n       },\n-      execute: () => INCIDENT_PACKET as unknown as JsonValue,\n+      execute: () => packet as unknown as JsonValue,\n     },\n     {\n       name: \"submit_recovery_plan\",\n@@ -58,7 +80,7 @@ export function createIncidentTools(state: SubmissionState): ToolDefinition[] {\n         additionalProperties: false,\n       },\n       execute: (input) => {\n-        const accepted = JSON.stringify(input) === JSON.stringify(RECOVERY_PLAN);\n+        const accepted = isRecoveryPlan(input);\n         if (accepted) state.acceptedPlan = RECOVERY_PLAN;\n         return {\n           accepted,\n@@ -70,3 +92,51 @@ export function createIncidentTools(state: SubmissionState): ToolDefinition[] {\n     },\n   ];\n }\n+\n+function isRecoveryPlan(value: JsonValue): value is typeof RECOVERY_PLAN {\n+  return (\n+    isRecord(value) &&\n+    value.routeId === RECOVERY_PLAN.routeId &&\n+    value.isolateRelay === RECOVERY_PLAN.isolateRelay &&\n+    value.reasonCode === RECOVERY_PLAN.reasonCode\n+  );\n+}\n+\n+function parseIncidentPacket(value: unknown, source: string): IncidentPacket {\n+  if (!isRecord(value)) throw new Error(`Invalid incident packet at ${source}: root must be an object.`);\n+  const constraints = value.constraints;\n+  const candidates = value.candidates;\n+  if (\n+    typeof value.incidentId !== \"string\" ||\n+    typeof value.symptom !== \"string\" ||\n+    !isRecord(constraints) ||\n+    !isFiniteNumber(constraints.maximumLatencyMs) ||\n+    !isFiniteNumber(constraints.maximumPacketLossPercent) ||\n+    !isFiniteNumber(constraints.maximumEnergyUnits) ||\n+    !Array.isArray(candidates) ||\n+    !candidates.every(isCandidate) ||\n+    !Array.isArray(value.telemetry) ||\n+    !value.telemetry.every((line) => typeof line === \"string\")\n+  ) {\n+    throw new Error(`Invalid incident packet at ${source}: fields do not match the Nano fixture schema.`);\n+  }\n+  return structuredClone(value) as unknown as IncidentPacket;\n+}\n+\n+function isCandidate(value: unknown): boolean {\n+  return (\n+    isRecord(value) &&\n+    typeof value.routeId === \"string\" &&\n+    isFiniteNumber(value.latencyMs) &&\n+    isFiniteNumber(value.packetLossPercent) &&\n+    isFiniteNumber(value.energyUnits)\n+  );\n+}\n+\n+function isRecord(value: unknown): value is Record<string, unknown> {\n+  return typeof value === \"object\" && value !== null && !Array.isArray(value);\n+}\n+\n+function isFiniteNumber(value: unknown): value is number {\n+  return typeof value === \"number\" && Number.isFinite(value);\n+}\ndiff --git a/src/llm-deepseek.ts b/src/llm-deepseek.ts\nindex aab832a..98aa89c 100644\n--- a/src/llm-deepseek.ts\n+++ b/src/llm-deepseek.ts\n@@ -106,17 +106,19 @@ function toDeepSeekMessages(message: ModelMessage): Array<Record<string, unknown\n   if (message.role === \"tool\") {\n     return [{ role: \"tool\", tool_call_id: message.toolCallId, content: message.content }];\n   }\n-  return [\n-    {\n-      role: \"assistant\",\n-      content: message.content || null,\n-      tool_calls: message.toolCalls.map((call) => ({\n-        id: call.id,\n-        type: \"function\",\n-        function: { name: call.name, arguments: JSON.stringify(call.arguments) },\n-      })),\n-    },\n-  ];\n+  return [{\n+    role: \"assistant\",\n+    content: message.content || null,\n+    ...(message.toolCalls.length > 0\n+      ? {\n+          tool_calls: message.toolCalls.map((call) => ({\n+            id: call.id,\n+            type: \"function\",\n+            function: { name: call.name, arguments: JSON.stringify(call.arguments) },\n+          })),\n+        }\n+      : {}),\n+  }];\n }\n \n function parseArguments(value: string): JsonValue {\ndiff --git a/src/llm-fake.ts b/src/llm-fake.ts\nindex dc46fb4..7c28d3a 100644\n--- a/src/llm-fake.ts\n+++ b/src/llm-fake.ts\n@@ -126,3 +126,81 @@ export function createCapabilityAuditReplies(): ScriptedReply[] {\n     },\n   ];\n }\n+\n+export function createLongTaskAuditReplies(): ScriptedReply[] {\n+  return [\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Surveying the bounded runtime and incident packet.\",\n+        toolCalls: [\n+          { id: \"r1-inspect\", name: \"inspect_runtime\", arguments: {} },\n+          { id: \"r1-read\", name: \"read_incident_packet\", arguments: {} },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Survey complete: RELAY-7 shows thermal drift and three routes require comparison.\",\n+        toolCalls: [],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Installing the bounded route scoring experiment.\",\n+        toolCalls: [\n+          {\n+            id: \"r2-install\",\n+            name: \"install_capability\",\n+            arguments: { name: \"route_scoring\" },\n+          },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"The scoring tool is now available in this request.\",\n+        toolCalls: [{ id: \"r2-score\", name: \"score_routes\", arguments: {} }],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Scoring complete: ASTER is the only eligible route.\",\n+        toolCalls: [],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Removing the experiment, then submitting the verified plan.\",\n+        toolCalls: [\n+          {\n+            id: \"r3-remove\",\n+            name: \"remove_capability\",\n+            arguments: { name: \"route_scoring\" },\n+          },\n+          {\n+            id: \"r3-submit\",\n+            name: \"submit_recovery_plan\",\n+            arguments: {\n+              routeId: \"ASTER\",\n+              isolateRelay: \"RELAY-7\",\n+              reasonCode: \"THERMAL_DRIFT\",\n+            },\n+          },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Goal complete: ASTER accepted and the temporary capability is gone.\",\n+        toolCalls: [],\n+      },\n+    },\n+  ];\n+}\ndiff --git a/src/long-task.ts b/src/long-task.ts\nnew file mode 100644\nindex 0000000..2a36c38\n--- /dev/null\n+++ b/src/long-task.ts\n@@ -0,0 +1,115 @@\n+import type { SessionLog } from \"./session.js\";\n+\n+export type LongTaskStatus = \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n+\n+export interface LongTaskState {\n+  goalId: string;\n+  objective: string;\n+  status: LongTaskStatus;\n+  roundsStarted: number;\n+  maxRounds: number;\n+  reason: string;\n+}\n+\n+export interface RoundDefinition {\n+  label: string;\n+  input: string;\n+}\n+\n+export interface RoundResult {\n+  progressed: boolean;\n+  completed?: boolean;\n+  blockedReason?: string;\n+}\n+\n+export interface LongTaskOptions {\n+  objective: string;\n+  rounds: RoundDefinition[];\n+  maxRounds: number;\n+  session: SessionLog;\n+  runRound(round: RoundDefinition, roundNumber: number): Promise<RoundResult>;\n+}\n+\n+export class LongTaskRunner {\n+  readonly state: LongTaskState;\n+  readonly #rounds: RoundDefinition[];\n+  readonly #session: SessionLog;\n+  readonly #runRound: LongTaskOptions[\"runRound\"];\n+\n+  constructor(options: LongTaskOptions) {\n+    if (options.maxRounds < 1) throw new Error(\"maxRounds must be at least 1.\");\n+    this.state = {\n+      goalId: \"goal-1\",\n+      objective: options.objective,\n+      status: \"active\",\n+      roundsStarted: 0,\n+      maxRounds: options.maxRounds,\n+      reason: \"Ready to start.\",\n+    };\n+    this.#rounds = options.rounds;\n+    this.#session = options.session;\n+    this.#runRound = options.runRound;\n+  }\n+\n+  async run(): Promise<LongTaskState> {\n+    this.#session.append({\n+      type: \"goal/created\",\n+      goalId: this.state.goalId,\n+      objective: this.state.objective,\n+      maxRounds: this.state.maxRounds,\n+    });\n+\n+    while (this.state.status === \"active\") {\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      const definition = this.#rounds[this.state.roundsStarted];\n+      if (!definition) {\n+        return this.#finish(\"blocked\", \"No next round is defined for the active goal.\");\n+      }\n+\n+      this.state.roundsStarted += 1;\n+      this.#session.append({\n+        type: \"goal/round-started\",\n+        goalId: this.state.goalId,\n+        round: this.state.roundsStarted,\n+        label: definition.label,\n+      });\n+      const result = await this.#runRound(definition, this.state.roundsStarted);\n+\n+      if (result.completed) {\n+        return this.#finish(\"completed\", `Completed in round ${this.state.roundsStarted}.`);\n+      }\n+      if (result.blockedReason) return this.#finish(\"blocked\", result.blockedReason);\n+      if (!result.progressed) {\n+        return this.#finish(\n+          \"blocked\",\n+          `Round ${this.state.roundsStarted} produced no observable progress.`,\n+        );\n+      }\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      this.state.reason = `Round ${this.state.roundsStarted} made progress; continuing.`;\n+    }\n+    return structuredClone(this.state);\n+  }\n+\n+  #finish(status: Exclude<LongTaskStatus, \"active\">, reason: string): LongTaskState {\n+    this.state.status = status;\n+    this.state.reason = reason;\n+    this.#session.append({\n+      type: \"goal/status-changed\",\n+      goalId: this.state.goalId,\n+      status,\n+      reason,\n+    });\n+    return structuredClone(this.state);\n+  }\n+}\ndiff --git a/src/plugins.ts b/src/plugins.ts\nindex f80c200..3ef4f9d 100644\n--- a/src/plugins.ts\n+++ b/src/plugins.ts\n@@ -1,4 +1,9 @@\n-import { createIncidentTools, type SubmissionState } from \"./incident.js\";\n+import {\n+  createIncidentTools,\n+  INCIDENT_PACKET,\n+  type IncidentPacket,\n+  type SubmissionState,\n+} from \"./incident.js\";\n import { routeScoringPlugin } from \"./catalog/route-scoring.js\";\n import { wordCountPlugin } from \"./catalog/word-count.js\";\n import type { Llm } from \"./protocol.js\";\n@@ -31,7 +36,7 @@ export function submissionStatePlugin(state: SubmissionState): Plugin {\n   };\n }\n \n-export function incidentPlugin(): Plugin {\n+export function incidentPlugin(packet: IncidentPacket = INCIDENT_PACKET): Plugin {\n   return {\n     name: \"mars-incident\",\n     setup(context) {\n@@ -40,7 +45,7 @@ export function incidentPlugin(): Plugin {\n         \"incident-guardrails\",\n         \"Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.\",\n       );\n-      for (const tool of createIncidentTools(state)) context.registerTool(tool);\n+      for (const tool of createIncidentTools(state, packet)) context.registerTool(tool);\n       context.on(\"tool/executed\", () => {\n         // The no-op listener exists to make lifecycle ownership observable in the tutorial stage.\n       });\n@@ -48,7 +53,10 @@ export function incidentPlugin(): Plugin {\n   };\n }\n \n-export async function composeHistoricalRuntime(llm: Llm): Promise<{\n+export async function composeHistoricalRuntime(\n+  llm: Llm,\n+  options: { packet?: IncidentPacket } = {},\n+): Promise<{\n   context: Context;\n   state: SubmissionState;\n   session: SessionLog;\n@@ -59,21 +67,25 @@ export async function composeHistoricalRuntime(llm: Llm): Promise<{\n   await context.mount(sessionPlugin(session));\n   await context.mount(llmPlugin(llm));\n   await context.mount(submissionStatePlugin(state));\n-  await context.mount(incidentPlugin());\n+  await context.mount(incidentPlugin(options.packet ?? INCIDENT_PACKET));\n   return { context, state, session };\n }\n \n-export async function composeRuntime(llm: Llm): Promise<{\n+export async function composeRuntime(\n+  llm: Llm,\n+  options: { packet?: IncidentPacket } = {},\n+): Promise<{\n   context: Context;\n   state: SubmissionState;\n   session: SessionLog;\n }> {\n-  const runtime = await composeHistoricalRuntime(llm);\n+  const packet = options.packet ?? INCIDENT_PACKET;\n+  const runtime = await composeHistoricalRuntime(llm, { packet });\n   const { context } = runtime;\n   await context.mount(\n     capabilityCatalogPlugin(\n       new TrustedCapabilityCatalog({\n-        route_scoring: routeScoringPlugin,\n+        route_scoring: () => routeScoringPlugin(packet),\n         word_count: wordCountPlugin,\n       }),\n     ),\ndiff --git a/src/runtime-tools.ts b/src/runtime-tools.ts\nindex 9d89063..9bffe2a 100644\n--- a/src/runtime-tools.ts\n+++ b/src/runtime-tools.ts\n@@ -68,6 +68,8 @@ export function runtimeToolsPlugin(): Plugin {\n             ok: true,\n             installed: name,\n             tools: context.inspect().tools.map((tool) => tool.name),\n+            nextAction:\n+              \"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\",\n           };\n         },\n       });\n@@ -85,6 +87,8 @@ export function runtimeToolsPlugin(): Plugin {\n             ok: true,\n             removed: name,\n             tools: context.inspect().tools.map((tool) => tool.name),\n+            nextAction:\n+              \"Continue the current task with permanent tools; removed tools will be absent from the next request.\",\n           };\n         },\n       });\ndiff --git a/src/scenario.ts b/src/scenario.ts\nnew file mode 100644\nindex 0000000..95d7255\n--- /dev/null\n+++ b/src/scenario.ts\n@@ -0,0 +1,116 @@\n+import { Agent } from \"./agent.js\";\n+import type { SubmissionState } from \"./incident.js\";\n+import type { IncidentPacket } from \"./incident.js\";\n+import { LongTaskRunner, type LongTaskState } from \"./long-task.js\";\n+import type { Llm } from \"./protocol.js\";\n+import { composeRuntime } from \"./plugins.js\";\n+import type { Context } from \"./runtime.js\";\n+import type { SessionLog } from \"./session.js\";\n+\n+export interface MarsLongTaskResult {\n+  goal: LongTaskState;\n+  context: Context;\n+  session: SessionLog;\n+  submission: SubmissionState;\n+}\n+\n+export async function runMarsLongTask(\n+  llm: Llm,\n+  options: { packet?: IncidentPacket } = {},\n+): Promise<MarsLongTaskResult> {\n+  const runtime = await composeRuntime(llm, options);\n+  const agent = new Agent({\n+    llm,\n+    context: runtime.context,\n+    systemPrompt:\n+      \"You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\",\n+    maxSteps: 8,\n+    dynamicContext: (step) => `Current model step within this round: ${step}`,\n+  });\n+\n+  const runner = new LongTaskRunner({\n+    objective: \"Recover incident MARS-RELAY-204 with a verified plan.\",\n+    maxRounds: 3,\n+    session: runtime.session,\n+    rounds: [\n+      {\n+        label: \"survey\",\n+        input: \"Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything.\",\n+      },\n+      {\n+        label: \"score\",\n+        input: \"Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit.\",\n+      },\n+      {\n+        label: \"submit\",\n+        input: \"Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything.\",\n+      },\n+    ],\n+    async runRound(round, roundNumber) {\n+      const before = runtime.session.events.length;\n+      await agent.runTurn(round.input);\n+      let names = toolResultNames(runtime.session.events.slice(before));\n+      const expected = expectedTool(roundNumber);\n+      const hasExpectedEvidence = () =>\n+        roundNumber === 3 ? runtime.state.acceptedPlan !== null : names.includes(expected);\n+\n+      if (!hasExpectedEvidence() && hasConcretePartialProgress(roundNumber, names, runtime.context.inspect().plugins)) {\n+        await agent.runTurn(followUpInstruction(roundNumber, names));\n+        names = toolResultNames(runtime.session.events.slice(before));\n+      }\n+\n+      const progressed = hasExpectedEvidence();\n+      const completed = roundNumber === 3 && runtime.state.acceptedPlan !== null &&\n+        !runtime.context.inspect().plugins.includes(\"capability:route_scoring\");\n+      return { progressed, completed };\n+    },\n+  });\n+\n+  const goal = await runner.run();\n+  return {\n+    goal,\n+    context: runtime.context,\n+    session: runtime.session,\n+    submission: runtime.state,\n+  };\n+}\n+\n+function toolResultNames(events: readonly { type: string; name?: string }[]): string[] {\n+  return events.flatMap((event) => event.type === \"tool/result\" && event.name ? [event.name] : []);\n+}\n+\n+function expectedTool(roundNumber: number): string {\n+  return roundNumber === 1\n+    ? \"read_incident_packet\"\n+    : roundNumber === 2\n+      ? \"score_routes\"\n+      : \"submit_recovery_plan\";\n+}\n+\n+function hasConcretePartialProgress(\n+  roundNumber: number,\n+  names: string[],\n+  plugins: string[],\n+): boolean {\n+  if (roundNumber === 1) return names.includes(\"inspect_runtime\");\n+  if (roundNumber === 2) {\n+    return names.includes(\"install_capability\") && plugins.includes(\"capability:route_scoring\");\n+  }\n+  return names.includes(\"remove_capability\") || names.includes(\"submit_recovery_plan\");\n+}\n+\n+function followUpInstruction(roundNumber: number, names: string[]): string {\n+  if (roundNumber === 1) {\n+    return \"Round 1 follow-up — inspect_runtime succeeded. Call read_incident_packet exactly once, then finish this turn.\";\n+  }\n+  if (roundNumber === 2) {\n+    return \"Round 2 follow-up — route_scoring is mounted and score_routes is now visible. Call score_routes exactly once, then finish this turn; do not remove it yet.\";\n+  }\n+  const missing = [\n+    ...(names.includes(\"remove_capability\") ? [] : [\"remove route_scoring exactly once\"]),\n+    ...(names.includes(\"submit_recovery_plan\")\n+      ? [\"the previous submission was rejected; submit a corrected ASTER / RELAY-7 / THERMAL_DRIFT plan exactly once\"]\n+      : [\"submit the ASTER / RELAY-7 / THERMAL_DRIFT recovery plan exactly once\"]),\n+  ];\n+  return `Round 3 follow-up — ${missing.join(\" and \")}. Then finish this turn without reinstalling anything.`;\n+}\ndiff --git a/src/session.ts b/src/session.ts\nindex 03733f4..9e65326 100644\n--- a/src/session.ts\n+++ b/src/session.ts\n@@ -119,7 +119,7 @@ export function sessionPlugin(log: SessionLog): Plugin {\n         const plugin = pluginName(payload);\n         log.append({ type: \"runtime/plugin-mounted\", plugin });\n       });\n-      context.on(\"runtime/plugin-unmounting\", (payload) => {\n+      context.on(\"runtime/plugin-unmounted\", (payload) => {\n         const plugin = pluginName(payload);\n         log.append({ type: \"runtime/plugin-unmounted\", plugin });\n       });\ndiff --git a/tests/agent.test.ts b/tests/agent.test.ts\nindex 04b8341..bd74a60 100644\n--- a/tests/agent.test.ts\n+++ b/tests/agent.test.ts\n@@ -87,4 +87,31 @@ describe(\"the tutorial stage ordinary tool Agent Loop\", () => {\n       thinking: { type: \"disabled\" },\n     });\n   });\n+\n+  it(\"omits an empty tool_calls field from assistant history\", async () => {\n+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(\n+      new Response(\n+        JSON.stringify({ choices: [{ message: { content: \"next\", tool_calls: [] } }] }),\n+        { status: 200, headers: { \"content-type\": \"application/json\" } },\n+      ),\n+    );\n+    const llm = new DeepSeekLlm({ apiKey: \"test-key\", fetch: fetchMock });\n+    await llm.complete({\n+      system: \"system\",\n+      dynamicContext: \"round=2\",\n+      tools: [],\n+      messages: [\n+        { role: \"user\", content: \"round one\" },\n+        { role: \"assistant\", content: \"round one complete\", toolCalls: [] },\n+        { role: \"user\", content: \"round two\" },\n+      ],\n+    });\n+\n+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {\n+      messages: Array<Record<string, unknown>>;\n+    };\n+    const assistant = body.messages.find((message) => message.role === \"assistant\");\n+    expect(assistant).toEqual({ role: \"assistant\", content: \"round one complete\" });\n+    expect(assistant).not.toHaveProperty(\"tool_calls\");\n+  });\n });\ndiff --git a/tests/runtime.test.ts b/tests/runtime.test.ts\nindex 14886cc..0dc08e3 100644\n--- a/tests/runtime.test.ts\n+++ b/tests/runtime.test.ts\n@@ -31,6 +31,10 @@ describe(\"the tutorial stage plugin kernel\", () => {\n       plugin: \"mars-incident\",\n     });\n     expect(inspection.listeners.filter((listener) => listener.plugin === \"session-log\")).toHaveLength(2);\n+    expect(inspection.listeners).toContainEqual({\n+      event: \"runtime/plugin-unmounted\",\n+      plugin: \"session-log\",\n+    });\n     expect(inspection.relations).toContainEqual({\n       consumer: \"mars-incident\",\n       service: \"submission-state\",\ndiff --git a/tests/long-task.test.ts b/tests/long-task.test.ts\nnew file mode 100644\nindex 0000000..e6e7f23\n--- /dev/null\n+++ b/tests/long-task.test.ts\n@@ -0,0 +1,137 @@\n+import { describe, expect, it, vi } from \"vitest\";\n+import { LongTaskRunner } from \"../src/long-task.js\";\n+import { createLongTaskAuditReplies, ScriptedLlm } from \"../src/llm-fake.js\";\n+import { runMarsLongTask } from \"../src/scenario.js\";\n+import { SessionLog } from \"../src/session.js\";\n+\n+describe(\"the tutorial stage long task rounds\", () => {\n+  it(\"advances the same relay goal through survey, score, and submit rounds\", async () => {\n+    const llm = new ScriptedLlm(createLongTaskAuditReplies());\n+    const result = await runMarsLongTask(llm);\n+\n+    expect(result.goal).toMatchObject({ status: \"completed\", roundsStarted: 3 });\n+    expect(result.submission.acceptedPlan?.routeId).toBe(\"ASTER\");\n+    expect(result.context.inspect().plugins).not.toContain(\"capability:route_scoring\");\n+    expect(\n+      result.session.events\n+        .filter((event) => event.type === \"goal/round-started\")\n+        .map((event) => (event.type === \"goal/round-started\" ? event.label : \"\")),\n+    ).toEqual([\"survey\", \"score\", \"submit\"]);\n+  });\n+\n+  it(\"uses one bounded follow-up turn after concrete installation progress\", async () => {\n+    const llm = new ScriptedLlm([\n+      ...createLongTaskAuditReplies().slice(0, 2),\n+      {\n+        message: {\n+          role: \"assistant\",\n+          content: \"Install first.\",\n+          toolCalls: [{ id: \"install-only\", name: \"install_capability\", arguments: { name: \"route_scoring\" } }],\n+        },\n+      },\n+      { message: { role: \"assistant\", content: \"Installation complete.\", toolCalls: [] } },\n+      {\n+        message: {\n+          role: \"assistant\",\n+          content: \"Now use the newly visible tool.\",\n+          toolCalls: [{ id: \"score-follow-up\", name: \"score_routes\", arguments: {} }],\n+        },\n+      },\n+      { message: { role: \"assistant\", content: \"ASTER is eligible.\", toolCalls: [] } },\n+      ...createLongTaskAuditReplies().slice(5),\n+    ]);\n+    const result = await runMarsLongTask(llm);\n+\n+    expect(result.goal).toMatchObject({ status: \"completed\", roundsStarted: 3 });\n+    expect(\n+      result.session.events.filter((event) => event.type === \"turn/start\"),\n+    ).toHaveLength(4);\n+    expect(\n+      result.session.events.filter(\n+        (event) => event.type === \"tool/result\" && event.name === \"score_routes\",\n+      ),\n+    ).toHaveLength(1);\n+  });\n+\n+  it(\"uses one bounded follow-up after a rejected submission\", async () => {\n+    const replies = createLongTaskAuditReplies().slice(0, 5);\n+    replies.push(\n+      {\n+        message: {\n+          role: \"assistant\",\n+          content: \"Remove the experiment and attempt a plan.\",\n+          toolCalls: [\n+            { id: \"remove-before-correction\", name: \"remove_capability\", arguments: { name: \"route_scoring\" } },\n+            {\n+              id: \"rejected-plan\",\n+              name: \"submit_recovery_plan\",\n+              arguments: {\n+                routeId: \"BOREAL\",\n+                isolateRelay: \"RELAY-7\",\n+                reasonCode: \"THERMAL_DRIFT\",\n+              },\n+            },\n+          ],\n+        },\n+      },\n+      { message: { role: \"assistant\", content: \"That attempt finished.\", toolCalls: [] } },\n+      {\n+        message: {\n+          role: \"assistant\",\n+          content: \"Correcting the rejected plan.\",\n+          toolCalls: [\n+            {\n+              id: \"corrected-plan\",\n+              name: \"submit_recovery_plan\",\n+              arguments: {\n+                reasonCode: \"THERMAL_DRIFT\",\n+                isolateRelay: \"RELAY-7\",\n+                routeId: \"ASTER\",\n+              },\n+            },\n+          ],\n+        },\n+      },\n+      { message: { role: \"assistant\", content: \"Correction accepted.\", toolCalls: [] } },\n+    );\n+    const result = await runMarsLongTask(new ScriptedLlm(replies));\n+    expect(result.goal.status).toBe(\"completed\");\n+    expect(result.submission.acceptedPlan?.routeId).toBe(\"ASTER\");\n+  });\n+\n+  it(\"stops blocked when a round reports no progress\", async () => {\n+    const session = new SessionLog();\n+    const runRound = vi.fn().mockResolvedValue({ progressed: false });\n+    const result = await new LongTaskRunner({\n+      objective: \"Blocked fixture\",\n+      rounds: [{ label: \"stuck\", input: \"try\" }],\n+      maxRounds: 3,\n+      session,\n+      runRound,\n+    }).run();\n+\n+    expect(result).toMatchObject({ status: \"blocked\", roundsStarted: 1 });\n+    expect(result.reason).toContain(\"no observable progress\");\n+    expect(session.events.at(-1)).toMatchObject({\n+      type: \"goal/status-changed\",\n+      status: \"blocked\",\n+    });\n+  });\n+\n+  it(\"stops explicitly at the configured round limit\", async () => {\n+    const session = new SessionLog();\n+    const result = await new LongTaskRunner({\n+      objective: \"Bounded fixture\",\n+      rounds: [\n+        { label: \"one\", input: \"one\" },\n+        { label: \"two\", input: \"two\" },\n+      ],\n+      maxRounds: 2,\n+      session,\n+      runRound: async () => ({ progressed: true }),\n+    }).run();\n+\n+    expect(result).toMatchObject({ status: \"max-rounds\", roundsStarted: 2 });\n+    expect(result.reason).toContain(\"configured 2 rounds\");\n+  });\n+});\ndiff --git a/tests/workspace.test.ts b/tests/workspace.test.ts\nnew file mode 100644\nindex 0000000..80dc1d3\n--- /dev/null\n+++ b/tests/workspace.test.ts\n@@ -0,0 +1,45 @@\n+import { mkdtemp, rm, writeFile } from \"node:fs/promises\";\n+import { tmpdir } from \"node:os\";\n+import { join, resolve } from \"node:path\";\n+import { describe, expect, it } from \"vitest\";\n+import { loadIncidentPacket } from \"../src/incident.js\";\n+import { createIncidentTools, type SubmissionState } from \"../src/incident.js\";\n+\n+describe(\"bounded demo workspace\", () => {\n+  it(\"loads the same validated fixture used by fake and DeepSeek providers\", async () => {\n+    const packet = await loadIncidentPacket(resolve(\"demo-workspace\"));\n+    expect(packet.incidentId).toBe(\"MARS-RELAY-204\");\n+    expect(packet.candidates.find((route) => route.routeId === \"ASTER\")).toMatchObject({\n+      latencyMs: 58,\n+      packetLossPercent: 1.2,\n+      energyUnits: 3,\n+    });\n+    expect(packet.telemetry.at(-1)).toContain(\"temp=79C\");\n+  });\n+\n+  it(\"rejects a malformed fixture before the Agent Loop starts\", async () => {\n+    const directory = await mkdtemp(join(tmpdir(), \"nano-dsh-invalid-\"));\n+    try {\n+      await writeFile(join(directory, \"incident.json\"), '{\"incidentId\":\"missing-fields\"}\\n');\n+      await expect(loadIncidentPacket(directory)).rejects.toThrow(\n+        \"fields do not match the Nano fixture schema\",\n+      );\n+    } finally {\n+      await rm(directory, { recursive: true, force: true });\n+    }\n+  });\n+\n+  it(\"accepts the recovery fields regardless of JSON object key order\", async () => {\n+    const state: SubmissionState = { acceptedPlan: null };\n+    const submit = createIncidentTools(state).find(\n+      (tool) => tool.name === \"submit_recovery_plan\",\n+    );\n+    const result = await submit?.execute({\n+      reasonCode: \"THERMAL_DRIFT\",\n+      routeId: \"ASTER\",\n+      isolateRelay: \"RELAY-7\",\n+    });\n+    expect(result).toMatchObject({ accepted: true });\n+    expect(state.acceptedPlan?.routeId).toBe(\"ASTER\");\n+  });\n+});\n",
+      "diff": "diff --git a/src/cli.ts b/src/cli.ts\nindex 54e52f2..3e3dac8 100644\n--- a/src/cli.ts\n+++ b/src/cli.ts\n@@ -1,8 +1,7 @@\n-import { Agent } from \"./agent.js\";\n import { DeepSeekLlm } from \"./llm-deepseek.js\";\n-import { createCapabilityAuditReplies, ScriptedLlm } from \"./llm-fake.js\";\n-import { composeRuntime } from \"./plugins.js\";\n+import { createLongTaskAuditReplies, ScriptedLlm } from \"./llm-fake.js\";\n import type { Llm } from \"./protocol.js\";\n+import { runMarsLongTask } from \"./scenario.js\";\n \n const args = new Set(process.argv.slice(2));\n const provider = valueAfter(\"--provider\") ?? \"fake\";\n@@ -19,27 +18,32 @@ if (provider === \"deepseek\") {\n     ...(baseUrl ? { baseUrl } : {}),\n   });\n } else if (provider === \"fake\") {\n-  llm = new ScriptedLlm(createCapabilityAuditReplies());\n+  llm = new ScriptedLlm(createLongTaskAuditReplies());\n } else {\n   throw new Error(`Unknown provider: ${provider}`);\n }\n \n-const runtime = await composeRuntime(llm);\n-const runtimeAgent = new Agent({\n-  llm,\n-  context: runtime.context,\n-  systemPrompt:\n-    \"You are a careful relay recovery auditor. Use only the incident tools and submit a constraint-valid plan.\",\n-});\n-const result = await runtimeAgent.runTurn(\n-  \"Audit incident MARS-RELAY-204 and submit the uniquely valid recovery plan.\",\n-);\n+const result = await runMarsLongTask(llm);\n \n console.log(\"Mars relay audit\");\n-for (const entry of result.trace) {\n-  console.log(`${entry.title}${entry.detail ? ` · ${shorten(entry.detail, 92)}` : \"\"}`);\n+for (const event of result.session.events) {\n+  if (event.type === \"goal/round-started\") {\n+    console.log(`round/${event.round} · ${event.label}`);\n+  } else if (event.type === \"tool/call\") {\n+    console.log(`call · ${event.call.name}`);\n+  } else if (event.type === \"tool/result\") {\n+    console.log(`result · ${event.name} · ${shorten(event.content, 86)}`);\n+  } else if (event.type === \"runtime/plugin-mounted\" && event.plugin.startsWith(\"capability:\")) {\n+    console.log(`mounted · ${event.plugin}`);\n+  } else if (event.type === \"runtime/plugin-unmounted\" && event.plugin.startsWith(\"capability:\")) {\n+    console.log(`unmounted · ${event.plugin}`);\n+  } else if (event.type === \"goal/status-changed\") {\n+    console.log(`goal/${event.status} · ${event.reason}`);\n+  }\n }\n-console.log(`result=${runtime.state.acceptedPlan ? \"accepted\" : \"rejected\"} steps=${result.steps} provider=${llm.provider}`);\n+console.log(\n+  `result=${result.submission.acceptedPlan ? \"accepted\" : \"rejected\"} rounds=${result.goal.roundsStarted} provider=${llm.provider}`,\n+);\n \n function valueAfter(flag: string): string | undefined {\n   const values = [...args];\ndiff --git a/src/llm-fake.ts b/src/llm-fake.ts\nindex dc46fb4..7c28d3a 100644\n--- a/src/llm-fake.ts\n+++ b/src/llm-fake.ts\n@@ -126,3 +126,81 @@ export function createCapabilityAuditReplies(): ScriptedReply[] {\n     },\n   ];\n }\n+\n+export function createLongTaskAuditReplies(): ScriptedReply[] {\n+  return [\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Surveying the bounded runtime and incident packet.\",\n+        toolCalls: [\n+          { id: \"r1-inspect\", name: \"inspect_runtime\", arguments: {} },\n+          { id: \"r1-read\", name: \"read_incident_packet\", arguments: {} },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Survey complete: RELAY-7 shows thermal drift and three routes require comparison.\",\n+        toolCalls: [],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Installing the bounded route scoring experiment.\",\n+        toolCalls: [\n+          {\n+            id: \"r2-install\",\n+            name: \"install_capability\",\n+            arguments: { name: \"route_scoring\" },\n+          },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"The scoring tool is now available in this request.\",\n+        toolCalls: [{ id: \"r2-score\", name: \"score_routes\", arguments: {} }],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Scoring complete: ASTER is the only eligible route.\",\n+        toolCalls: [],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Removing the experiment, then submitting the verified plan.\",\n+        toolCalls: [\n+          {\n+            id: \"r3-remove\",\n+            name: \"remove_capability\",\n+            arguments: { name: \"route_scoring\" },\n+          },\n+          {\n+            id: \"r3-submit\",\n+            name: \"submit_recovery_plan\",\n+            arguments: {\n+              routeId: \"ASTER\",\n+              isolateRelay: \"RELAY-7\",\n+              reasonCode: \"THERMAL_DRIFT\",\n+            },\n+          },\n+        ],\n+      },\n+    },\n+    {\n+      message: {\n+        role: \"assistant\",\n+        content: \"Goal complete: ASTER accepted and the temporary capability is gone.\",\n+        toolCalls: [],\n+      },\n+    },\n+  ];\n+}\ndiff --git a/src/long-task.ts b/src/long-task.ts\nnew file mode 100644\nindex 0000000..2a36c38\n--- /dev/null\n+++ b/src/long-task.ts\n@@ -0,0 +1,115 @@\n+import type { SessionLog } from \"./session.js\";\n+\n+export type LongTaskStatus = \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n+\n+export interface LongTaskState {\n+  goalId: string;\n+  objective: string;\n+  status: LongTaskStatus;\n+  roundsStarted: number;\n+  maxRounds: number;\n+  reason: string;\n+}\n+\n+export interface RoundDefinition {\n+  label: string;\n+  input: string;\n+}\n+\n+export interface RoundResult {\n+  progressed: boolean;\n+  completed?: boolean;\n+  blockedReason?: string;\n+}\n+\n+export interface LongTaskOptions {\n+  objective: string;\n+  rounds: RoundDefinition[];\n+  maxRounds: number;\n+  session: SessionLog;\n+  runRound(round: RoundDefinition, roundNumber: number): Promise<RoundResult>;\n+}\n+\n+export class LongTaskRunner {\n+  readonly state: LongTaskState;\n+  readonly #rounds: RoundDefinition[];\n+  readonly #session: SessionLog;\n+  readonly #runRound: LongTaskOptions[\"runRound\"];\n+\n+  constructor(options: LongTaskOptions) {\n+    if (options.maxRounds < 1) throw new Error(\"maxRounds must be at least 1.\");\n+    this.state = {\n+      goalId: \"goal-1\",\n+      objective: options.objective,\n+      status: \"active\",\n+      roundsStarted: 0,\n+      maxRounds: options.maxRounds,\n+      reason: \"Ready to start.\",\n+    };\n+    this.#rounds = options.rounds;\n+    this.#session = options.session;\n+    this.#runRound = options.runRound;\n+  }\n+\n+  async run(): Promise<LongTaskState> {\n+    this.#session.append({\n+      type: \"goal/created\",\n+      goalId: this.state.goalId,\n+      objective: this.state.objective,\n+      maxRounds: this.state.maxRounds,\n+    });\n+\n+    while (this.state.status === \"active\") {\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      const definition = this.#rounds[this.state.roundsStarted];\n+      if (!definition) {\n+        return this.#finish(\"blocked\", \"No next round is defined for the active goal.\");\n+      }\n+\n+      this.state.roundsStarted += 1;\n+      this.#session.append({\n+        type: \"goal/round-started\",\n+        goalId: this.state.goalId,\n+        round: this.state.roundsStarted,\n+        label: definition.label,\n+      });\n+      const result = await this.#runRound(definition, this.state.roundsStarted);\n+\n+      if (result.completed) {\n+        return this.#finish(\"completed\", `Completed in round ${this.state.roundsStarted}.`);\n+      }\n+      if (result.blockedReason) return this.#finish(\"blocked\", result.blockedReason);\n+      if (!result.progressed) {\n+        return this.#finish(\n+          \"blocked\",\n+          `Round ${this.state.roundsStarted} produced no observable progress.`,\n+        );\n+      }\n+      if (this.state.roundsStarted >= this.state.maxRounds) {\n+        return this.#finish(\n+          \"max-rounds\",\n+          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n+        );\n+      }\n+      this.state.reason = `Round ${this.state.roundsStarted} made progress; continuing.`;\n+    }\n+    return structuredClone(this.state);\n+  }\n+\n+  #finish(status: Exclude<LongTaskStatus, \"active\">, reason: string): LongTaskState {\n+    this.state.status = status;\n+    this.state.reason = reason;\n+    this.#session.append({\n+      type: \"goal/status-changed\",\n+      goalId: this.state.goalId,\n+      status,\n+      reason,\n+    });\n+    return structuredClone(this.state);\n+  }\n+}\ndiff --git a/src/scenario.ts b/src/scenario.ts\nnew file mode 100644\nindex 0000000..d5e27ef\n--- /dev/null\n+++ b/src/scenario.ts\n@@ -0,0 +1,68 @@\n+import { Agent } from \"./agent.js\";\n+import type { SubmissionState } from \"./incident.js\";\n+import { LongTaskRunner, type LongTaskState } from \"./long-task.js\";\n+import type { Llm } from \"./protocol.js\";\n+import { composeRuntime } from \"./plugins.js\";\n+import type { Context } from \"./runtime.js\";\n+import type { SessionLog } from \"./session.js\";\n+\n+export interface MarsLongTaskResult {\n+  goal: LongTaskState;\n+  context: Context;\n+  session: SessionLog;\n+  submission: SubmissionState;\n+}\n+\n+export async function runMarsLongTask(llm: Llm): Promise<MarsLongTaskResult> {\n+  const runtime = await composeRuntime(llm);\n+  const agent = new Agent({\n+    llm,\n+    context: runtime.context,\n+    systemPrompt:\n+      \"You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\",\n+    maxSteps: 5,\n+    dynamicContext: (step) => `Current model step within this round: ${step}`,\n+  });\n+\n+  const runner = new LongTaskRunner({\n+    objective: \"Recover incident MARS-RELAY-204 with a verified plan.\",\n+    maxRounds: 3,\n+    session: runtime.session,\n+    rounds: [\n+      {\n+        label: \"survey\",\n+        input: \"Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed.\",\n+      },\n+      {\n+        label: \"score\",\n+        input: \"Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission.\",\n+      },\n+      {\n+        label: \"submit\",\n+        input: \"Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion.\",\n+      },\n+    ],\n+    async runRound(round, roundNumber) {\n+      const before = runtime.session.events.length;\n+      await agent.runTurn(round.input);\n+      const events = runtime.session.events.slice(before);\n+      const results = events.filter((event) => event.type === \"tool/result\");\n+      const names = results.map((event) => (event.type === \"tool/result\" ? event.name : \"\"));\n+      const expected = roundNumber === 1 ? \"read_incident_packet\" : roundNumber === 2 ? \"score_routes\" : \"submit_recovery_plan\";\n+      const progressed = names.includes(expected);\n+      const completed =\n+        roundNumber === 3 &&\n+        runtime.state.acceptedPlan !== null &&\n+        !runtime.context.inspect().plugins.includes(\"capability:route_scoring\");\n+      return { progressed, completed };\n+    },\n+  });\n+\n+  const goal = await runner.run();\n+  return {\n+    goal,\n+    context: runtime.context,\n+    session: runtime.session,\n+    submission: runtime.state,\n+  };\n+}\ndiff --git a/tests/long-task.test.ts b/tests/long-task.test.ts\nnew file mode 100644\nindex 0000000..a891cfa\n--- /dev/null\n+++ b/tests/long-task.test.ts\n@@ -0,0 +1,57 @@\n+import { describe, expect, it, vi } from \"vitest\";\n+import { LongTaskRunner } from \"../src/long-task.js\";\n+import { createLongTaskAuditReplies, ScriptedLlm } from \"../src/llm-fake.js\";\n+import { runMarsLongTask } from \"../src/scenario.js\";\n+import { SessionLog } from \"../src/session.js\";\n+\n+describe(\"the tutorial stage long task rounds\", () => {\n+  it(\"advances the same relay goal through survey, score, and submit rounds\", async () => {\n+    const llm = new ScriptedLlm(createLongTaskAuditReplies());\n+    const result = await runMarsLongTask(llm);\n+\n+    expect(result.goal).toMatchObject({ status: \"completed\", roundsStarted: 3 });\n+    expect(result.submission.acceptedPlan?.routeId).toBe(\"ASTER\");\n+    expect(result.context.inspect().plugins).not.toContain(\"capability:route_scoring\");\n+    expect(\n+      result.session.events\n+        .filter((event) => event.type === \"goal/round-started\")\n+        .map((event) => (event.type === \"goal/round-started\" ? event.label : \"\")),\n+    ).toEqual([\"survey\", \"score\", \"submit\"]);\n+  });\n+\n+  it(\"stops blocked when a round reports no progress\", async () => {\n+    const session = new SessionLog();\n+    const runRound = vi.fn().mockResolvedValue({ progressed: false });\n+    const result = await new LongTaskRunner({\n+      objective: \"Blocked fixture\",\n+      rounds: [{ label: \"stuck\", input: \"try\" }],\n+      maxRounds: 3,\n+      session,\n+      runRound,\n+    }).run();\n+\n+    expect(result).toMatchObject({ status: \"blocked\", roundsStarted: 1 });\n+    expect(result.reason).toContain(\"no observable progress\");\n+    expect(session.events.at(-1)).toMatchObject({\n+      type: \"goal/status-changed\",\n+      status: \"blocked\",\n+    });\n+  });\n+\n+  it(\"stops explicitly at the configured round limit\", async () => {\n+    const session = new SessionLog();\n+    const result = await new LongTaskRunner({\n+      objective: \"Bounded fixture\",\n+      rounds: [\n+        { label: \"one\", input: \"one\" },\n+        { label: \"two\", input: \"two\" },\n+      ],\n+      maxRounds: 2,\n+      session,\n+      runRound: async () => ({ progressed: true }),\n+    }).run();\n+\n+    expect(result).toMatchObject({ status: \"max-rounds\", roundsStarted: 2 });\n+    expect(result.reason).toContain(\"configured 2 rounds\");\n+  });\n+});\n",
       "diffStats": {
-        "filesChanged": 14,
-        "additions": 684,
-        "deletions": 66,
+        "filesChanged": 5,
+        "additions": 339,
+        "deletions": 17,
         "files": [
           {
-            "path": "src/catalog/route-scoring.ts",
-            "additions": 6,
-            "deletions": 6
-          },
-          {
             "path": "src/cli.ts",
-            "additions": 25,
+            "additions": 21,
             "deletions": 17
-          },
-          {
-            "path": "src/incident.ts",
-            "additions": 93,
-            "deletions": 23
-          },
-          {
-            "path": "src/llm-deepseek.ts",
-            "additions": 13,
-            "deletions": 11
           },
           {
             "path": "src/llm-fake.ts",
@@ -8535,43 +8520,13 @@
             "deletions": 0
           },
           {
-            "path": "src/plugins.ts",
-            "additions": 20,
-            "deletions": 8
-          },
-          {
-            "path": "src/runtime-tools.ts",
-            "additions": 4,
-            "deletions": 0
-          },
-          {
             "path": "src/scenario.ts",
-            "additions": 116,
-            "deletions": 0
-          },
-          {
-            "path": "src/session.ts",
-            "additions": 1,
-            "deletions": 1
-          },
-          {
-            "path": "tests/agent.test.ts",
-            "additions": 27,
-            "deletions": 0
-          },
-          {
-            "path": "tests/runtime.test.ts",
-            "additions": 4,
+            "additions": 68,
             "deletions": 0
           },
           {
             "path": "tests/long-task.test.ts",
-            "additions": 137,
-            "deletions": 0
-          },
-          {
-            "path": "tests/workspace.test.ts",
-            "additions": 45,
+            "additions": 57,
             "deletions": 0
           }
         ]
@@ -8581,7 +8536,7 @@
           "step": 1,
           "stepId": "turn-1-step-1",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -8669,7 +8624,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               }
             ],
             "dynamicContext": "Current model step within this round: 1"
@@ -8680,8 +8635,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
-              "approximateTokens": 120
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+              "approximateTokens": 89
             },
             {
               "id": "tools",
@@ -8781,9 +8736,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "dynamic",
@@ -8794,7 +8749,7 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 508,
+          "totalApproximateTokens": 457,
           "prefix": {
             "sharedParts": 0,
             "sharedApproximateTokens": 0,
@@ -8808,7 +8763,7 @@
           "step": 2,
           "stepId": "turn-1-step-2",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -8896,7 +8851,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -8918,7 +8873,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -8935,8 +8890,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
-              "approximateTokens": 120
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+              "approximateTokens": 89
             },
             {
               "id": "tools",
@@ -9036,9 +8991,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -9072,7 +9027,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -9098,10 +9053,10 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 967,
+          "totalApproximateTokens": 916,
           "prefix": {
             "sharedParts": 3,
-            "sharedApproximateTokens": 498,
+            "sharedApproximateTokens": 447,
             "previousParts": 4,
             "currentParts": 7,
             "firstInvalidation": "assistant",
@@ -9112,7 +9067,7 @@
           "step": 3,
           "stepId": "turn-2-step-1",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -9200,7 +9155,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -9222,7 +9177,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -9237,7 +9192,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               }
             ],
             "dynamicContext": "Current model step within this round: 1"
@@ -9248,8 +9203,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
-              "approximateTokens": 120
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+              "approximateTokens": 89
             },
             {
               "id": "tools",
@@ -9349,9 +9304,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -9385,7 +9340,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -9421,9 +9376,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
-              "approximateTokens": 62
+              "approximateTokens": 36
             },
             {
               "id": "dynamic",
@@ -9434,10 +9389,10 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 1062,
+          "totalApproximateTokens": 985,
           "prefix": {
             "sharedParts": 6,
-            "sharedApproximateTokens": 957,
+            "sharedApproximateTokens": 906,
             "previousParts": 7,
             "currentParts": 9,
             "firstInvalidation": "assistant",
@@ -9448,7 +9403,7 @@
           "step": 4,
           "stepId": "turn-2-step-2",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -9545,7 +9500,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -9567,7 +9522,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -9582,7 +9537,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
               {
                 "role": "assistant",
@@ -9601,7 +9556,7 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               }
             ],
             "dynamicContext": "Current model step within this round: 2"
@@ -9612,8 +9567,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
-              "approximateTokens": 149
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+              "approximateTokens": 117
             },
             {
               "id": "tools",
@@ -9722,9 +9677,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -9758,7 +9713,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -9794,9 +9749,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
-              "approximateTokens": 62
+              "approximateTokens": 36
             },
             {
               "id": "message-6",
@@ -9827,9 +9782,9 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
-              "approximateTokens": 104
+              "approximateTokens": 68
             },
             {
               "id": "dynamic",
@@ -9840,7 +9795,7 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 1288,
+          "totalApproximateTokens": 1174,
           "prefix": {
             "sharedParts": 0,
             "sharedApproximateTokens": 0,
@@ -9854,7 +9809,7 @@
           "step": 5,
           "stepId": "turn-2-step-3",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -9951,7 +9906,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -9973,7 +9928,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -9988,7 +9943,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
               {
                 "role": "assistant",
@@ -10007,7 +9962,7 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
               {
                 "role": "assistant",
@@ -10035,8 +9990,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
-              "approximateTokens": 149
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+              "approximateTokens": 117
             },
             {
               "id": "tools",
@@ -10145,9 +10100,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -10181,7 +10136,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -10217,9 +10172,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
-              "approximateTokens": 62
+              "approximateTokens": 36
             },
             {
               "id": "message-6",
@@ -10250,9 +10205,9 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
-              "approximateTokens": 104
+              "approximateTokens": 68
             },
             {
               "id": "message-8",
@@ -10294,10 +10249,10 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 1461,
+          "totalApproximateTokens": 1347,
           "prefix": {
             "sharedParts": 10,
-            "sharedApproximateTokens": 1278,
+            "sharedApproximateTokens": 1164,
             "previousParts": 11,
             "currentParts": 13,
             "firstInvalidation": "assistant",
@@ -10308,7 +10263,7 @@
           "step": 6,
           "stepId": "turn-3-step-1",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -10405,7 +10360,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -10427,7 +10382,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -10442,7 +10397,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
               {
                 "role": "assistant",
@@ -10461,7 +10416,7 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
               {
                 "role": "assistant",
@@ -10487,7 +10442,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything."
+                "content": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion."
               }
             ],
             "dynamicContext": "Current model step within this round: 1"
@@ -10498,8 +10453,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
-              "approximateTokens": 149
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+              "approximateTokens": 117
             },
             {
               "id": "tools",
@@ -10608,9 +10563,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -10644,7 +10599,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -10680,9 +10635,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
-              "approximateTokens": 62
+              "approximateTokens": 36
             },
             {
               "id": "message-6",
@@ -10713,9 +10668,9 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
-              "approximateTokens": 104
+              "approximateTokens": 68
             },
             {
               "id": "message-8",
@@ -10767,9 +10722,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything."
+                "content": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion."
               },
-              "approximateTokens": 51
+              "approximateTokens": 32
             },
             {
               "id": "dynamic",
@@ -10780,10 +10735,10 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 1537,
+          "totalApproximateTokens": 1404,
           "prefix": {
             "sharedParts": 12,
-            "sharedApproximateTokens": 1451,
+            "sharedApproximateTokens": 1337,
             "previousParts": 13,
             "currentParts": 15,
             "firstInvalidation": "assistant",
@@ -10794,7 +10749,7 @@
           "step": 7,
           "stepId": "turn-3-step-2",
           "request": {
-            "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+            "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
             "tools": [
               {
                 "name": "read_incident_packet",
@@ -10882,7 +10837,7 @@
             "messages": [
               {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
               {
                 "role": "assistant",
@@ -10904,7 +10859,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               {
                 "role": "tool",
@@ -10919,7 +10874,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
               {
                 "role": "assistant",
@@ -10938,7 +10893,7 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
               {
                 "role": "assistant",
@@ -10964,7 +10919,7 @@
               },
               {
                 "role": "user",
-                "content": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything."
+                "content": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion."
               },
               {
                 "role": "assistant",
@@ -10992,7 +10947,7 @@
                 "role": "tool",
                 "toolCallId": "r3-remove",
                 "name": "remove_capability",
-                "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"],\"nextAction\":\"Continue the current task with permanent tools; removed tools will be absent from the next request.\"}"
+                "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"]}"
               },
               {
                 "role": "tool",
@@ -11009,8 +10964,8 @@
               "kind": "system",
               "stability": "stable",
               "label": "System prompt",
-              "value": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
-              "approximateTokens": 120
+              "value": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+              "approximateTokens": 89
             },
             {
               "id": "tools",
@@ -11110,9 +11065,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+                "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
               },
-              "approximateTokens": 51
+              "approximateTokens": 31
             },
             {
               "id": "message-1",
@@ -11146,7 +11101,7 @@
                 "role": "tool",
                 "toolCallId": "r1-inspect",
                 "name": "inspect_runtime",
-                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 814 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+                "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"\n[… 815 characters omitted from the model projection …]\n,\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
               },
               "approximateTokens": 204
             },
@@ -11182,9 +11137,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+                "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
               },
-              "approximateTokens": 62
+              "approximateTokens": 36
             },
             {
               "id": "message-6",
@@ -11215,9 +11170,9 @@
                 "role": "tool",
                 "toolCallId": "r2-install",
                 "name": "install_capability",
-                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+                "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
               },
-              "approximateTokens": 104
+              "approximateTokens": 68
             },
             {
               "id": "message-8",
@@ -11269,9 +11224,9 @@
               "label": "user",
               "value": {
                 "role": "user",
-                "content": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything."
+                "content": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion."
               },
-              "approximateTokens": 51
+              "approximateTokens": 32
             },
             {
               "id": "message-12",
@@ -11311,9 +11266,9 @@
                 "role": "tool",
                 "toolCallId": "r3-remove",
                 "name": "remove_capability",
-                "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"],\"nextAction\":\"Continue the current task with permanent tools; removed tools will be absent from the next request.\"}"
+                "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"]}"
               },
-              "approximateTokens": 93
+              "approximateTokens": 63
             },
             {
               "id": "message-14",
@@ -11337,7 +11292,7 @@
               "approximateTokens": 10
             }
           ],
-          "totalApproximateTokens": 1679,
+          "totalApproximateTokens": 1517,
           "prefix": {
             "sharedParts": 0,
             "sharedApproximateTokens": 0,
@@ -11401,7 +11356,7 @@
         {
           "type": "user/message",
           "turnId": "turn-1",
-          "content": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything.",
+          "content": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed.",
           "id": 10
         },
         {
@@ -11416,7 +11371,7 @@
           "stepId": "turn-1-step-1",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -11540,7 +11495,7 @@
           "stepId": "turn-1-step-1",
           "toolCallId": "r1-inspect",
           "name": "inspect_runtime",
-          "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"name\":\"submit_recovery_plan\",\"plugin\":\"mars-incident\"},{\"name\":\"inspect_runtime\",\"plugin\":\"runtime-tools\"},{\"name\":\"install_capability\",\"plugin\":\"runtime-tools\"},{\"name\":\"remove_capability\",\"plugin\":\"runtime-tools\"}],\"prompts\":[{\"id\":\"incident-guardrails\",\"plugin\":\"mars-incident\",\"text\":\"Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.\"},{\"id\":\"runtime-experiment-boundary\",\"plugin\":\"runtime-tools\",\"text\":\"You may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\"}],\"listeners\":[{\"event\":\"runtime/plugin-mounted\",\"plugin\":\"session-log\"},{\"event\":\"runtime/plugin-unmounted\",\"plugin\":\"session-log\"},{\"event\":\"tool/executed\",\"plugin\":\"mars-incident\"}],\"relations\":[{\"consumer\":\"mars-incident\",\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}",
+          "content": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"name\":\"submit_recovery_plan\",\"plugin\":\"mars-incident\"},{\"name\":\"inspect_runtime\",\"plugin\":\"runtime-tools\"},{\"name\":\"install_capability\",\"plugin\":\"runtime-tools\"},{\"name\":\"remove_capability\",\"plugin\":\"runtime-tools\"}],\"prompts\":[{\"id\":\"incident-guardrails\",\"plugin\":\"mars-incident\",\"text\":\"Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.\"},{\"id\":\"runtime-experiment-boundary\",\"plugin\":\"runtime-tools\",\"text\":\"You may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\"}],\"listeners\":[{\"event\":\"runtime/plugin-mounted\",\"plugin\":\"session-log\"},{\"event\":\"runtime/plugin-unmounting\",\"plugin\":\"session-log\"},{\"event\":\"tool/executed\",\"plugin\":\"mars-incident\"}],\"relations\":[{\"consumer\":\"mars-incident\",\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}",
           "id": 16
         },
         {
@@ -11569,7 +11524,7 @@
           "stepId": "turn-1-step-2",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -11695,7 +11650,7 @@
         {
           "type": "user/message",
           "turnId": "turn-2",
-          "content": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit.",
+          "content": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission.",
           "id": 26
         },
         {
@@ -11710,7 +11665,7 @@
           "stepId": "turn-2-step-1",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -11831,7 +11786,7 @@
           "stepId": "turn-2-step-1",
           "toolCallId": "r2-install",
           "name": "install_capability",
-          "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}",
+          "content": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}",
           "id": 32
         },
         {
@@ -11852,7 +11807,7 @@
           "stepId": "turn-2-step-2",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -11996,7 +11951,7 @@
           "stepId": "turn-2-step-3",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -12131,7 +12086,7 @@
         {
           "type": "user/message",
           "turnId": "turn-3",
-          "content": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything.",
+          "content": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion.",
           "id": 47
         },
         {
@@ -12146,7 +12101,7 @@
           "stepId": "turn-3-step-1",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\n\nWhen route_scoring is installed, call score_routes and treat eligibility as a hard gate before comparing scores.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -12290,7 +12245,7 @@
           "stepId": "turn-3-step-1",
           "toolCallId": "r3-remove",
           "name": "remove_capability",
-          "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"],\"nextAction\":\"Continue the current task with permanent tools; removed tools will be absent from the next request.\"}",
+          "content": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"]}",
           "id": 54
         },
         {
@@ -12319,7 +12274,7 @@
           "stepId": "turn-3-step-2",
           "provider": "fake",
           "model": "scripted-mars-audit-v1",
-          "system": "You are a careful relay recovery auditor. Use only bounded tools. In each round, perform exactly the requested actions, then return a concise factual summary with no further tool calls. Never repeat an action whose tool result is already in history.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
+          "system": "You are a careful relay recovery auditor. Use bounded tools, make each round's requested progress, and clean up experiments.\n\nUse only the bounded incident tools. A recovery plan must satisfy every stated constraint.\n\nYou may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.",
           "tools": [
             {
               "name": "read_incident_packet",
@@ -12497,7 +12452,7 @@
           "eventId": 10,
           "type": "user/message",
           "title": "user/message",
-          "detail": "Round 1/3 — call inspect_runtime exactly once and read_incident_packet exactly once. After both results arrive, finish this turn with a concise survey; do not install anything."
+          "detail": "Round 1/3 — inspect the runtime and read the incident packet. Stop after the facts are observed."
         },
         {
           "eventId": 11,
@@ -12533,7 +12488,7 @@
           "eventId": 16,
           "type": "tool/result",
           "title": "result inspect_runtime",
-          "detail": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"name\":\"submit_recovery_plan\",\"plugin\":\"mars-incident\"},{\"name\":\"inspect_runtime\",\"plugin\":\"runtime-tools\"},{\"name\":\"install_capability\",\"plugin\":\"runtime-tools\"},{\"name\":\"remove_capability\",\"plugin\":\"runtime-tools\"}],\"prompts\":[{\"id\":\"incident-guardrails\",\"plugin\":\"mars-incident\",\"text\":\"Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.\"},{\"id\":\"runtime-experiment-boundary\",\"plugin\":\"runtime-tools\",\"text\":\"You may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\"}],\"listeners\":[{\"event\":\"runtime/plugin-mounted\",\"plugin\":\"session-log\"},{\"event\":\"runtime/plugin-unmounted\",\"plugin\":\"session-log\"},{\"event\":\"tool/executed\",\"plugin\":\"mars-incident\"}],\"relations\":[{\"consumer\":\"mars-incident\",\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
+          "detail": "{\"plugins\":[\"session-log\",\"provider:fake\",\"submission-state\",\"mars-incident\",\"trusted-capability-catalog\",\"runtime-tools\"],\"services\":[{\"name\":\"session-log\",\"provider\":\"session-log\"},{\"name\":\"llm\",\"provider\":\"provider:fake\"},{\"name\":\"submission-state\",\"provider\":\"submission-state\"},{\"name\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}],\"tools\":[{\"name\":\"read_incident_packet\",\"plugin\":\"mars-incident\"},{\"name\":\"submit_recovery_plan\",\"plugin\":\"mars-incident\"},{\"name\":\"inspect_runtime\",\"plugin\":\"runtime-tools\"},{\"name\":\"install_capability\",\"plugin\":\"runtime-tools\"},{\"name\":\"remove_capability\",\"plugin\":\"runtime-tools\"}],\"prompts\":[{\"id\":\"incident-guardrails\",\"plugin\":\"mars-incident\",\"text\":\"Use only the bounded incident tools. A recovery plan must satisfy every stated constraint.\"},{\"id\":\"runtime-experiment-boundary\",\"plugin\":\"runtime-tools\",\"text\":\"You may inspect this runtime and temporarily install only trusted capabilities: route_scoring, word_count. Remove experiments after use.\"}],\"listeners\":[{\"event\":\"runtime/plugin-mounted\",\"plugin\":\"session-log\"},{\"event\":\"runtime/plugin-unmounting\",\"plugin\":\"session-log\"},{\"event\":\"tool/executed\",\"plugin\":\"mars-incident\"}],\"relations\":[{\"consumer\":\"mars-incident\",\"service\":\"submission-state\",\"provider\":\"submission-state\"},{\"consumer\":\"runtime-tools\",\"service\":\"trusted-capability-catalog\",\"provider\":\"trusted-capability-catalog\"}]}"
         },
         {
           "eventId": 17,
@@ -12593,7 +12548,7 @@
           "eventId": 26,
           "type": "user/message",
           "title": "user/message",
-          "detail": "Round 2/3 — install route_scoring exactly once. On the next model step, call the newly visible score_routes exactly once. After its result arrives, finish this turn; do not remove the capability yet and do not submit."
+          "detail": "Round 2/3 — install route_scoring from the trusted catalog, score the routes, and retain the result for submission."
         },
         {
           "eventId": 27,
@@ -12629,7 +12584,7 @@
           "eventId": 32,
           "type": "tool/result",
           "title": "result install_capability",
-          "detail": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"],\"nextAction\":\"The capability's tools will be visible in the next model request. Use the requested new tool before ending this experiment.\"}"
+          "detail": "{\"ok\":true,\"installed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\",\"score_routes\"]}"
         },
         {
           "eventId": 33,
@@ -12719,7 +12674,7 @@
           "eventId": 47,
           "type": "user/message",
           "title": "user/message",
-          "detail": "Round 3/3 — remove route_scoring exactly once and submit the uniquely valid recovery plan exactly once. After both results arrive, finish this turn; do not reinstall anything."
+          "detail": "Round 3/3 — remove route_scoring, submit the uniquely valid recovery plan, and report completion."
         },
         {
           "eventId": 48,
@@ -12761,7 +12716,7 @@
           "eventId": 54,
           "type": "tool/result",
           "title": "result remove_capability",
-          "detail": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"],\"nextAction\":\"Continue the current task with permanent tools; removed tools will be absent from the next request.\"}"
+          "detail": "{\"ok\":true,\"removed\":\"route_scoring\",\"tools\":[\"read_incident_packet\",\"submit_recovery_plan\",\"inspect_runtime\",\"install_capability\",\"remove_capability\"]}"
         },
         {
           "eventId": 55,
