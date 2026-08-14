@@ -1,6 +1,6 @@
 # DeepSeek Harness from Scratch
 
-[Chinese](./README.zh.md) | [English](./README.md)
+[English](./README.md) | [中文版](./README.zh.md)
 
 <p align="center">
   <img src="./website/public/dsh-from-scratch-hero.png" alt="dsh-from-scratch tutorial illustration" width="100%">
