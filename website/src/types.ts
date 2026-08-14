@@ -72,7 +72,6 @@ export interface Chapter {
     title: string;
     description: string;
     observations: Array<{ title: string; text: string; lines: [number, number] }>;
-    folds?: Array<{ lines: [number, number]; label: string }>;
     fills?: Array<{
       label: string;
       kind: "skeleton" | "body";

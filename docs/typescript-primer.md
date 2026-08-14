@@ -1,6 +1,6 @@
-# TypeScript 阅读预检：先认四个路标
+# TypeScript 阅读准备：四种常用语法
 
-你可以边读边学。教程反复使用下面四类语法；遇到类型时，先读冒号右边的“数据形状”，遇到函数时，再看它在运行时做了什么。
+教程会反复使用下面四类语法。阅读类型时，可以先确认冒号右边描述的数据结构；阅读函数时，再确认它在运行时执行的操作。
 
 ## 类型标注负责提前检查
 
@@ -19,7 +19,7 @@ interface ToolCall {
 }
 ```
 
-把 `interface` 当成表格列名：一个工具调用要有字符串 `name`，还要有 JavaScript 对象表示法（JavaScript Object Notation，JSON）格式的 `arguments`。它负责描述对象应当具备的字段。
+`interface` 列出对象必须具备的字段。这里的工具调用包含字符串 `name`，以及采用 JavaScript 对象表示法（JavaScript Object Notation，JSON）表示的 `arguments`。JSON 是一种结构化数据格式。
 
 ## async / await 表示等待结果
 
@@ -27,7 +27,7 @@ interface ToolCall {
 const response = await llm.complete(request);
 ```
 
-`async` 函数允许使用 `await`。这里会发出模型请求，等结果回来，再继续智能体循环。并行和重试需要另外编写逻辑。
+`async` 函数允许使用 `await`。这里先发出模型请求，收到结果后继续 Agent Loop。并行执行和失败重试需要另外编写逻辑。
 
 ## type 字段标明事件种类
 
@@ -37,4 +37,4 @@ if (event.type === "tool/result") {
 }
 ```
 
-过程日志里会出现多种事件。先检查 `type`，TypeScript 就知道这个分支拥有 `content`、`name` 等字段。右侧时间线也会按照这个字段给记录分类。
+Session Log 中包含多种事件。代码检查 `type` 后，TypeScript 可以确定当前分支拥有 `content`、`name` 等字段。右侧执行记录也按照这个字段分类。

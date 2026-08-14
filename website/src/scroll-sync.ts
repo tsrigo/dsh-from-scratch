@@ -26,11 +26,10 @@ export function chapterFills(chapter: Chapter): FillSlice[] {
  * 随滚动推进，中间的实现段按行号顺序逐渐补入。 */
 export function snapshotForCheckpoint(chapter: Chapter, checkpoint: number): SnapshotLine[] {
   const fills = chapterFills(chapter);
+  const contentLines = chapter.source.content.trimEnd().split(/\r?\n/u);
   if (fills.length === 0) {
-    const lines = chapter.source.content.split("\n");
-    return lines.map((text, index) => ({ number: index + 1, text }));
+    return contentLines.map((text, index) => ({ number: index + 1, text }));
   }
-  const contentLines = chapter.source.content.split("\n");
   const wanted = new Set<number>();
   const last = Math.min(checkpoint, fills.length - 1);
   for (let index = 0; index <= last; index += 1) {
@@ -55,7 +54,7 @@ export function newLineNumbers(previous: SnapshotLine[], current: SnapshotLine[]
 export function isFinalCheckpoint(chapter: Chapter, checkpoint: number): boolean {
   const fills = chapterFills(chapter);
   if (fills.length === 0) return true;
-  const total = chapter.source.content.trimEnd().split("\n").length;
+  const total = chapter.source.content.trimEnd().split(/\r?\n/u).length;
   const snapshot = snapshotForCheckpoint(chapter, checkpoint);
   return snapshot.length > 0 && snapshot[snapshot.length - 1]!.number >= total;
 }

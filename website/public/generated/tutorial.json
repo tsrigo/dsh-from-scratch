@@ -13,7 +13,7 @@
       "codeRuntime": false,
       "presetLoader": false
     },
-    "primer": "# TypeScript 阅读预检：先认四个路标\n\n你可以边读边学。教程反复使用下面四类语法；遇到类型时，先读冒号右边的“数据形状”，遇到函数时，再看它在运行时做了什么。\n\n## 类型标注负责提前检查\n\n```ts\nconst step: number = 1;\n```\n\n`step` 是变量，`1` 是运行时的值，`: number` 给编辑器和编译器一条检查说明。构建后的 JavaScript 会去掉这段类型标注。\n\n## interface 描述数据清单\n\n```ts\ninterface ToolCall {\n  name: string;\n  arguments: JsonValue;\n}\n```\n\n把 `interface` 当成表格列名：一个工具调用要有字符串 `name`，还要有 JavaScript 对象表示法（JavaScript Object Notation，JSON）格式的 `arguments`。它负责描述对象应当具备的字段。\n\n## async / await 表示等待结果\n\n```ts\nconst response = await llm.complete(request);\n```\n\n`async` 函数允许使用 `await`。这里会发出模型请求，等结果回来，再继续智能体循环。并行和重试需要另外编写逻辑。\n\n## type 字段标明事件种类\n\n```ts\nif (event.type === \"tool/result\") {\n  console.log(event.content);\n}\n```\n\n过程日志里会出现多种事件。先检查 `type`，TypeScript 就知道这个分支拥有 `content`、`name` 等字段。右侧时间线也会按照这个字段给记录分类。\n"
+    "primer": "# TypeScript 阅读准备：四种常用语法\n\n教程会反复使用下面四类语法。阅读类型时，可以先确认冒号右边描述的数据结构；阅读函数时，再确认它在运行时执行的操作。\n\n## 类型标注负责提前检查\n\n```ts\nconst step: number = 1;\n```\n\n`step` 是变量，`1` 是运行时的值，`: number` 给编辑器和编译器一条检查说明。构建后的 JavaScript 会去掉这段类型标注。\n\n## interface 描述数据清单\n\n```ts\ninterface ToolCall {\n  name: string;\n  arguments: JsonValue;\n}\n```\n\n`interface` 列出对象必须具备的字段。这里的工具调用包含字符串 `name`，以及采用 JavaScript 对象表示法（JavaScript Object Notation，JSON）表示的 `arguments`。JSON 是一种结构化数据格式。\n\n## async / await 表示等待结果\n\n```ts\nconst response = await llm.complete(request);\n```\n\n`async` 函数允许使用 `await`。这里先发出模型请求，收到结果后继续 Agent Loop。并行执行和失败重试需要另外编写逻辑。\n\n## type 字段标明事件种类\n\n```ts\nif (event.type === \"tool/result\") {\n  console.log(event.content);\n}\n```\n\nSession Log 中包含多种事件。代码检查 `type` 后，TypeScript 可以确定当前分支拥有 `content`、`name` 等字段。右侧执行记录也按照这个字段分类。\n"
   },
   "liveReplay": {
     "schemaVersion": 2,
@@ -9421,15 +9421,15 @@
       "id": "chapter-1",
       "number": "01",
       "shortTitle": "Agent Loop",
-      "title": "模型如何在行动与反馈之间循环",
-      "question": "DSH 的 Agent Loop 是什么样的？",
+      "title": "模型怎样在动作与反馈之间循环",
+      "question": "DSH 的 Agent Loop 是什么样的?",
       "codeGuide": {
-        "title": "一次 Step 的控制权如何交接",
-        "description": "这段代码把模型决策和运行时执行分开。请求先从当前状态生成，模型提出动作，Harness 再负责校验、执行、记录与停止。",
+        "title": "一个 Step 中模型与运行时如何交接",
+        "description": "代码先根据当前状态生成请求。模型提出动作后，Harness 负责校验参数、执行工具、记录结果并判断是否停止。",
         "observations": [
           {
-            "title": "请求是当前状态的快照",
-            "text": "用户消息先进入历史；每个 Step 再复制当前消息、工具 Schema 与动态说明。模型拿到的是确定的输入，而不是可被并发修改的内部数组。",
+            "title": "请求包含构建时的当前状态",
+            "text": "用户消息先进入历史；每个 Step 再复制当前消息、工具 Schema 与动态说明。模型收到确定的输入，后续并发修改不会改变已经构建的请求。",
             "lines": [
               53,
               76
@@ -9437,40 +9437,24 @@
           },
           {
             "title": "工具调用决定是否继续",
-            "text": "模型回复先写入历史。没有工具调用就结束整个 Turn；存在调用则逐个执行，结果追加完以后才进入下一个 Step。",
+            "text": "模型回复先写入历史。回复没有工具调用时结束整个 Turn；存在调用时逐个执行，全部结果追加后再进入下一个 Step。",
             "lines": [
               73,
               95
             ]
           },
           {
-            "title": "失败也必须成为反馈",
-            "text": "未知工具、参数校验失败和执行异常都被转换为结构化结果，而不是让循环悄悄中断。模型下一步仍能读到失败原因。",
+            "title": "失败也会写入反馈",
+            "text": "未知工具、参数校验失败和执行异常都会转换为结构化结果。模型可以在下一步读取失败原因并调整处理方式。",
             "lines": [
               98,
               113
             ]
           }
         ],
-        "folds": [
-          {
-            "lines": [
-              62,
-              66
-            ],
-            "label": "工具 Schema 字段映射"
-          },
-          {
-            "lines": [
-              85,
-              90
-            ],
-            "label": "Tool Result 消息字段"
-          }
-        ],
         "fills": [
           {
-            "label": "接口声明与 Agent 骨架",
+            "label": "接口声明与 Agent 结构",
             "kind": "skeleton",
             "ranges": [
               [
@@ -9488,7 +9472,7 @@
             ]
           },
           {
-            "label": "构造器：注入 LLM 与工具",
+            "label": "构造器：注入模型适配器与工具",
             "kind": "body",
             "ranges": [
               [
@@ -9530,17 +9514,17 @@
         ]
       },
       "changeStory": {
-        "title": "模型负责选择，Harness 负责执行与收束",
-        "summary": "DSH 不让模型直接执行动作，而是把一个 Turn 拆成可重复的 Step：根据当前状态构造请求，接收模型提出的 Tool Call，由 Harness 校验并执行，再把 Tool Result 送入下一步。没有新调用时结束 Turn，越过运行时边界时明确失败。",
-        "harnessRole": "执行内核：把模型输出变成可验证的行动",
-        "connection": "第一问确定 Harness 的最小闭环。后五问分别为这条循环补上可控输入、可组合能力、权威记录、运行时适配和跨轮协调。没有 Agent Loop，其他机制没有执行载体；只有 Agent Loop，又不足以成为 Harness。",
+        "title": "模型选择动作，Harness 校验并执行",
+        "summary": "DSH 把一个 Turn 分成可重复的 Step。每个 Step 根据当前状态构造请求，接收模型提出的 Tool Call（工具调用），由 Harness 校验并执行，再把 Tool Result（工具结果）加入下一步。没有新调用时结束 Turn；超过运行时限制时明确返回失败。",
+        "harnessRole": "执行层：把模型输出转换为经过校验的操作",
+        "connection": "第一问确定 Harness 的最小执行循环。后五问分别管理循环的输入、能力、记录、运行时适配和跨轮协调。Agent Loop 为这些机制提供执行位置，完整 Harness 还需要其余五项机制共同工作。",
         "outcomes": [
-          "能沿 Agent.runTurn() 说清 request → response → tool result → next step",
-          "能解释模型只提出 Tool Call，真正的查找、校验和执行都属于 Harness",
+          "能沿 Agent.runTurn() 说明请求、回复、工具结果和下一步的执行顺序",
+          "能解释模型提出 Tool Call，Harness 负责工具查找、参数校验和执行",
           "能区分 Step、Turn 与 maxSteps，并指出每一种停止发生在哪里"
         ]
       },
-      "lesson": "# Agent Loop 把模型判断变成可执行的反馈循环\n\n单独调用一次模型，只能得到一次输出。Agent 要处理的是另一类问题：模型先判断缺少什么信息，调用工具取得结果，再根据结果决定下一步。事先无法知道它会调用几次工具，也无法把完整流程写成固定的工作流，因此需要一个循环来承接模型的每次选择。\n\n## 模型决定下一步，Harness 负责把它做成\n\n一个 Turn 从用户提出任务开始。DSH 先把系统规则、当前工具、已有历史和本步说明整理成统一请求，再交给模型。模型返回普通文字，也可以返回一组带名称和参数的工具调用；它只是在提出动作，并没有亲自执行任何代码。\n\nHarness 接手后会查找工具、校验参数并执行。未知工具、参数错误和执行异常都不会被藏在控制流里，而会被包装成模型可读的结果。这样，决定“做什么”的模型与决定“能不能做、怎样执行”的运行时之间，有一道清楚的边界。\n\n<!-- evidence {\"id\":\"m01-loop-source\",\"tab\":\"source\",\"lines\":[53,113],\"label\":\"模型决策与运行时执行\",\"description\":\"从请求组装、停止判断到参数校验，逐段查看一次 Step 的控制权怎样交接。\"} -->\n\n## 工具结果必须进入下一次请求\n\n工具执行完并不等于任务完成。结果会连同对应的调用编号写入历史，循环随后进入下一个 Step，再次请求模型。模型这时看到的不是一句“工具已经跑过”，而是自己刚才提出的调用和运行时返回的实际结果，因此可以修正计划、继续调用别的工具，或者给出最终回答。\n\n右侧的小请求只演示这一次变化：第一份请求要求模型取得时间；第二份请求保留原来的规则和问题，并在后面追加工具调用与查询结果。反馈被放回上下文，Agent Loop 才真正闭合。\n\n<!-- evidence {\"id\":\"m01-request-feedback\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"反馈进入下一次请求\",\"description\":\"比较两次请求，确认工具调用和结果如何成为下一步推理的依据。\"} -->\n\n## Turn、Step 与停止条件\n\n在这份教学实现里，一个 Turn 表示一次用户任务；一次模型请求及其随后触发的工具执行构成一个 Step。一个 Turn 可以包含多个 Step。模型仍在调用工具，说明反馈循环还没有结束；模型不再调用工具，Harness 才把这次回复当作 Turn 的终点。\n\n循环还必须由运行时设边界。工具失败会作为结果交还模型，让它有机会换一种做法；连续 Step 达到上限仍未结束，则由 Harness 明确终止，而不是无限消耗资源。Provider 只把统一请求翻译成具体模型接口，它可以替换，但不拥有 Agent Loop 的控制逻辑。\n\n因此，DSH 的 Agent Loop 可以收成一条完整链路：组装请求，调用模型，执行经过校验的工具，把结果追加回历史，再根据新的模型输出继续或停止。后面五章所做的事，都是让这条小循环在真实运行中仍然可管理、可扩展、可追溯。\n\n<!-- evidence {\"id\":\"m01-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第一问，用三个代码控制点复述执行闭环，并把 Agent Loop 放回 Harness 六问全景。\"} -->\n",
+      "lesson": "# Agent Loop 按模型反馈重复执行步骤\n\n一次模型调用只产生一次回复。Agent（智能体）处理任务时，模型可能需要先确定缺少的信息，调用工具取得结果，再根据结果选择下一步。工具调用次数无法预先确定，固定工作流也无法覆盖模型根据结果作出的所有选择，因此运行时需要重复执行一组步骤。\n\n## 模型选择动作，Harness 校验并执行\n\n一个 Turn 表示一次用户任务。DeepSeek Harness（DSH）先把系统规则、当前工具、已有历史和本步说明组成统一请求，再交给模型。模型可以返回普通文字，也可以返回一组包含名称和参数的 Tool Call（工具调用）。Tool Call 只描述待执行动作，不会直接执行代码。\n\nHarness 收到 Tool Call 后查找工具、校验参数并执行。未知工具、参数错误和执行异常都会转换为模型可读的结构化结果。模型负责选择动作，运行时负责判断动作能否执行并完成具体操作，两者的职责由工具接口分隔。\n\n<!-- evidence {\"id\":\"m01-loop-source\",\"tab\":\"source\",\"lines\":[53,113],\"label\":\"模型决策与运行时执行\",\"description\":\"按照请求组装、停止判断和参数校验的顺序，查看一个 Step 中模型与运行时如何交接控制权。\"} -->\n\n## 工具结果进入下一次请求\n\n工具执行完成后，任务可能仍需继续。Harness 把 Tool Result（工具结果）及其调用编号写入历史，然后进入下一个 Step 并再次请求模型。模型可以读取刚才提出的调用和运行时返回的实际结果，据此修改计划、调用其他工具或给出最终回答。\n\n右侧请求对比只展示这一处变化。第一份请求要求模型取得时间；第二份请求保留原有规则和问题，并在末尾追加工具调用与查询结果。Agent Loop 通过这次追加把执行结果用于下一步判断。\n\n<!-- evidence {\"id\":\"m01-request-feedback\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"反馈进入下一次请求\",\"description\":\"比较两次请求，确认工具调用和结果如何成为下一步判断的依据。\"} -->\n\n## Turn、Step 与停止条件\n\n在这份教学实现中，一个 Turn 表示一次用户任务；一次模型请求及其触发的工具执行构成一个 Step。一个 Turn 可以包含多个 Step。模型继续调用工具时，Harness 会进入下一步；模型不再调用工具时，当前回复结束这个 Turn。\n\n循环还需要运行时边界。工具失败会作为结果返回给模型，使模型有机会调整处理方式。连续 Step 达到上限后，Harness 会明确终止运行，避免无限消耗资源。Provider（模型服务适配器）只负责把统一请求转换为具体模型接口所需的格式，可以替换，不控制 Agent Loop。\n\nDSH 的 Agent Loop 依次完成请求组装、模型调用、工具校验与执行、结果追加，并根据新的模型输出继续或停止。后五章分别管理这组循环的输入、能力、记录、运行时变更和跨轮协调。\n\n<!-- evidence {\"id\":\"m01-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第一问，用三个代码控制点说明执行循环，并标出 Agent Loop 与后五章的关系。\"} -->\n",
       "source": {
         "path": "src/agent.ts",
         "content": "import { Ajv, type ValidateFunction } from \"ajv\";\nimport type {\n  AssistantMessage,\n  JsonValue,\n  Llm,\n  ModelMessage,\n  ToolDefinition,\n  UnifiedRequest,\n} from \"./protocol.js\";\n\nexport interface AgentTraceEntry {\n  kind: \"turn\" | \"step\" | \"request\" | \"assistant\" | \"tool\";\n  label: string;\n  detail?: string;\n}\n\nexport interface RunTurnResult {\n  finalMessage: AssistantMessage;\n  steps: number;\n  trace: AgentTraceEntry[];\n  requests: UnifiedRequest[];\n}\n\nexport interface AgentOptions {\n  llm: Llm;\n  tools: ToolDefinition[];\n  systemPrompt: string;\n  dynamicContext?: (step: number) => string;\n  maxSteps?: number;\n}\n\nexport class Agent {\n  readonly #llm: Llm;\n  readonly #tools: Map<string, ToolDefinition>;\n  readonly #validators: Map<string, ValidateFunction>;\n  readonly #systemPrompt: string;\n  readonly #dynamicContext: (step: number) => string;\n  readonly #maxSteps: number;\n  readonly #messages: ModelMessage[] = [];\n\n  constructor(options: AgentOptions) {\n    this.#llm = options.llm;\n    this.#tools = new Map(options.tools.map((tool) => [tool.name, tool]));\n    const ajv = new Ajv({ allErrors: true, strict: false });\n    this.#validators = new Map(\n      options.tools.map((tool) => [tool.name, ajv.compile(tool.inputSchema)]),\n    );\n    this.#systemPrompt = options.systemPrompt;\n    this.#dynamicContext = options.dynamicContext ?? ((step) => `Current step: ${step}`);\n    this.#maxSteps = options.maxSteps ?? 8;\n  }\n\n  async runTurn(userInput: string): Promise<RunTurnResult> {\n    this.#messages.push({ role: \"user\", content: userInput });\n    const trace: AgentTraceEntry[] = [{ kind: \"turn\", label: \"turn/start\", detail: userInput }];\n    const requests: UnifiedRequest[] = [];\n\n    for (let step = 1; step <= this.#maxSteps; step += 1) {\n      trace.push({ kind: \"step\", label: `step/${step}/start` });\n      const request: UnifiedRequest = {\n        system: this.#systemPrompt,\n        tools: [...this.#tools.values()].map(({ name, description, inputSchema }) => ({\n          name,\n          description,\n          inputSchema,\n        })),\n        messages: structuredClone(this.#messages),\n        dynamicContext: this.#dynamicContext(step),\n      };\n      requests.push(structuredClone(request));\n      trace.push({ kind: \"request\", label: \"llm/request\", detail: `${request.tools.length} tools` });\n\n      const response = await this.#llm.complete(request);\n      const assistant = response.message;\n      this.#messages.push(assistant);\n      trace.push({ kind: \"assistant\", label: \"assistant/message\", detail: assistant.content });\n\n      if (assistant.toolCalls.length === 0) {\n        trace.push({ kind: \"turn\", label: \"turn/end\", detail: \"completed\" });\n        return { finalMessage: assistant, steps: step, trace, requests };\n      }\n\n      for (const call of assistant.toolCalls) {\n        const result = await this.#executeTool(call.name, call.arguments);\n        this.#messages.push({\n          role: \"tool\",\n          toolCallId: call.id,\n          name: call.name,\n          content: JSON.stringify(result),\n        });\n        trace.push({ kind: \"tool\", label: call.name, detail: JSON.stringify(result) });\n      }\n    }\n\n    throw new Error(`Agent exceeded maxSteps (${this.#maxSteps}) before finishing the turn.`);\n  }\n\n  async #executeTool(name: string, input: JsonValue): Promise<JsonValue> {\n    const tool = this.#tools.get(name);\n    if (!tool) return { ok: false, error: `Unknown tool: ${name}` };\n    const validate = this.#validators.get(name);\n    if (!validate?.(input)) {\n      return {\n        ok: false,\n        error: \"Invalid tool arguments\",\n        issues: (validate?.errors ?? []).map((error) => `${error.instancePath || \"/\"} ${error.message}`),\n      };\n    }\n    try {\n      return await tool.execute(input);\n    } catch (error) {\n      return { ok: false, error: error instanceof Error ? error.message : String(error) };\n    }\n  }\n}\n",
@@ -9816,11 +9800,11 @@
       "question": "上下文是怎样组织的，为缓存复用做了什么优化？",
       "codeGuide": {
         "title": "从完整消息生成可复用的请求",
-        "description": "上下文模块依次完成三件事：投影过长工具结果，按变化频率排列请求部分，再计算相邻请求的最长相同前缀。",
+        "description": "上下文模块依次投影过长的工具结果，按变化频率排列请求内容，再计算相邻请求开头连续相同的部分。",
         "observations": [
           {
-            "title": "投影不改写原始消息",
-            "text": "只有 Tool Message 会被检查；短结果完整复制，长结果保留头尾并写入省略字符数。此时调用者仍持有未投影的内存消息，第四章再将它们迁入 Session Log。",
+            "title": "投影保留原始消息",
+            "text": "代码只检查 Tool Message（工具消息）。短结果完整复制，长结果保留头尾并记录省略字符数。调用者仍持有未投影的内存消息，第四章再将它们迁入 Session Log。",
             "lines": [
               38,
               67
@@ -9835,33 +9819,17 @@
             ]
           },
           {
-            "title": "前缀比较从第一个差异处停止",
-            "text": "两份请求先做确定性序列化，再从开头逐项比较。共享长度和首次失效位置只是教学估算，不冒充模型服务的真实缓存命中。",
+            "title": "前缀比较在第一个差异处停止",
+            "text": "两份请求先进行确定性序列化，再从开头逐项比较。共享长度和首次变化位置仅用于教学估算，不代表模型服务的真实缓存命中。",
             "lines": [
               101,
               137
             ]
           }
         ],
-        "folds": [
-          {
-            "lines": [
-              77,
-              85
-            ],
-            "label": "历史消息的 RequestPart 字段"
-          },
-          {
-            "lines": [
-              107,
-              114
-            ],
-            "label": "首次请求的基线统计"
-          }
-        ],
         "fills": [
           {
-            "label": "四个接口：投影、部件、比较、裁剪",
+            "label": "投影、部件、比较和裁剪接口",
             "kind": "skeleton",
             "ranges": [
               [
@@ -9903,7 +9871,7 @@
             ]
           },
           {
-            "label": "clipToolResult：头尾保留、中间省略",
+            "label": "clipToolResult：保留头尾并省略中间内容",
             "kind": "body",
             "ranges": [
               [
@@ -9913,7 +9881,7 @@
             ]
           },
           {
-            "label": "describeRequest：请求拆成教学部件",
+            "label": "describeRequest：拆分请求内容",
             "kind": "body",
             "ranges": [
               [
@@ -9956,16 +9924,16 @@
       },
       "changeStory": {
         "title": "完整记录、较短输入与稳定前缀可以同时成立",
-        "summary": "DSH 把“保存过什么”和“本步发送什么”分开：完整历史仍是权威记录，buildRequest() 只生成当前模型视图。裁剪与摘要控制体积；固定内容前置、历史追加和动态说明后置，则让相邻请求尽可能共享更长前缀。",
-        "harnessRole": "输入层：决定每个 Step 真正交给模型什么",
-        "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成这份请求。第四章会提供权威事件来源；第三、五章改变 Tool 与 Prompt 时，也会在这里改变请求前缀。上下文管理因此连接执行、插件与会话。",
+        "summary": "DSH 分别管理完整历史和本步模型请求。完整历史保留原始内容，buildRequest() 生成当前模型视图。裁剪与摘要控制长度；固定内容前置、历史追加和动态说明后置，使相邻请求能够共享更长的稳定前缀。",
+        "harnessRole": "输入层：决定每个 Step 交给模型的具体内容",
+        "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成该请求。第四章提供完整事件来源；第三、五章改变 Tool 与 Prompt 时，也会改变这里的请求前缀。上下文管理连接执行、插件与会话记录。",
         "outcomes": [
-          "能区分完整记录、模型投影与 Provider 最终请求，而不把三者混成 messages",
-          "能解释 clipToolResult() 为什么只改视图，不应改写原始 Tool Result",
+          "能区分完整记录、模型投影与 Provider 最终请求，并说明三者与 messages 的关系",
+          "能解释 clipToolResult() 只修改模型视图并保留原始 Tool Result 的原因",
           "能从 system、tools、history、dynamicContext 的顺序判断缓存从哪里失效"
         ]
       },
-      "lesson": "# 上下文管理的核心，是把完整记录与模型输入分开\n\n模型每次只能看到当前请求，并不会天然记得上一步。Agent 运行得越久，用户消息、模型回复和工具结果就越多；如果把所有原文无条件塞进请求，上下文窗口迟早会被耗尽。DSH 因而需要两种视角：一份权威记录保留发生过的内容，本次请求则是从记录生成的模型视图。第二章的 checkpoint 暂时把原文留在 Agent 内存；第四章再把权威记录正式迁入 Session Log。\n\n## 投影只改变“这次给模型看什么”\n\n工具结果是最容易突然膨胀的部分。测试日志、搜索结果或文件内容可能比其余历史加起来还长。Nano DSH 对长结果保留开头、结尾和明确的省略标记：开头通常能说明结果的身份，结尾往往包含结论或错误，而标记告诉模型中间确实被裁掉了多少内容。\n\n这里的关键不是某个固定字符数，而是信息分层。完整工具输出仍留在权威记录中：本章暂存在 Agent 内存，第四章再进入 Session Log；裁剪只发生在构建模型请求时。以后需要更激进的压缩，也应当生成新的历史投影，而不是反过来改写已经发生的记录。\n\n<!-- evidence {\"id\":\"m02-projection-source\",\"tab\":\"source\",\"lines\":[38,137],\"label\":\"记录与模型投影分离\",\"description\":\"源码先裁剪长工具结果，再按稳定、累积和本步内容的顺序描述整份请求。\"} -->\n\n## 一份请求按变化速度排列\n\n请求最前面是固定区：系统规则与工具 Schema。中间是累积区：用户、模型和工具消息按发生顺序只向后追加。最后是本步区：只服务于当前 Step 的动态说明。三者并不是视觉上的分类而已，它们对应三种不同的变化频率。\n\n这样排列是为了保住尽可能长的稳定前缀。多数模型服务的 Prompt Cache 复用的是相邻请求开头那段完全相同的 token；它不关心两份请求“意思差不多”，只关心从开头起能连续匹配多久。把频繁变化的本步说明放在最后，新消息也尽量追加而不重排旧内容，变化就更可能发生在请求后部。\n\n<!-- evidence {\"id\":\"m02-prefix\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"稳定前缀与首次失效位置\",\"description\":\"比较相邻请求的相同开头，并查看新增历史从哪里开始打断复用。\"} -->\n\n## 哪些变化会让缓存提前失效\n\n如果系统规则改变，前缀从第一部分就不同；插件安装导致工具目录变化，失效点会落在工具 Schema；普通的新消息通常只影响历史尾部。历史压缩则处在两者之间：摘要能减少总长度，但它替换了较早内容，也会从摘要所在位置改变后续前缀。因此，上下文变短和缓存复用变好不是同一件事，需要分别权衡。\n\n本教程展示的是请求结构提供的缓存机会，而不是服务端真实命中率。模型提供方是否启用缓存、以什么粒度计费，属于 Provider 的实现。DSH 能做的是保持序列确定、稳定内容前置、增量内容后置，并把每次首次变化的位置解释清楚。\n\n所以第二章的答案包含两层：上下文通过“完整事件记录 → 本次请求投影”组织；缓存则通过稳定前缀、追加式历史和末尾动态说明获得复用机会。裁剪与摘要负责控制体积，顺序与稳定性负责保护缓存，它们解决的是相邻但不同的问题。\n\n<!-- evidence {\"id\":\"m02-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第二问，从投影、请求顺序和前缀比较三处代码解释输入层怎样连接其他五问。\"} -->\n",
+      "lesson": "# 上下文管理分别保存完整记录与模型输入\n\n模型每次只能读取当前请求，不会自动保留上一步的内容。随着 Agent 持续运行，用户消息、模型回复和工具结果不断增加；如果每次请求都包含全部原文，内容最终会超过模型上下文可容纳的 token 数量。token 是模型处理文本时使用的计量单位。DSH 保存一份包含完整内容的记录，并从中生成每次请求所需的模型视图。第二章暂时把原文保存在 Agent 内存中；第四章再把完整记录迁入 Session Log（会话日志）。\n\n## 投影只影响当前模型请求\n\n工具结果的长度可能突然增加。测试日志、搜索结果或文件内容有时比其余历史的总和还长。Nano DSH 对长结果保留开头、结尾和明确的省略标记。开头可用于识别结果内容，结尾常包含结论或错误，省略标记则记录中间删去了多少字符。\n\n固定字符数只是本示例的投影配置。完整工具输出仍保存在原始记录中：本章使用 Agent 内存，第四章改用 Session Log。裁剪只发生在模型请求的构建阶段。需要进一步压缩时，可以生成新的历史投影，同时保留已经发生的原始记录。\n\n<!-- evidence {\"id\":\"m02-projection-source\",\"tab\":\"source\",\"lines\":[38,137],\"label\":\"记录与模型投影分离\",\"description\":\"源码先裁剪过长的工具结果，再按固定内容、累积内容和本步内容的顺序描述请求。\"} -->\n\n## 请求内容按变化频率排列\n\n请求最前面是固定区，包含系统规则与 Tool Schema（工具定义及参数规则）。中间是累积区，用户消息、模型回复和工具结果按发生顺序向后追加。最后是本步区，只包含当前 Step 使用的动态说明。这三个区域的变化频率不同。\n\n这种顺序可保留较长的稳定前缀。多数模型服务的 Prompt Cache（提示词缓存）复用相邻请求开头连续相同的 token。缓存比较的是实际内容及其顺序；语义接近但文本不同的内容无法直接复用。把频繁变化的本步说明放在末尾，并追加新消息而不重排旧内容，可以把首次变化的位置留在请求后部。\n\n<!-- evidence {\"id\":\"m02-prefix\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"稳定前缀与首次失效位置\",\"description\":\"比较相邻请求开头的相同内容，并查看新增历史从哪里开始影响缓存复用。\"} -->\n\n## 会让缓存提前失效的变化\n\n系统规则改变时，前缀从第一部分开始变化；插件安装改变工具目录时，变化位置落在 Tool Schema；普通新消息通常只影响历史末尾。历史压缩位于更靠前的位置：摘要可以减少请求长度，也会从摘要插入处改变后续前缀。上下文长度和缓存复用率需要分别评估。\n\n本教程展示请求结构能够提供的缓存复用机会，不代表服务端的真实命中率。模型服务商是否启用缓存以及采用何种计费粒度，由具体服务决定。DSH 能控制序列的确定性、固定内容的位置、历史的追加顺序，并记录每次请求最早发生变化的位置。\n\n第二章把完整记录投影成当前模型请求，并通过固定内容前置、历史追加和动态说明后置来延长稳定前缀。裁剪与摘要控制请求长度，内容顺序与稳定性影响缓存复用。\n\n<!-- evidence {\"id\":\"m02-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第二问，从内容投影、请求顺序和前缀比较三处代码说明输入层与其他章节的关系。\"} -->\n",
       "source": {
         "path": "src/context.ts",
         "content": "import type { ModelMessage, ToolMessage, ToolSchema, UnifiedRequest } from \"./protocol.js\";\n\nexport interface ProjectionSettings {\n  maxToolResultChars: number;\n  toolResultHeadChars: number;\n  toolResultTailChars: number;\n}\n\nexport const DEFAULT_PROJECTION: ProjectionSettings = {\n  maxToolResultChars: 720,\n  toolResultHeadChars: 430,\n  toolResultTailChars: 170,\n};\n\nexport interface RequestPart {\n  id: string;\n  kind: \"system\" | \"tools\" | \"message\" | \"dynamic\";\n  stability: \"stable\" | \"append-only\" | \"step-variable\";\n  label: string;\n  value: unknown;\n  approximateTokens: number;\n}\n\nexport interface PrefixComparison {\n  sharedParts: number;\n  sharedApproximateTokens: number;\n  previousParts: number;\n  currentParts: number;\n  firstInvalidation: string | null;\n  note: string;\n}\n\nexport interface ClippedToolResult {\n  content: string;\n  omittedCharacters: number;\n}\n\nexport function projectMessages(\n  messages: ModelMessage[],\n  settings: ProjectionSettings = DEFAULT_PROJECTION,\n): ModelMessage[] {\n  return messages.map((message) => {\n    if (message.role !== \"tool\") return structuredClone(message);\n    const clipped = clipToolResult(message.content, settings);\n    return { ...message, content: clipped.content } satisfies ToolMessage;\n  });\n}\n\nexport function clipToolResult(\n  content: string,\n  settings: ProjectionSettings = DEFAULT_PROJECTION,\n): ClippedToolResult {\n  if (content.length <= settings.maxToolResultChars) {\n    return { content, omittedCharacters: 0 };\n  }\n  const omittedCharacters = Math.max(\n    0,\n    content.length - settings.toolResultHeadChars - settings.toolResultTailChars,\n  );\n  const marker = `\\n[… ${omittedCharacters} characters omitted from the model projection …]\\n`;\n  return {\n    content:\n      content.slice(0, settings.toolResultHeadChars) +\n      marker +\n      content.slice(content.length - settings.toolResultTailChars),\n    omittedCharacters,\n  };\n}\n\nexport function describeRequest(request: UnifiedRequest): RequestPart[] {\n  const parts: RequestPart[] = [\n    part(\"system\", \"system\", \"stable\", \"System prompt\", request.system),\n    part(\"tools\", \"tools\", \"stable\", \"Tool schemas\", request.tools),\n  ];\n  for (const [index, message] of request.messages.entries()) {\n    const suffix = message.role === \"tool\" ? ` · ${message.name}` : \"\";\n    parts.push(\n      part(\n        `message-${index}`,\n        \"message\",\n        \"append-only\",\n        `${message.role}${suffix}`,\n        message,\n      ),\n    );\n  }\n  if (request.dynamicContext) {\n    parts.push(\n      part(\n        \"dynamic\",\n        \"dynamic\",\n        \"step-variable\",\n        \"Step context\",\n        request.dynamicContext,\n      ),\n    );\n  }\n  return parts;\n}\n\nexport function compareRequestPrefix(\n  previous: UnifiedRequest | undefined,\n  current: UnifiedRequest,\n): PrefixComparison {\n  const currentParts = describeRequest(current);\n  if (!previous) {\n    return {\n      sharedParts: 0,\n      sharedApproximateTokens: 0,\n      previousParts: 0,\n      currentParts: currentParts.length,\n      firstInvalidation: \"First request has no predecessor.\",\n      note: \"Teaching estimate only; no provider cache was queried.\",\n    };\n  }\n  const previousParts = describeRequest(previous);\n  let sharedParts = 0;\n  while (\n    sharedParts < previousParts.length &&\n    sharedParts < currentParts.length &&\n    canonical(previousParts[sharedParts]?.value) === canonical(currentParts[sharedParts]?.value)\n  ) {\n    sharedParts += 1;\n  }\n  return {\n    sharedParts,\n    sharedApproximateTokens: currentParts\n      .slice(0, sharedParts)\n      .reduce((total, item) => total + item.approximateTokens, 0),\n    previousParts: previousParts.length,\n    currentParts: currentParts.length,\n    firstInvalidation:\n      sharedParts === Math.min(previousParts.length, currentParts.length)\n        ? null\n        : currentParts[sharedParts]?.label ?? \"Request end\",\n    note: \"Longest identical canonical prefix; approximate tokens, not provider cache usage.\",\n  };\n}\n\nexport function approximateTokens(value: unknown): number {\n  const text = typeof value === \"string\" ? value : canonical(value);\n  return Math.max(1, Math.ceil([...text].length / 4));\n}\n\nexport function toolSchemas(tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>): ToolSchema[] {\n  return tools.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }));\n}\n\nfunction part(\n  id: string,\n  kind: RequestPart[\"kind\"],\n  stability: RequestPart[\"stability\"],\n  label: string,\n  value: unknown,\n): RequestPart {\n  return { id, kind, stability, label, value, approximateTokens: approximateTokens(value) };\n}\n\nfunction canonical(value: unknown): string {\n  return JSON.stringify(sortObject(value));\n}\n\nfunction sortObject(value: unknown): unknown {\n  if (Array.isArray(value)) return value.map(sortObject);\n  if (value !== null && typeof value === \"object\") {\n    return Object.fromEntries(\n      Object.entries(value as Record<string, unknown>)\n        .sort(([left], [right]) => left.localeCompare(right))\n        .map(([key, item]) => [key, sortObject(item)]),\n    );\n  }\n  return value;\n}\n",
@@ -10246,11 +10214,11 @@
       "question": "如何实现“一切皆插件”？",
       "codeGuide": {
         "title": "每项贡献怎样获得归属和撤销路径",
-        "description": "Context 把插件挂载当作一段受控生命周期。安装期间产生的 Service、Tool 与 Prompt 都记录 owner，并把清理动作压入同一条 effect 栈。",
+        "description": "Context 统一管理插件的安装与卸载。安装期间产生的 Service、Tool 与 Prompt 都记录 owner，并把清理函数加入同一个 effect 栈。",
         "observations": [
           {
-            "title": "setup 失败会进入回滚路径",
-            "text": "Context 在 setup 前登记安装记录并标记 active owner。setup 抛错时尝试逆序撤销已登记 effect；这个 Nano 实现假定 cleanup 本身可以正常完成。",
+            "title": "setup 失败后撤销已登记内容",
+            "text": "Context 在 setup 前登记安装记录并标记 active owner。setup 抛错时逆序撤销已登记的 effect。这个 Nano 实现假定 cleanup 可以正常完成。",
             "lines": [
               45,
               60
@@ -10265,33 +10233,17 @@
             ]
           },
           {
-            "title": "注册动作自动绑定 owner",
-            "text": "Service、Tool 与 Prompt 只能在插件 setup 期间注册。每次写入 Registry 的同时都登记一个只删除本 owner 贡献的清理函数。",
+            "title": "注册内容自动绑定 owner",
+            "text": "Service、Tool 与 Prompt 只能在插件 setup 期间注册。每次写入 Registry 时，Context 都会登记一个只删除该 owner 贡献的清理函数。",
             "lines": [
               86,
               123
             ]
           }
         ],
-        "folds": [
-          {
-            "lines": [
-              68,
-              74
-            ],
-            "label": "依赖关系清理细节"
-          },
-          {
-            "lines": [
-              96,
-              105
-            ],
-            "label": "Service 查找与依赖记录"
-          }
-        ],
         "fills": [
           {
-            "label": "三类声明与 Context 骨架",
+            "label": "三类声明与 Context 结构",
             "kind": "skeleton",
             "ranges": [
               [
@@ -10361,7 +10313,7 @@
             ]
           },
           {
-            "label": "读取与检视：emit 到 inspect",
+            "label": "读取与检查：emit 到 inspect",
             "kind": "body",
             "ranges": [
               [
@@ -10393,17 +10345,17 @@
         ]
       },
       "changeStory": {
-        "title": "运行时能力拥有统一的安装边界",
-        "summary": "“一切皆插件”不是把每个对象都写成插件类，而是让进入 Context 的 Service、Tool、Prompt 与 Listener 都拥有 owner 和 disposer。挂载成功才提交整组能力，失败或卸载则沿同一条 effect 栈逆序撤回。",
+        "title": "运行时能力使用统一的安装与卸载流程",
+        "summary": "一切皆插件要求进入 Context 的 Service、Tool、Prompt 与 Listener 都记录 owner（来源插件）和 disposer（卸载函数），普通对象无须改写成插件类。整组能力在挂载成功后生效，安装失败或主动卸载时沿同一个 effect 栈逆序撤销。",
         "harnessRole": "组装层：决定 Agent 此刻拥有哪些能力",
-        "connection": "第一章只消费当前工具目录，第二章把它放进模型请求；本章解释这些工具和规则从哪里来、怎样成组退出。第五章不会另造自修改机制，而是把这里的 mount/unmount 生命周期开放给 Agent 使用。",
+        "connection": "第一章读取当前工具目录，第二章把它加入模型请求；本章说明这些工具和规则的来源及卸载方式。第五章把这里的 mount/unmount 生命周期开放给 Agent，在受控范围内变更运行时能力。",
         "outcomes": [
           "能区分 Tool 这个模型动作与 Plugin 这个能力安装单元",
           "能沿 Context.mount()、effect() 与 disposer 说明成功、失败和卸载三条路径",
-          "能从 inspect() 的 owner 与 relation 还原当前运行时是怎样组装出来的"
+          "能根据 inspect() 返回的 owner 与 relation 说明当前运行时的能力来源和依赖"
         ]
       },
-      "lesson": "# “一切皆插件”指的是统一的能力生命周期\n\n一个 Agent 的能力并不只有 Tool。模型提供方可以是一项 Service，行为规则会贡献 Prompt，运行过程需要 Listener，工具本身还可能依赖别的服务。如果这些对象分别用全局变量注册、再由不同代码负责清理，运行时很快会变成一组难以检查和卸载的隐式状态。\n\nDSH 的做法是把进入运行时的能力都交给 Plugin 安装。这里的“一切”不是说每个对象都必须写成插件类，而是说每一项运行时贡献都能回答两个问题：它由哪个插件带来；移除这个插件时应当怎样撤销。\n\n## Context 是插件共同使用的内核\n\nPlugin 在 `setup()` 中拿到同一个 Context，可以提供 Service、注册 Tool、贡献 Prompt 或订阅 Event。Context 在安装期间记住当前插件的名字，于是每一项注册都会自动带上 owner。一个插件使用另一个插件的 Service 时，Context 还会记录 consumer、service 与 provider 的关系。这里记录的是可检查的关系，不是完整的依赖解析器：版本选择、拓扑排序和级联卸载不在 Nano 范围内。\n\nAgent Loop 不需要知道这些能力怎样组装。它只从 Context 读取当前工具目录和编译后的系统 Prompt。插件关系稳定时，模型请求也稳定；一个插件被显式卸载、另一项能力重新挂载后，下一次请求自然得到新的能力快照。Nano 没有实现原子“替换”操作。\n\n<!-- evidence {\"id\":\"m03-owners\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"能力归属与依赖关系\",\"description\":\"从一张运行时快照查看插件如何提供服务、工具和提示词，以及插件之间如何形成依赖。\"} -->\n\n## 注册能力时，同时登记撤销动作\n\n只记录 owner 还不够，插件必须能够完整退出。Context 在挂载开始时建立一份 effect 栈；每次注册能力，都同时把对应的清理函数压进栈中。`setup()` 全部成功，挂载才算完成，并返回一个只生效一次的卸载函数。\n\n如果 `setup()` 做到一半抛错，Context 会按相反顺序执行已经登记的清理动作。这使普通失败接近一笔小事务：要么整组能力都出现，要么回到安装前。主动卸载复用同一条回滚路径，反向顺序也保证后注册、可能依赖前项的贡献先退出。\n\n这里还有一个刻意保留的实现边界：Nano 假定 cleanup 本身不会失败，也没有把依赖关系做成完整的事务记录。生产实现还需要在 `finally` 中清除挂载状态，并处理部分 cleanup 失败；本章讲清的是生命周期骨架，不把最小实现包装成完整容器。\n\n<!-- evidence {\"id\":\"m03-lifecycle\",\"tab\":\"source\",\"lines\":[45,123],\"label\":\"挂载、回滚与卸载\",\"description\":\"沿 effect 栈查看一次安装如何提交，失败时如何回滚，工具和提示词又怎样登记自己的清理动作。\"} -->\n\n这套约束带来三个直接结果。能力有归属，所以运行时可以被检查；安装有撤销路径，所以能力能够先卸载再重新组装；所有贡献共用生命周期，所以正常卸载不会只删掉 Tool，却遗留 Prompt 或 Listener。第五章的运行时自进化并不会另造机制，它只是让 Agent 在受控范围内调用这里已经建立的安装与卸载能力。\n\n因此，“一切皆插件”的实现核心不是一个复杂加载器，而是 Context、owner 和 disposer 三件事：统一注册入口，自动记录来源，每次影响都有撤销方法。插件只是能力边界，真正重要的是边界内的变化可以被看见，也可以被完整收回。\n\n<!-- evidence {\"id\":\"m03-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第三问，用 mount、effect 与 owner 复述组装层，并连接 Agent Loop 与运行时适配。\"} -->\n",
+      "lesson": "# 插件统一管理运行时能力的生命周期\n\n一个 Agent 的能力包含多种运行时对象。Tool 表示模型可以请求的操作，Service 提供共享服务，Prompt 提供行为规则，Listener 订阅运行事件，工具还可能依赖其他服务。如果这些对象分别使用全局变量注册，并由不同代码清理，运行时会积累难以检查和卸载的隐式状态。\n\nDSH 让所有运行时能力通过 Plugin（插件）安装。第三章所说的一切皆插件，要求每项运行时贡献都记录来源插件，并提供在插件移除时撤销该项贡献的方法。普通对象无须改写成插件类。\n\n## Context 提供统一注册入口\n\nPlugin 在 `setup()` 中取得同一个 Context（运行时上下文），随后可以提供 Service、注册 Tool、贡献 Prompt 或订阅 Event。Context 在安装期间记录当前插件名称，为每项注册内容添加 owner（来源插件）。一个插件使用另一个插件的 Service 时，Context 还会记录 consumer（使用方）、service（服务）与 provider（提供方）的关系。这些记录用于检查依赖关系，不处理版本选择、拓扑排序和级联卸载。\n\nAgent Loop 只从 Context 读取当前工具目录和合并后的系统 Prompt，不需要处理能力的安装过程。插件关系保持不变时，请求中的工具与规则也保持不变。卸载或重新挂载插件后，Context 会在下一次请求中提供更新后的能力列表。Nano DSH 没有实现原子替换操作。\n\n<!-- evidence {\"id\":\"m03-owners\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"能力归属与依赖关系\",\"description\":\"查看当前运行时状态，确认各插件提供的服务、工具和提示词，以及插件之间的依赖。\"} -->\n\n## 注册能力时登记撤销动作\n\n来源记录无法单独完成卸载。Context 在挂载开始时建立 effect 栈，即按顺序保存副作用清理函数的列表。每次注册能力时，对应的清理函数也会加入这个列表。`setup()` 全部成功后，Context 才确认挂载完成，并返回一个只生效一次的 disposer（卸载函数）。\n\n如果 `setup()` 执行到一半抛出错误，Context 会按相反顺序执行已经登记的清理函数，使运行时恢复到安装前的状态。主动卸载使用同一组清理函数。反向执行可以让后注册且可能依赖前项的贡献先退出。\n\nNano DSH 假定 cleanup（清理函数）能够正常完成，也没有实现完整的依赖事务。生产实现还需要在 `finally` 代码块中清除挂载状态，并处理部分 cleanup 失败。本章实现仅覆盖插件生命周期所需的最小机制。\n\n<!-- evidence {\"id\":\"m03-lifecycle\",\"tab\":\"source\",\"lines\":[45,123],\"label\":\"挂载、回滚与卸载\",\"description\":\"按照 effect 栈的记录顺序，查看安装确认、失败回滚，以及工具和提示词如何登记清理函数。\"} -->\n\n统一生命周期带来三个直接结果。owner 让运行时能够列出能力来源；disposer 让插件可以完整卸载后重新安装；同一组清理函数会同时移除 Tool、Prompt 和 Listener，避免只清理部分贡献。第五章会让 Agent 在受控范围内调用这里已经定义的安装与卸载操作。\n\nContext 负责统一注册，owner 记录来源，disposer 撤销插件产生的全部影响。这三项机制让不同类型的运行时能力遵循同一套安装、检查和卸载流程。\n\n<!-- evidence {\"id\":\"m03-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第三问，用 mount、effect 与 owner 说明能力组装方式，并连接 Agent Loop 与运行时适配。\"} -->\n",
       "source": {
         "path": "src/runtime.ts",
         "content": "import type { ToolDefinition } from \"./protocol.js\";\n\nexport class ServiceToken<T> {\n  readonly key = Symbol();\n  constructor(readonly name: string) {}\n}\n\nexport interface Plugin {\n  name: string;\n  setup(context: Context): void | Promise<void>;\n}\n\nexport interface RuntimeInspection {\n  plugins: string[];\n  services: Array<{ name: string; provider: string }>;\n  tools: Array<{ name: string; plugin: string }>;\n  prompts: Array<{ id: string; plugin: string; text: string }>;\n  listeners: Array<{ event: string; plugin: string }>;\n  relations: Array<{ consumer: string; service: string; provider: string }>;\n}\n\ntype Disposer = () => void;\ntype Listener = (payload: unknown) => void;\n\ninterface MountRecord {\n  name: string;\n  effects: Disposer[];\n  state: \"installing\" | \"mounted\" | \"unmounted\";\n}\n\ninterface Owned<T> {\n  owner: string;\n  value: T;\n}\n\nexport class Context {\n  readonly #mounts = new Map<string, MountRecord>();\n  readonly #services = new Map<symbol, Owned<unknown> & { token: ServiceToken<unknown> }>();\n  readonly #tools = new Map<string, Owned<ToolDefinition>>();\n  readonly #prompts = new Map<string, Owned<string>>();\n  readonly #listeners = new Map<string, Set<Owned<Listener>>>();\n  readonly #relations: RuntimeInspection[\"relations\"] = [];\n  #activeMount: MountRecord | null = null;\n\n  async mount(plugin: Plugin): Promise<Disposer> {\n    if (this.#mounts.has(plugin.name)) throw new Error(`Plugin already mounted: ${plugin.name}`);\n    if (this.#activeMount) throw new Error(\"Nested plugin mounting is not supported during setup.\");\n    const record: MountRecord = { name: plugin.name, effects: [], state: \"installing\" };\n    this.#mounts.set(plugin.name, record);\n    this.#activeMount = record;\n    try {\n      await plugin.setup(this);\n      record.state = \"mounted\";\n    } catch (error) {\n      this.#rollback(record);\n      this.#mounts.delete(plugin.name);\n      throw error;\n    } finally {\n      this.#activeMount = null;\n    }\n\n    this.emit(\"runtime/plugin-mounted\", { plugin: plugin.name });\n    return once(() => {\n      if (record.state === \"unmounted\") return;\n      this.emit(\"runtime/plugin-unmounting\", { plugin: plugin.name });\n      this.#rollback(record);\n      this.#mounts.delete(plugin.name);\n      this.#relations.splice(\n        0,\n        this.#relations.length,\n        ...this.#relations.filter(\n          (relation) => relation.consumer !== plugin.name && relation.provider !== plugin.name,\n        ),\n      );\n      this.emit(\"runtime/plugin-unmounted\", { plugin: plugin.name });\n    });\n  }\n\n  effect(cleanup: Disposer): Disposer {\n    const mount = this.#requireMount();\n    const dispose = once(cleanup);\n    mount.effects.push(dispose);\n    return dispose;\n  }\n\n  provide<T>(token: ServiceToken<T>, value: T): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#services.has(token.key)) throw new Error(`Service already provided: ${token.name}`);\n    this.#services.set(token.key, { owner, value, token: token as ServiceToken<unknown> });\n    return this.effect(() => {\n      const service = this.#services.get(token.key);\n      if (service?.owner === owner) this.#services.delete(token.key);\n    });\n  }\n\n  use<T>(token: ServiceToken<T>): T {\n    const service = this.#services.get(token.key);\n    if (!service) throw new Error(`Missing service: ${token.name}`);\n    const consumer = this.#activeMount?.name;\n    if (consumer) {\n      const relation = { consumer, service: token.name, provider: service.owner };\n      if (!this.#relations.some((item) => sameRelation(item, relation))) this.#relations.push(relation);\n    }\n    return service.value as T;\n  }\n\n  registerTool(tool: ToolDefinition): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#tools.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`);\n    this.#tools.set(tool.name, { owner, value: tool });\n    return this.effect(() => {\n      if (this.#tools.get(tool.name)?.owner === owner) this.#tools.delete(tool.name);\n    });\n  }\n\n  contributePrompt(id: string, text: string): Disposer {\n    const owner = this.#requireMount().name;\n    if (this.#prompts.has(id)) throw new Error(`Prompt contribution already registered: ${id}`);\n    this.#prompts.set(id, { owner, value: text });\n    return this.effect(() => {\n      if (this.#prompts.get(id)?.owner === owner) this.#prompts.delete(id);\n    });\n  }\n\n  on(event: string, listener: Listener): Disposer {\n    const owner = this.#requireMount().name;\n    const entry = { owner, value: listener };\n    const listeners = this.#listeners.get(event) ?? new Set<Owned<Listener>>();\n    listeners.add(entry);\n    this.#listeners.set(event, listeners);\n    return this.effect(() => {\n      listeners.delete(entry);\n      if (listeners.size === 0) this.#listeners.delete(event);\n    });\n  }\n\n  emit(event: string, payload: unknown): void {\n    for (const listener of [...(this.#listeners.get(event) ?? [])]) listener.value(payload);\n  }\n\n  listTools(): ToolDefinition[] {\n    return [...this.#tools.values()].map((entry) => entry.value);\n  }\n\n  getTool(name: string): ToolDefinition | undefined {\n    return this.#tools.get(name)?.value;\n  }\n\n  compilePrompt(base = \"\"): string {\n    return [base, ...[...this.#prompts.values()].map((entry) => entry.value)]\n      .filter(Boolean)\n      .join(\"\\n\\n\");\n  }\n\n  inspect(): RuntimeInspection {\n    return {\n      plugins: [...this.#mounts.values()]\n        .filter((mount) => mount.state === \"mounted\")\n        .map((mount) => mount.name),\n      services: [...this.#services.values()].map((entry) => ({\n        name: entry.token.name,\n        provider: entry.owner,\n      })),\n      tools: [...this.#tools.entries()].map(([name, entry]) => ({ name, plugin: entry.owner })),\n      prompts: [...this.#prompts.entries()].map(([id, entry]) => ({\n        id,\n        plugin: entry.owner,\n        text: entry.value,\n      })),\n      listeners: [...this.#listeners.entries()].flatMap(([event, entries]) =>\n        [...entries].map((entry) => ({ event, plugin: entry.owner })),\n      ),\n      relations: structuredClone(this.#relations),\n    };\n  }\n\n  #requireMount(): MountRecord {\n    if (!this.#activeMount) throw new Error(\"Runtime contributions must be registered during plugin setup.\");\n    return this.#activeMount;\n  }\n\n  #rollback(record: MountRecord): void {\n    const failures: unknown[] = [];\n    for (const dispose of [...record.effects].reverse()) {\n      try {\n        dispose();\n      } catch (error) {\n        failures.push(error);\n      }\n    }\n    record.state = \"unmounted\";\n    if (failures.length > 0) throw new AggregateError(failures, `Failed to clean up ${record.name}`);\n  }\n}\n\nfunction once(action: Disposer): Disposer {\n  let done = false;\n  return () => {\n    if (done) return;\n    done = true;\n    action();\n  };\n}\n\nfunction sameRelation(\n  left: RuntimeInspection[\"relations\"][number],\n  right: RuntimeInspection[\"relations\"][number],\n): boolean {\n  return (\n    left.consumer === right.consumer &&\n    left.service === right.service &&\n    left.provider === right.provider\n  );\n}\n",
@@ -10613,10 +10565,10 @@
       "number": "04",
       "shortTitle": "让运行有迹可循",
       "title": "从日志重建执行过程",
-      "question": "DSH 怎么记录和保存 Agent 执行过程？",
+      "question": "DSH 怎么记录和保存 Agent 执行过程?",
       "codeGuide": {
-        "title": "Session Log 怎样成为请求与 Trace 的共同记录",
-        "description": "日志先以稳定编号追加观察事件；重建时再定位目标请求头、选择最近 checkpoint，并把此前事件投影为模型消息。",
+        "title": "Session Log 怎样同时生成请求与 Trace",
+        "description": "日志使用稳定编号追加观察事件。重建请求时，代码定位目标请求头、选择最近的 checkpoint，并把此前事件投影为模型消息。",
         "observations": [
           {
             "title": "事件只追加，不就地改写",
@@ -10627,34 +10579,25 @@
             ]
           },
           {
-            "title": "请求头固定重建边界",
-            "text": "stepId 先定位目标 request/header；只有它之前发生的事件属于本步历史。最近 checkpoint 决定模型投影从哪里接续。",
+            "title": "请求头确定重建范围",
+            "text": "stepId 先定位目标 request/header；该事件之前发生的内容属于本步历史。最近的 checkpoint 决定模型投影从哪里继续。",
             "lines": [
               130,
               153
             ]
           },
           {
-            "title": "事件重新投影为模型消息",
-            "text": "工具调用先按 Step 归组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。",
+            "title": "事件投影为模型消息",
+            "text": "工具调用先按 Step 分组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。",
             "lines": [
               155,
               194
             ]
           }
         ],
-        "folds": [
-          {
-            "lines": [
-              113,
-              128
-            ],
-            "label": "Runtime 事件写入 Session 的桥接代码"
-          }
-        ],
         "fills": [
           {
-            "label": "事件类型系统与 SessionLog 骨架",
+            "label": "事件类型系统与 SessionLog 结构",
             "kind": "skeleton",
             "ranges": [
               [
@@ -10730,7 +10673,7 @@
             ]
           },
           {
-            "label": "统一请求组装与轨迹工具",
+            "label": "统一请求组装与 Trace 工具",
             "kind": "body",
             "ranges": [
               [
@@ -10753,16 +10696,16 @@
       },
       "changeStory": {
         "title": "请求与时间线来自同一份记录",
-        "summary": "DSH 把用户消息、请求头、模型回复、工具往返、运行时变化和 Goal 状态写入同一条 append-only Session Log。buildRequest() 从目标 request/header 向前重建当时输入，Trace 则把同一批 Event 翻译成人能阅读的执行过程。",
+        "summary": "DSH 把用户消息、请求头、模型回复、工具往返、运行时变化和 Goal 状态写入同一条 append-only（只追加）Session Log。buildRequest() 根据目标 request/header 重建当时的输入，Trace 使用同一批 Event 生成可读的执行过程。",
         "harnessRole": "记忆与证据层：为请求、回放和审计提供共同来源",
-        "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；这些都在本章汇入同一记录源。第五章的能力实验和第六章的 Goal/Round 也继续追加 Event，而不是各自维护隐藏状态。",
+        "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；本章把这些内容写入同一记录源。第五章的能力实验和第六章的 Goal/Round 也继续追加 Event，所有视图都从明确记录中生成。",
         "outcomes": [
           "能说明为什么 request/header 是重建某个 Step 的时间边界",
           "能解释 checkpoint 只替换模型投影，不删除已经发生的 Event",
           "能区分 Session Log、Unified Request、Trace 与 Provider payload 四种视图"
         ]
       },
-      "lesson": "# Session Log 保存观察事件，其他视图从中派生\n\n只维护一个 `messages` 数组，足以继续聊天，却不足以解释一次 Agent 运行。它通常没有保存某个 Step 当时使用的系统规则、工具目录和投影设置，也很难回答插件何时安装、一次工具结果属于哪个调用、Agent 为什么在这里停止。\n\nDSH 因此不把“模型消息”当作全部历史，而是把运行中观察到的事件写成 Event。用户输入、Step 开始、请求头、模型回复、工具调用、工具结果、上下文检查点和运行时变化，都在同一条 Session Log 中获得类型与递增编号。\n\n## Event 是记录格式，Trace 是阅读方式\n\n日志采用 append-only 约束：新事件只追加到末尾，已经记录的事件不就地改写。这样做首先是为了保留因果顺序，其次才是为了展示。一个工具结果排在某次调用之后、下一次请求之前，这个位置本身就在说明它怎样进入了后续上下文。\n\n右侧只截取一次工具往返所需的六条关键事件，不试图把所有事件一次铺满。它们足以看见用户消息、第一份请求、模型工具调用、工具结果和第二份请求之间的顺序。完整实现还有 Turn、Step、checkpoint 与运行时事件；这些仍属于同一套记录，不是另一张时间线。\n\n<!-- evidence {\"id\":\"m04-events\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"一次工具往返的事件切片\",\"description\":\"用六条关键事件观察记录如何依次追加，以及工具结果怎样落在两次模型请求之间。\"} -->\n\n## 任意一步的请求都能从日志重建\n\n为了还原某个 Step，`buildRequest()` 先找到它的 `request/header`。Header 保存当时的系统规则、工具 Schema、本步说明与投影配置；Header 之前的用户、模型和工具事件则按原顺序还原成消息。工具调用会重新挂回产生它的模型回复，工具结果继续保留对应的调用编号。\n\n如果历史中已有上下文 checkpoint，请求构建器会用摘要代表检查点覆盖的旧事件，再拼接它之后的新事件。注意，被覆盖的原始 Event 并没有从 Session Log 删除；变化的是模型当前要看的投影。这也把第二章的“完整记录与模型输入分离”落到了可重建的数据结构上。\n\n<!-- evidence {\"id\":\"m04-rebuild\",\"tab\":\"source\",\"lines\":[84,194],\"label\":\"从事件日志重建模型请求\",\"description\":\"查看请求头定位、checkpoint 选择、消息还原和工具结果投影如何组成同一条流水线。\"} -->\n\n页面上的 Trace 同样只是对 Event 的翻译：事件类型变成人能读的标题和说明，原始 payload 仍可展开。于是请求检查、执行时间线和能力变化不会各自维护一份容易漂移的副本，它们都引用同一记录源。\n\n这里的“重建”是语义层的 Unified Request 重建，不是逐字节复现 Provider payload；“回放”也是把事件重新投影成 Trace，不会再次调用模型或重新执行工具。模型流式分片、网络重试和供应商请求编号也没有进入这份最小日志。\n\n当前 Nano DSH 把 Session Log 保存在内存中，已经证明记录、重建和回放的模型，但没有声称进程重启后仍能恢复。若要跨进程保存，可以把同一组 Event 追加写入 JSONL 或数据库；持久化介质是下一层工程选择，不改变本章的事件结构。\n\n所以“有迹可循”并不是多打几行日志，而是建立共同记录源：Event 负责记录观察结果，Session Log 保留顺序，Request 与 Trace 从中派生，checkpoint 只改变模型视图而不抹去历史。\n\n<!-- evidence {\"id\":\"m04-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第四问，从 append、request/header 与消息投影复述共同记录源怎样串起六问。\"} -->\n",
+      "lesson": "# Session Log 保存事件并生成其他视图\n\n一个 `messages` 数组可以保存对话内容，但通常缺少解释 Agent 运行所需的信息，例如某个 Step 当时使用的系统规则、工具目录和投影设置。它也难以确定插件的安装时间、工具结果对应的调用，以及 Agent 在某处停止的原因。\n\nDSH 把运行中观察到的内容记录为 Event（事件）。用户输入、Step 开始、请求头、模型回复、工具调用、工具结果、上下文检查点和运行时变化，都写入同一条 Session Log（会话日志），并获得事件类型和递增编号。\n\n## Event 负责记录，Trace 负责展示\n\n日志采用 append-only（只追加）约束：新事件只能加入末尾，已经记录的事件不会就地修改。这项约束保留事件的因果顺序。工具结果位于对应调用之后、下一次请求之前，因此可以确定它如何进入后续上下文。\n\n右侧截取一次工具往返所需的六条事件，用于展示用户消息、第一份请求、模型工具调用、工具结果和第二份请求的顺序。完整实现还记录 Turn、Step、checkpoint（上下文检查点）与运行时事件，全部使用同一条 Session Log。\n\n<!-- evidence {\"id\":\"m04-events\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"一次工具往返的事件记录\",\"description\":\"按照六条事件的递增编号，查看工具结果如何记录在调用与下一次模型请求之间。\"} -->\n\n## 任意一步的请求都能从日志重建\n\n为了还原某个 Step，`buildRequest()` 先找到对应的 `request/header`。Header（请求头事件）保存当时的系统规则、Tool Schema、本步说明与投影配置。请求头之前的用户、模型和工具事件会按原顺序还原成消息；工具调用重新归入产生它的模型回复，工具结果继续保留对应的调用编号。\n\n历史中存在 checkpoint 时，请求构建器用摘要表示检查点覆盖的旧事件，再追加检查点之后的新事件。原始 Event 仍保留在 Session Log 中，checkpoint 只改变当前模型请求的投影。第二章提出的完整记录与模型输入分离由此获得可重建的数据结构。\n\n<!-- evidence {\"id\":\"m04-rebuild\",\"tab\":\"source\",\"lines\":[84,194],\"label\":\"从事件日志重建模型请求\",\"description\":\"查看请求头定位、checkpoint 选择、消息还原和工具结果投影如何共同生成模型请求。\"} -->\n\n页面上的 Trace（执行过程视图）也由 Event 生成：事件类型转换为可读标题和说明，原始 payload（事件数据）仍可展开。请求检查、执行时间线和能力变化因此引用同一份记录，无须分别维护可能不一致的副本。\n\n本章重建的是语义一致的 Unified Request（统一请求），不保证与模型服务商的原始请求逐字节相同。回放会把 Event 再次转换为 Trace，不会重新调用模型或执行工具。模型的流式分片、网络重试和服务商请求编号没有进入这份最小日志。\n\n当前 Nano DSH 把 Session Log 保存在内存中，可以演示记录、重建和回放，但进程重启后无法恢复。跨进程保存可以把同一组 Event 追加写入 JSON Lines（JSONL，每行一条 JSON 记录）文件或数据库。存储介质的选择不会改变本章的事件结构。\n\nDSH 通过 Event 记录观察结果，由 Session Log 保存顺序，再从同一份记录生成 Request 和 Trace。checkpoint 只改变模型视图，不删除历史事件。这些机制共同回答运行过程如何记录、保存和检查。\n\n<!-- evidence {\"id\":\"m04-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第四问，从 append、request/header 与消息投影说明共同记录源如何连接六个章节。\"} -->\n",
       "source": {
         "path": "src/session.ts",
         "content": "import { projectMessages, type ProjectionSettings } from \"./context.js\";\nimport type {\n  AssistantMessage,\n  ModelMessage,\n  ToolCall,\n  ToolSchema,\n  UnifiedRequest,\n} from \"./protocol.js\";\nimport { ServiceToken, type Plugin } from \"./runtime.js\";\n\ninterface EventBase {\n  id: number;\n  type: string;\n}\n\nexport type SessionEvent =\n  | (EventBase & { type: \"turn/start\"; turnId: string })\n  | (EventBase & { type: \"user/message\"; turnId: string; content: string })\n  | (EventBase & { type: \"step/start\"; turnId: string; stepId: string; ordinal: number })\n  | (EventBase & {\n      type: \"request/header\";\n      stepId: string;\n      provider: string;\n      model: string;\n      system: string;\n      tools: ToolSchema[];\n      dynamicContext: string;\n      projection: ProjectionSettings;\n    })\n  | (EventBase & { type: \"assistant/message\"; stepId: string; content: string })\n  | (EventBase & { type: \"tool/call\"; stepId: string; call: ToolCall })\n  | (EventBase & {\n      type: \"tool/result\";\n      stepId: string;\n      toolCallId: string;\n      name: string;\n      content: string;\n    })\n  | (EventBase & {\n      type: \"context/checkpoint\";\n      summary: string;\n      coveredThroughEventId: number;\n    })\n  | (EventBase & { type: \"runtime/plugin-mounted\"; plugin: string })\n  | (EventBase & { type: \"runtime/plugin-unmounted\"; plugin: string })\n  | (EventBase & { type: \"step/end\"; stepId: string; outcome: \"tool-calls\" | \"complete\" })\n  | (EventBase & {\n      type: \"turn/end\";\n      turnId: string;\n      outcome: \"completed\" | \"max-steps\" | \"failed\";\n    })\n  | (EventBase & {\n      type: \"goal/created\";\n      goalId: string;\n      objective: string;\n      maxRounds: number;\n    })\n  | (EventBase & {\n      type: \"goal/round-started\";\n      goalId: string;\n      round: number;\n      label: string;\n    })\n  | (EventBase & {\n      type: \"goal/status-changed\";\n      goalId: string;\n      status: \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n      reason: string;\n    });\n\nexport type NewSessionEvent = SessionEvent extends infer Event\n  ? Event extends SessionEvent\n    ? Omit<Event, \"id\">\n    : never\n  : never;\n\nexport interface TraceItem {\n  eventId: number;\n  type: SessionEvent[\"type\"];\n  title: string;\n  detail: string;\n}\n\nexport class SessionLog {\n  readonly #events: SessionEvent[] = [];\n  #nextId = 1;\n  #nextTurn = 1;\n\n  get events(): readonly SessionEvent[] {\n    return this.#events;\n  }\n\n  append(event: NewSessionEvent): SessionEvent {\n    const stored = { ...structuredClone(event), id: this.#nextId++ } as SessionEvent;\n    this.#events.push(stored);\n    return stored;\n  }\n\n  nextTurnId(): string {\n    return `turn-${this.#nextTurn++}`;\n  }\n\n  checkpoint(summary: string, coveredThroughEventId: number): SessionEvent {\n    if (coveredThroughEventId >= this.#nextId) {\n      throw new Error(\"A checkpoint may cover only events that already exist.\");\n    }\n    return this.append({ type: \"context/checkpoint\", summary, coveredThroughEventId });\n  }\n}\n\nexport const SESSION_LOG = new ServiceToken<SessionLog>(\"session-log\");\n\nexport function sessionPlugin(log: SessionLog): Plugin {\n  return {\n    name: \"session-log\",\n    setup(context) {\n      context.provide(SESSION_LOG, log);\n      context.on(\"runtime/plugin-mounted\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-mounted\", plugin });\n      });\n      context.on(\"runtime/plugin-unmounting\", (payload) => {\n        const plugin = pluginName(payload);\n        log.append({ type: \"runtime/plugin-unmounted\", plugin });\n      });\n    },\n  };\n}\n\nexport function buildRequest(events: readonly SessionEvent[], stepId: string): UnifiedRequest {\n  const headerIndex = events.findIndex(\n    (event) => event.type === \"request/header\" && event.stepId === stepId,\n  );\n  if (headerIndex === -1) throw new Error(`Missing request/header for ${stepId}.`);\n  const header = events[headerIndex];\n  if (header?.type !== \"request/header\") throw new Error(`Invalid request header for ${stepId}.`);\n\n  const prefix = events.slice(0, headerIndex);\n  const checkpoint = [...prefix]\n    .reverse()\n    .find((event): event is Extract<SessionEvent, { type: \"context/checkpoint\" }> =>\n      event.type === \"context/checkpoint\",\n    );\n  const projectedEvents = checkpoint\n    ? prefix.filter((event) => event.id > checkpoint.coveredThroughEventId)\n    : prefix;\n  const messages: ModelMessage[] = [];\n  if (checkpoint) {\n    messages.push({\n      role: \"system\",\n      content: `[Context checkpoint through event ${checkpoint.coveredThroughEventId}]\\n${checkpoint.summary}`,\n    });\n  }\n\n  const callsByStep = new Map<string, ToolCall[]>();\n  for (const event of projectedEvents) {\n    if (event.type === \"tool/call\") {\n      const calls = callsByStep.get(event.stepId) ?? [];\n      calls.push(structuredClone(event.call));\n      callsByStep.set(event.stepId, calls);\n    }\n  }\n  for (const event of projectedEvents) {\n    switch (event.type) {\n      case \"user/message\":\n        messages.push({ role: \"user\", content: event.content });\n        break;\n      case \"assistant/message\":\n        messages.push({\n          role: \"assistant\",\n          content: event.content,\n          toolCalls: callsByStep.get(event.stepId) ?? [],\n        });\n        break;\n      case \"tool/result\":\n        messages.push({\n          role: \"tool\",\n          toolCallId: event.toolCallId,\n          name: event.name,\n          content: event.content,\n        });\n        break;\n      default:\n        break;\n    }\n  }\n\n  return {\n    system: header.system,\n    tools: structuredClone(header.tools),\n    messages: projectMessages(messages, header.projection),\n    dynamicContext: header.dynamicContext,\n  };\n}\n\nexport function requestStepIds(events: readonly SessionEvent[]): string[] {\n  return events\n    .filter((event): event is Extract<SessionEvent, { type: \"request/header\" }> =>\n      event.type === \"request/header\",\n    )\n    .map((event) => event.stepId);\n}\n\nexport function replayTrace(events: readonly SessionEvent[]): TraceItem[] {\n  return events.map((event) => ({\n    eventId: event.id,\n    type: event.type,\n    title: traceTitle(event),\n    detail: traceDetail(event),\n  }));\n}\n\nfunction traceTitle(event: SessionEvent): string {\n  switch (event.type) {\n    case \"request/header\":\n      return `${event.stepId} → ${event.provider}/${event.model}`;\n    case \"tool/call\":\n      return `call ${event.call.name}`;\n    case \"tool/result\":\n      return `result ${event.name}`;\n    case \"runtime/plugin-mounted\":\n    case \"runtime/plugin-unmounted\":\n      return event.plugin;\n    case \"goal/round-started\":\n      return `round ${event.round} · ${event.label}`;\n    default:\n      return event.type;\n  }\n}\n\nfunction traceDetail(event: SessionEvent): string {\n  switch (event.type) {\n    case \"user/message\":\n    case \"assistant/message\":\n      return event.content;\n    case \"tool/call\":\n      return JSON.stringify(event.call.arguments);\n    case \"tool/result\":\n      return event.content;\n    case \"context/checkpoint\":\n      return `${event.summary} (covers through #${event.coveredThroughEventId})`;\n    case \"request/header\":\n      return `${event.tools.length} tools · dynamic=${event.dynamicContext}`;\n    case \"turn/end\":\n    case \"step/end\":\n      return event.outcome;\n    case \"goal/created\":\n      return event.objective;\n    case \"goal/status-changed\":\n      return `${event.status}: ${event.reason}`;\n    default:\n      return \"\";\n  }\n}\n\nfunction pluginName(payload: unknown): string {\n  if (\n    typeof payload === \"object\" &&\n    payload !== null &&\n    \"plugin\" in payload &&\n    typeof payload.plugin === \"string\"\n  ) {\n    return payload.plugin;\n  }\n  throw new Error(\"Runtime plugin event is missing its plugin name.\");\n}\n",
@@ -11184,14 +11127,14 @@
       "number": "05",
       "shortTitle": "运行时自进化",
       "title": "在受控边界内自进化",
-      "question": "DSH 是如何持续自进化的？",
+      "question": "DSH 是如何持续自进化的?",
       "codeGuide": {
         "title": "Agent 怎样获得受限的运行时变更能力",
-        "description": "Runtime Tools 插件把检查、安装和移除暴露成普通工具，但候选范围由可信目录限定，真正的变更仍复用 Context 的挂载与回滚。",
+        "description": "Runtime Tools（运行时工具）插件提供检查、安装和移除操作。可信目录限定候选范围，能力变更继续使用 Context 的挂载与回滚流程。",
         "observations": [
           {
-            "title": "边界先写进 Prompt 和生命周期",
-            "text": "插件取得可信目录，维护本次实验的卸载函数，并声明只能临时安装目录中的名称；插件自身退出时也会清理未撤销实验。",
+            "title": "Prompt 和生命周期共同限制变更",
+            "text": "插件取得可信目录，保存本次实验的卸载函数，并声明只能临时安装目录中的名称；插件卸载时也会清理尚未撤销的实验。",
             "lines": [
               35,
               49
@@ -11199,35 +11142,19 @@
           },
           {
             "title": "检查与安装都是普通工具",
-            "text": "inspect_runtime 返回当前快照。install_capability 拒绝重复或未知名称，命中后调用 context.mount，并保存 disposer。",
+            "text": "inspect_runtime 返回当前运行时状态。install_capability 拒绝重复或未知名称，命中后调用 context.mount，并保存 disposer。",
             "lines": [
               50,
               73
             ]
           },
           {
-            "title": "移除必须恢复新的能力快照",
-            "text": "remove_capability 找到安装时保存的 disposer，先从实验表删除，再完整卸载插件，最后返回当前工具目录供 Agent 验证。",
+            "title": "移除后返回当前能力状态",
+            "text": "remove_capability 找到安装时保存的 disposer，先从实验表删除记录，再完整卸载插件，最后返回当前工具目录供 Agent 检查。",
             "lines": [
               74,
               90
             ]
-          }
-        ],
-        "folds": [
-          {
-            "lines": [
-              67,
-              71
-            ],
-            "label": "安装成功后的返回字段"
-          },
-          {
-            "lines": [
-              84,
-              88
-            ],
-            "label": "卸载成功后的返回字段"
           }
         ],
         "fills": [
@@ -11309,16 +11236,16 @@
       },
       "changeStory": {
         "title": "Agent 可以做可验证、可撤销的能力实验",
-        "summary": "DSH 先把 inspect、install 与 remove 暴露成普通 Tool，再让 Agent 从可信目录选择 Plugin。安装只改变后续请求中的能力快照；真正调用新工具得到结果后，Agent 才有证据决定保留还是通过 disposer 撤回。",
+        "summary": "DSH 把 inspect、install 与 remove 封装成普通 Tool，并让 Agent 从可信目录选择 Plugin。安装结果从后续请求开始生效。Agent 调用新工具并取得实际结果后，才能据此保留能力或通过 disposer 撤销安装。",
         "harnessRole": "适配层：让 Agent 在运行中试验并更换能力",
-        "connection": "这条闭环同时调用前四章：Agent Loop 执行运行时工具，请求投影呈现新的 Tool/Prompt，Plugin 提供可逆生命周期，Session Log 记录挂载、调用和卸载。所谓自进化，是这些机制组合后的运行时适配。",
+        "connection": "这项流程同时使用前四章的机制：Agent Loop 执行运行时工具，请求投影加入新的 Tool/Prompt，Plugin 提供可逆生命周期，Session Log 记录挂载、调用和卸载。这里的自进化指这些机制共同完成的运行时适配。",
         "outcomes": [
-          "能沿 inspect → install → use → remove 说清一次能力实验的完整证据链",
-          "能解释安装完成与能力有效为什么不是同一件事",
+          "能按照 inspect、install、use、remove 的顺序说明一次能力实验的完整证据",
+          "能说明安装完成与能力有效之间的差别",
           "能指出新 Tool/Prompt 从哪次请求开始可见，以及卸载后怎样验证无残留"
         ]
       },
-      "lesson": "# 自进化不是任意改写，而是受控地更换运行时能力\n\n“运行时自进化”很容易被理解成 Agent 可以随意下载代码、修改自身并永久保留。DSH 更可靠的起点要克制得多：Agent 能检查当前运行时，发现能力缺口，从受信任目录安装一个候选插件，用真实结果验证，再决定保留当前选择或撤回。\n\n这不是模型参数的学习，也不是一条绕过权限的新路径。它是第三章插件生命周期对 Agent 开放后的结果：运行时原本就能安装和卸载能力，现在只是把这组操作做成了模型可调用、可记录的工具。\n\n## 先取得基线，再谈改变\n\n实验开始前，Agent 先调用 `inspect_runtime`。基线快照列出已经挂载的插件、工具、Prompt、Service 和依赖关系。没有这一步，后面即使多出一个工具，也无法判断它来自哪项安装，更无法验证卸载是否清理干净。\n\n<!-- evidence {\"id\":\"m05-before\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"运行时基线\",\"description\":\"在改变能力之前记录当前插件、工具与提示词，给后续安装和撤回提供对照。\"} -->\n\n## 候选能力必须经过目录边界\n\n`install_capability` 不接收任意代码或文件路径，只接受 Trusted Capability Catalog 中已经登记的名称。未知名称和重复安装会返回可读错误；命中目录后，能力仍通过普通的 `context.mount()` 进入运行时。安装工具自己还保存卸载函数，以便之后走同一条回滚路径。\n\n<!-- evidence {\"id\":\"m05-install-path\",\"tab\":\"source\",\"lines\":[35,90],\"label\":\"受信任目录与普通挂载\",\"description\":\"检查目录约束、重复安装、插件挂载、卸载函数保存以及能力移除的完整路径。\"} -->\n\n安装完成后，变化不会神秘地注入正在进行的模型输出，而会体现在下一次请求中：工具 Schema 多出新动作；如果这个插件还贡献 Prompt，它也会进入系统规则。Session Log 同时记录插件挂载事件，于是“模型何时开始看见这项能力”有清楚的请求与时间边界。\n\n<!-- evidence {\"id\":\"m05-installed\",\"tab\":\"graph\",\"requestStep\":2,\"label\":\"能力进入当前 Context\",\"description\":\"安装后的快照同时出现 word_count 能力插件和它贡献的新工具。\"} -->\n\n## 验证的是结果，不是“安装成功”\n\n挂载成功只说明代码进入了运行时，不说明它对当前任务有用。Agent 必须真正调用新工具，并用可观察结果判断能力缺口是否被填补。这个最小样本实际调用 `word_count`，得到 `words: 3`；这条 Tool Result 才是能力有效的证据。\n\n<!-- evidence {\"id\":\"m05-verified\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"实际调用与验证结果\",\"description\":\"挂载事件之后真正调用 word_count，并记录 words: 3，而不是把安装成功当作验证。\"} -->\n\n若实验无效、任务结束或只是临时需要，就调用 `remove_capability`；插件带来的 Tool、Prompt 与其他贡献应当作为一组消失。卸载后的快照应当与基线对照，确认临时能力没有遗留在工具目录里。\n\n<!-- evidence {\"id\":\"m05-removed\",\"tab\":\"graph\",\"requestStep\":3,\"label\":\"卸载后的运行时基线\",\"description\":\"对照最初快照，检查临时插件及其全部贡献是否已经从运行时消失。\"} -->\n\n所谓“持续”，指这条闭环可以在新的能力缺口出现时重复：检查现状，选择受信任候选，试装，实际使用，根据证据保留或回滚。每次变化都复用插件系统，都进入 Session Log，也都只从后续请求生效。\n\nNano DSH 演示的是这条最小、可解释的路径。生产系统还需要权限审批、代码签名、隔离环境和持久化策略；这些没有在本教程中实现。因此，本章证明的是受控的运行时适配，而不是无边界的自主学习。\n\n<!-- evidence {\"id\":\"m05-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第五问，沿 inspect、install、use、remove 证据链说明前四章如何组合成运行时适配。\"} -->\n",
+      "lesson": "# 自进化通过受控的运行时能力变更实现\n\n本教程把运行时自进化定义为一组可检查、可验证、可撤销的能力变更。Agent 先检查当前运行时，确定能力缺口，再从受信任目录安装候选插件。实际调用结果用于决定保留当前选择或撤销安装。Agent 无法通过这套流程下载任意代码或永久修改自身。\n\n这里不涉及模型参数学习，也不会绕过既有权限。第三章已经让运行时能够安装和卸载插件，本章把这些操作封装为模型可以调用且 Session Log 可以记录的工具。\n\n## 变更前记录运行时基线\n\n实验开始前，Agent 先调用 `inspect_runtime`。基线状态列出已经挂载的插件、工具、Prompt（系统提示内容）、Service（运行时服务）和依赖关系。后续对比可以确定新增工具来自哪次安装，也可以验证卸载后是否仍有残留。\n\n<!-- evidence {\"id\":\"m05-before\",\"tab\":\"graph\",\"requestStep\":1,\"label\":\"运行时基线\",\"description\":\"变更能力之前记录当前插件、工具与提示词，为后续安装和撤销提供对照。\"} -->\n\n## 目录限制候选能力\n\n`install_capability` 只接受 Trusted Capability Catalog（受信任能力目录）中已经登记的名称，不接收任意代码或文件路径。未知名称和重复安装会返回明确错误。命中目录后，能力仍通过普通的 `context.mount()` 安装；安装工具保存对应的 disposer，供后续卸载使用。\n\n<!-- evidence {\"id\":\"m05-install-path\",\"tab\":\"source\",\"lines\":[35,90],\"label\":\"受信任目录与普通挂载\",\"description\":\"检查目录限制、重复安装、插件挂载、卸载函数保存和能力移除的完整流程。\"} -->\n\n安装完成后，新增能力从下一次模型请求开始生效。Tool Schema 会增加新操作；插件贡献的 Prompt 也会进入系统规则。Session Log 同时记录插件挂载事件，因此可以确定模型从哪次请求开始接收这项能力。\n\n<!-- evidence {\"id\":\"m05-installed\",\"tab\":\"graph\",\"requestStep\":2,\"label\":\"能力进入当前 Context\",\"description\":\"安装后的运行时状态列出 word_count 能力插件及其新增工具。\"} -->\n\n## 实际结果用于验证能力\n\n挂载成功只说明插件已经进入运行时，无法证明它能够完成当前任务。Agent 还要调用新工具，并根据可观察结果判断能力缺口是否解决。这个最小样本调用 `word_count` 后得到 `words: 3`；对应的 Tool Result 提供了能力有效的证据。\n\n<!-- evidence {\"id\":\"m05-verified\",\"tab\":\"events\",\"eventType\":\"tool/result\",\"eventOccurrence\":1,\"label\":\"实际调用与验证结果\",\"description\":\"在挂载事件之后调用 word_count，并以 words: 3 的结果验证这项能力。\"} -->\n\n实验无效、任务结束或能力仅供临时使用时，Agent 调用 `remove_capability`。插件提供的 Tool、Prompt 与其他贡献会通过同一个 disposer 一并移除。卸载后的运行时状态与基线对比，可以检查工具目录是否已经恢复。\n\n<!-- evidence {\"id\":\"m05-removed\",\"tab\":\"graph\",\"requestStep\":3,\"label\":\"卸载后的运行时基线\",\"description\":\"对照初始状态，检查临时插件及其全部贡献是否已经移除。\"} -->\n\n新的能力缺口出现时，Agent 可以重复执行以下过程：检查现状，从受信任目录选择候选，临时安装，实际调用，再根据结果保留或撤销。每次变更都复用插件系统，写入 Session Log，并从后续请求开始生效。\n\nNano DSH 只演示这条最小且可解释的流程。生产系统还需要权限审批、代码签名、隔离环境和持久化策略。当前实现证明 Agent 可以进行受控的运行时适配，其能力范围仍由可信目录和现有权限限定。\n\n<!-- evidence {\"id\":\"m05-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第五问，按照 inspect、install、use、remove 的证据顺序说明前四章如何组成运行时适配流程。\"} -->\n",
       "source": {
         "path": "src/runtime-tools.ts",
         "content": "import type { JsonValue } from \"./protocol.js\";\nimport { ServiceToken, type Context, type Plugin } from \"./runtime.js\";\n\nexport type CapabilityFactory = () => Plugin;\n\nexport class TrustedCapabilityCatalog {\n  readonly #factories: Map<string, CapabilityFactory>;\n\n  constructor(entries: Record<string, CapabilityFactory>) {\n    this.#factories = new Map(Object.entries(entries));\n  }\n\n  names(): string[] {\n    return [...this.#factories.keys()].sort();\n  }\n\n  create(name: string): Plugin | undefined {\n    return this.#factories.get(name)?.();\n  }\n}\n\nexport const CAPABILITY_CATALOG = new ServiceToken<TrustedCapabilityCatalog>(\n  \"trusted-capability-catalog\",\n);\n\nexport function capabilityCatalogPlugin(catalog: TrustedCapabilityCatalog): Plugin {\n  return {\n    name: \"trusted-capability-catalog\",\n    setup(context) {\n      context.provide(CAPABILITY_CATALOG, catalog);\n    },\n  };\n}\n\nexport function runtimeToolsPlugin(): Plugin {\n  return {\n    name: \"runtime-tools\",\n    setup(context) {\n      const catalog = context.use(CAPABILITY_CATALOG);\n      const installed = new Map<string, () => void>();\n      context.effect(() => {\n        for (const dispose of [...installed.values()].reverse()) dispose();\n        installed.clear();\n      });\n\n      context.contributePrompt(\n        \"runtime-experiment-boundary\",\n        `You may inspect this runtime and temporarily install only trusted capabilities: ${catalog.names().join(\", \")}. Remove experiments after use.`,\n      );\n      context.registerTool({\n        name: \"inspect_runtime\",\n        description: \"Inspect mounted plugins, services, tools, Prompt contributions, listeners, and relations.\",\n        inputSchema: { type: \"object\", properties: {}, additionalProperties: false },\n        execute: () => context.inspect() as unknown as JsonValue,\n      });\n      context.registerTool({\n        name: \"install_capability\",\n        description: \"Temporarily mount one named capability from the trusted in-process catalog.\",\n        inputSchema: capabilityNameSchema(catalog),\n        async execute(input) {\n          const name = readName(input);\n          if (installed.has(name)) return { ok: false, error: `${name} is already installed.` };\n          const plugin = catalog.create(name);\n          if (!plugin) return { ok: false, error: `${name} is not in the trusted catalog.` };\n          const dispose = await context.mount(plugin);\n          installed.set(name, dispose);\n          return {\n            ok: true,\n            installed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n      context.registerTool({\n        name: \"remove_capability\",\n        description: \"Unmount a capability previously installed by install_capability.\",\n        inputSchema: capabilityNameSchema(catalog),\n        execute(input) {\n          const name = readName(input);\n          const dispose = installed.get(name);\n          if (!dispose) return { ok: false, error: `${name} is not installed.` };\n          installed.delete(name);\n          dispose();\n          return {\n            ok: true,\n            removed: name,\n            tools: context.inspect().tools.map((tool) => tool.name),\n          };\n        },\n      });\n    },\n  };\n}\n\nfunction capabilityNameSchema(catalog: TrustedCapabilityCatalog): Record<string, unknown> {\n  return {\n    type: \"object\",\n    properties: { name: { type: \"string\", enum: catalog.names() } },\n    required: [\"name\"],\n    additionalProperties: false,\n  };\n}\n\nfunction readName(input: JsonValue): string {\n  return (input as { name: string }).name;\n}\n",
@@ -12034,8 +11961,8 @@
       "title": "用 Goal 与 Round 推进长程任务",
       "question": "DSH 是如何持续完成长程任务的？",
       "codeGuide": {
-        "title": "Goal 状态机怎样包住普通 Agent Turn",
-        "description": "LongTaskRunner 不替代 Agent Loop，只负责保存目标、启动一个个 Round，并依据结构化结果决定完成、受阻、继续或到达上限。",
+        "title": "Goal 状态机怎样管理多个 Agent Turn",
+        "description": "LongTaskRunner 保存目标并依次启动 Round。每个 Round 仍使用普通 Agent Loop，外层根据结构化结果决定完成、受阻、继续或到达上限。",
         "observations": [
           {
             "title": "Goal 把跨轮状态集中保存",
@@ -12047,7 +11974,7 @@
           },
           {
             "title": "每个 Round 都有编号和明确输入",
-            "text": "外循环只在 active 时运行。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部注入的 runRound；是否启动 Agent Turn 由组合层决定。",
+            "text": "外循环只在 active 时运行。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部注入的 runRound。组合层决定 runRound 是否启动 Agent Turn。",
             "lines": [
               62,
               82
@@ -12064,7 +11991,7 @@
         ],
         "fills": [
           {
-            "label": "类型声明与 LongTaskRunner 骨架",
+            "label": "类型声明与 LongTaskRunner 结构",
             "kind": "skeleton",
             "ranges": [
               [
@@ -12148,7 +12075,7 @@
             ]
           },
           {
-            "label": "收束：状态落定与事件写入",
+            "label": "完成状态与事件写入",
             "kind": "body",
             "ranges": [
               [
@@ -12161,16 +12088,16 @@
       },
       "changeStory": {
         "title": "Turn 可以停止，Goal 再决定是否续行",
-        "summary": "DSH 不把一次 Agent Loop 拉成无限循环，而是在外层保存 Goal，并以 Round 为单位反复启动普通 Turn。每轮结束后，协调器依据可观察的 progressed、completed 与 blocked 结果决定继续、完成、受阻或到达上限。",
+        "summary": "DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，协调器依据可观察的 progressed、completed 与 blocked 结果决定继续、完成、受阻或到达上限。",
         "harnessRole": "协调层：让有限 Turn 共同推进一个长期 Goal",
-        "connection": "每个 Round 都复用完整 Harness：第一章执行 Step，第二章构造请求，第三章提供能力，第四章延续记录，第五章允许途中适配。第六问把前五问包进更慢的状态机，六个答案到这里才拼成可持续运行的 DeepSeek Harness。",
+        "connection": "每个 Round 都使用完整 Harness：第一章执行 Step，第二章构造请求，第三章提供能力，第四章延续记录，第五章允许运行中适配。第六章用 Goal 状态机协调这些机制，使 DeepSeek Harness 能够分轮推进长期目标。",
         "outcomes": [
-          "能按 Goal → Round → Turn → Step 从慢到快解释四层控制结构",
-          "能说明续行依据为什么必须来自可观察结果，而不是模型一句“还没完成”",
+          "能按照 Goal、Round、Turn、Step 的顺序解释四层控制结构",
+          "能说明协调器怎样根据可观察结果决定是否续行",
           "能指出 completed、blocked、no progress 与 max-rounds 的明确出口"
         ]
       },
-      "lesson": "# 长程任务需要在 Agent Loop 外再保存一层状态\n\n第一章的 Agent Loop 解决的是一个 Turn 内如何行动。模型不再调用工具，这个 Turn 就会结束；但“这一轮可以停了”并不总等于“整个目标已经完成”。研究、迁移或多阶段交付往往需要分段推进，甚至要在一次自然停顿后再次唤起 Agent。\n\nDSH 因而在 Agent Loop 外增加 Goal 与 Round。Goal 保存相对稳定的目标和整体状态；Round 表示为这个目标发起的一次阶段性推进；Round 内部仍然运行普通 Agent Turn，而 Turn 又由若干 Step 组成。四个层级解决不同尺度的问题，不能混为一个无限循环。\n\n## 外循环只负责决定是否再开一轮\n\nGoal 至少保存 objective、status、已经开始的轮数、最大轮数和最近一次状态理由。协调器只在状态仍为 active 时继续。每轮开始前先写下 Round 编号与阶段说明，再调用内层 Agent；内层怎样读文件、调用工具和形成反馈，仍由前五章的机制负责。\n\n协调器拿到的不是一句模糊的“继续努力”，而是一份结构化 RoundResult：是否取得可观察进展，是否已经完成，是否遇到阻塞。外循环据此选择 completed、blocked、继续 active，或在边界处标记 max-rounds。\n\n<!-- evidence {\"id\":\"m06-runner\",\"tab\":\"source\",\"lines\":[33,114],\"label\":\"Goal 外层的有界续行循环\",\"description\":\"逐段查看 Goal 状态、Round 启动、进展判断与四类停止出口。\"} -->\n\n## 续行依赖共享状态，而不是重新提问\n\nLongTaskRunner 本身只接收一个 `runRound` 回调，并不强制回调一定启动 Agent。在本教程的组合层里，这个回调复用同一个 Goal、运行时 Context 和 Session Log，再启动普通 Agent Turn。目标不会被上一轮的临时措辞替换，前一轮产生的消息和工具结果也继续可见。\n\n右侧先比较两份请求：第二份仍保留第一轮的目标与“已找到两项，仍缺一项”，然后才追加第二轮的任务。这段连续历史说明续行不是重新提问，而是带着已经取得的进展继续。\n\n<!-- evidence {\"id\":\"m06-round-history\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"上一轮进展进入下一轮\",\"description\":\"比较两轮请求，确认稳定目标、第一轮回复与第二轮任务按顺序共同进入新请求。\"} -->\n\n外层事件只记录 Runner 真正观察到的边界：Goal 创建、两次 Round 启动，以及最终 completed。第一轮的具体进展属于请求历史；Goal 事件负责说明协调器为什么停止，两者各自保存自己知道的事实。\n\n<!-- evidence {\"id\":\"m06-completed\",\"tab\":\"events\",\"eventType\":\"goal/status-changed\",\"eventOccurrence\":1,\"label\":\"完成条件关闭 Goal\",\"description\":\"沿 Goal 事件查看两轮如何启动，以及协调器怎样用 completed 与明确理由结束续行。\"} -->\n\n## 能继续，不等于必须一直继续\n\n长程运行最危险的失败模式不是停得早，而是没有进展仍反复消耗资源。因此，只要某轮没有可观察进展、返回阻塞原因、达到最大轮数或已经完成，协调器都应当停止，并把原因写回 Goal 与 Session Log。是否继续是一项有证据、有上限的决定。\n\n当前 Nano DSH 在单个进程中演示跨 Round 续行，没有实现进程重启后的 Goal 恢复、定时唤醒、后台 Job 或 Subagent。要跨越这些边界，还需要把 Goal 与 Session Log 持久化，并由调度器重新唤醒；那是建立在本章状态机之上的下一层能力。\n\n所以 DSH 持续完成长程任务，并不是让一次 Agent Loop 永不停止，而是保存目标与进展，在每个有界 Round 后重新判断：完成就交付，受阻就说明原因，有进展且仍未完成才继续。\n\n<!-- evidence {\"id\":\"m06-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第六问，用 Goal 状态机收束层级与停止边界，并把前五问拼成完整 Harness。\"} -->\n",
+      "lesson": "# Goal 和 Round 在多个 Turn 之间保存任务状态\n\n第一章的 Agent Loop 管理一个 Turn 内的行动。模型停止调用工具时，当前 Turn 随之结束，整个目标可能仍未完成。研究、迁移或多阶段交付通常需要分段推进，并在一次自然停顿后再次启动 Agent。\n\nDSH 在 Agent Loop 外增加 Goal（长期目标）与 Round（阶段轮次）。Goal 保存相对稳定的目标和整体状态；Round 表示针对该目标进行的一次阶段性推进；Round 内运行普通的 Agent Turn，而 Turn 由若干 Step 组成。这四个层级分别管理不同时间尺度的状态和停止条件。\n\n## 外循环决定是否启动下一轮\n\nGoal 至少保存 objective（目标内容）、status（状态）、已启动轮数、最大轮数和最近一次状态理由。协调器只在状态为 active（进行中）时继续。每轮开始前记录 Round 编号与阶段说明，再调用内层 Agent。文件读取、工具调用和结果反馈仍由前五章的机制处理。\n\n协调器接收一份结构化 RoundResult（单轮结果），其中分别记录是否取得可观察进展、是否已经完成以及是否遇到阻塞。外循环据此把状态设置为 completed（已完成）、blocked（受阻）、active，或在轮数边界设置为 max-rounds（达到轮数上限）。\n\n<!-- evidence {\"id\":\"m06-runner\",\"tab\":\"source\",\"lines\":[33,114],\"label\":\"Goal 外层的有界续行循环\",\"description\":\"按照 Goal 状态、Round 启动、进展判断和四类停止条件，查看外循环的执行顺序。\"} -->\n\n## 续行复用目标、运行时和会话日志\n\nLongTaskRunner 只接收一个 `runRound` 回调，不强制回调启动 Agent。本教程的组合层在回调中复用同一个 Goal、运行时 Context 和 Session Log，再启动普通的 Agent Turn。稳定目标不会被上一轮的临时说明覆盖，前一轮产生的消息和工具结果继续保留。\n\n右侧比较两份请求。第二份保留第一轮的目标和进展记录 `已找到两项，仍缺一项`，随后追加第二轮任务。这段连续历史说明下一轮会使用已有进展继续处理目标。\n\n<!-- evidence {\"id\":\"m06-round-history\",\"tab\":\"request\",\"requestStep\":2,\"label\":\"上一轮进展进入下一轮\",\"description\":\"比较两轮请求，确认稳定目标、第一轮回复与第二轮任务依次进入新请求。\"} -->\n\n外层事件只记录 Runner 直接观察到的状态变化：Goal 创建、两次 Round 启动和最终 completed。第一轮的具体进展保存在请求历史中；Goal 事件记录协调器停止的原因。两类记录描述不同层级的事实。\n\n<!-- evidence {\"id\":\"m06-completed\",\"tab\":\"events\",\"eventType\":\"goal/status-changed\",\"eventOccurrence\":1,\"label\":\"完成条件关闭 Goal\",\"description\":\"查看 Goal 事件，确认两轮的启动顺序，以及 completed 状态和停止理由。\"} -->\n\n## 续行需要明确的停止条件\n\n长程运行如果在没有进展时继续，会反复消耗资源。任意一轮没有可观察进展、返回阻塞原因、达到最大轮数或已经完成时，协调器都应停止，并把原因写回 Goal 与 Session Log。下一轮只能在当前轮取得进展且目标仍未完成时启动。\n\n当前 Nano DSH 在单个进程中演示跨 Round 续行，没有实现进程重启后的 Goal 恢复、定时唤醒、后台 Job（任务）或 Subagent（子智能体）。跨越这些边界还需要持久化 Goal 与 Session Log，并由调度器重新启动任务。\n\nDSH 保存长期目标和每轮进展，在每个有界 Round 结束后检查完成、受阻、无进展和轮数上限四类条件。条件允许时，协调器使用已有状态启动下一轮；达到任一停止条件时记录原因并结束 Goal。\n\n<!-- evidence {\"id\":\"m06-summary\",\"tab\":\"diff\",\"label\":\"本章总结\",\"description\":\"回到第六问，用 Goal 状态机说明层级与停止条件，并标出前五章在每个 Round 中的作用。\"} -->\n",
       "source": {
         "path": "src/long-task.ts",
         "content": "import type { SessionLog } from \"./session.js\";\n\nexport type LongTaskStatus = \"active\" | \"completed\" | \"blocked\" | \"max-rounds\";\n\nexport interface LongTaskState {\n  goalId: string;\n  objective: string;\n  status: LongTaskStatus;\n  roundsStarted: number;\n  maxRounds: number;\n  reason: string;\n}\n\nexport interface RoundDefinition {\n  label: string;\n  input: string;\n}\n\nexport interface RoundResult {\n  progressed: boolean;\n  completed?: boolean;\n  blockedReason?: string;\n}\n\nexport interface LongTaskOptions {\n  objective: string;\n  rounds: RoundDefinition[];\n  maxRounds: number;\n  session: SessionLog;\n  runRound(round: RoundDefinition, roundNumber: number): Promise<RoundResult>;\n}\n\nexport class LongTaskRunner {\n  readonly state: LongTaskState;\n  readonly #rounds: RoundDefinition[];\n  readonly #session: SessionLog;\n  readonly #runRound: LongTaskOptions[\"runRound\"];\n\n  constructor(options: LongTaskOptions) {\n    if (options.maxRounds < 1) throw new Error(\"maxRounds must be at least 1.\");\n    this.state = {\n      goalId: \"goal-1\",\n      objective: options.objective,\n      status: \"active\",\n      roundsStarted: 0,\n      maxRounds: options.maxRounds,\n      reason: \"Ready to start.\",\n    };\n    this.#rounds = options.rounds;\n    this.#session = options.session;\n    this.#runRound = options.runRound;\n  }\n\n  async run(): Promise<LongTaskState> {\n    this.#session.append({\n      type: \"goal/created\",\n      goalId: this.state.goalId,\n      objective: this.state.objective,\n      maxRounds: this.state.maxRounds,\n    });\n\n    while (this.state.status === \"active\") {\n      if (this.state.roundsStarted >= this.state.maxRounds) {\n        return this.#finish(\n          \"max-rounds\",\n          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n        );\n      }\n      const definition = this.#rounds[this.state.roundsStarted];\n      if (!definition) {\n        return this.#finish(\"blocked\", \"No next round is defined for the active goal.\");\n      }\n\n      this.state.roundsStarted += 1;\n      this.#session.append({\n        type: \"goal/round-started\",\n        goalId: this.state.goalId,\n        round: this.state.roundsStarted,\n        label: definition.label,\n      });\n      const result = await this.#runRound(definition, this.state.roundsStarted);\n\n      if (result.completed) {\n        return this.#finish(\"completed\", `Completed in round ${this.state.roundsStarted}.`);\n      }\n      if (result.blockedReason) return this.#finish(\"blocked\", result.blockedReason);\n      if (!result.progressed) {\n        return this.#finish(\n          \"blocked\",\n          `Round ${this.state.roundsStarted} produced no observable progress.`,\n        );\n      }\n      if (this.state.roundsStarted >= this.state.maxRounds) {\n        return this.#finish(\n          \"max-rounds\",\n          `Stopped after the configured ${this.state.maxRounds} rounds.`,\n        );\n      }\n      this.state.reason = `Round ${this.state.roundsStarted} made progress; continuing.`;\n    }\n    return structuredClone(this.state);\n  }\n\n  #finish(status: Exclude<LongTaskStatus, \"active\">, reason: string): LongTaskState {\n    this.state.status = status;\n    this.state.reason = reason;\n    this.#session.append({\n      type: \"goal/status-changed\",\n      goalId: this.state.goalId,\n      status,\n      reason,\n    });\n    return structuredClone(this.state);\n  }\n}\n",

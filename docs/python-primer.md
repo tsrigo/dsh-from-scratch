@@ -1,6 +1,6 @@
-# Python 阅读预检：先认四个路标
+# Python 阅读准备：四种常用语法
 
-你可以边读边学。Python 把类型、异步等待和数据结构写得很直接；先认出下面四种写法，就足以读完本教程。
+教程会反复使用下面四种 Python 写法，分别用于类型说明、数据定义、异步等待和请求结构。理解它们即可阅读后续示例。
 
 ## 类型标注说明数据形状
 
@@ -19,7 +19,7 @@ class ToolCall:
     arguments: dict[str, Any]
 ```
 
-把 `dataclass` 当成一张数据表：它会根据字段自动生成初始化方法。一个工具调用需要名字和一组参数。
+`dataclass` 根据字段自动生成初始化方法。这里的 `ToolCall` 包含工具名称和一组调用参数。
 
 ## async / await 表示等待结果
 
@@ -27,7 +27,7 @@ class ToolCall:
 response = await llm.complete(request)
 ```
 
-`async def` 定义异步函数，`await` 等待模型返回，同时允许事件循环处理别的工作。并行和重试仍需另外编写。
+`async def` 定义异步函数，`await` 等待模型返回，同时允许事件循环处理其他任务。并行执行和失败重试需要另外编写逻辑。
 
 ## 字典和列表组成模型请求
 
@@ -35,4 +35,4 @@ response = await llm.complete(request)
 request = {"system": rules, "tools": tools}
 ```
 
-花括号创建字典，方括号创建列表。模型请求、工具参数和过程事件都可以用这两种内置结构表达，再直接转成 JSON。
+花括号创建字典，方括号创建列表。模型请求、工具参数和过程事件都可以使用这两种内置结构表达，再转换为 JavaScript 对象表示法（JavaScript Object Notation，JSON）。JSON 是一种结构化数据格式。

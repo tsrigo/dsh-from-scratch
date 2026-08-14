@@ -8,37 +8,33 @@
     "sourcePath": "src/agent.ts",
     "lessonPath": "docs/lessons/m01.md",
     "shortTitle": "Agent Loop",
-    "title": "模型如何在行动与反馈之间循环",
-    "question": "DSH 的 Agent Loop 是什么样的？",
+    "title": "模型怎样在动作与反馈之间循环",
+    "question": "DSH 的 Agent Loop 是什么样的?",
     "sourceRange": { "start": 53, "end": 113 },
     "codeGuide": {
-      "title": "一次 Step 的控制权如何交接",
-      "description": "这段代码把模型决策和运行时执行分开。请求先从当前状态生成，模型提出动作，Harness 再负责校验、执行、记录与停止。",
+      "title": "一个 Step 中模型与运行时如何交接",
+      "description": "代码先根据当前状态生成请求。模型提出动作后，Harness 负责校验参数、执行工具、记录结果并判断是否停止。",
       "observations": [
-        { "title": "请求是当前状态的快照", "text": "用户消息先进入历史；每个 Step 再复制当前消息、工具 Schema 与动态说明。模型拿到的是确定的输入，而不是可被并发修改的内部数组。", "lines": [53, 76] },
-        { "title": "工具调用决定是否继续", "text": "模型回复先写入历史。没有工具调用就结束整个 Turn；存在调用则逐个执行，结果追加完以后才进入下一个 Step。", "lines": [73, 95] },
-        { "title": "失败也必须成为反馈", "text": "未知工具、参数校验失败和执行异常都被转换为结构化结果，而不是让循环悄悄中断。模型下一步仍能读到失败原因。", "lines": [98, 113] }
-      ],
-      "folds": [
-        { "lines": [62, 66], "label": "工具 Schema 字段映射" },
-        { "lines": [85, 90], "label": "Tool Result 消息字段" }
+        { "title": "请求包含构建时的当前状态", "text": "用户消息先进入历史；每个 Step 再复制当前消息、工具 Schema 与动态说明。模型收到确定的输入，后续并发修改不会改变已经构建的请求。", "lines": [53, 76] },
+        { "title": "工具调用决定是否继续", "text": "模型回复先写入历史。回复没有工具调用时结束整个 Turn；存在调用时逐个执行，全部结果追加后再进入下一个 Step。", "lines": [73, 95] },
+        { "title": "失败也会写入反馈", "text": "未知工具、参数校验失败和执行异常都会转换为结构化结果。模型可以在下一步读取失败原因并调整处理方式。", "lines": [98, 113] }
       ],
       "fills": [
-        { "label": "接口声明与 Agent 骨架", "kind": "skeleton", "ranges": [[11, 30], [32, 32], [115, 115]] },
-        { "label": "构造器：注入 LLM 与工具", "kind": "body", "ranges": [[41, 51]] },
+        { "label": "接口声明与 Agent 结构", "kind": "skeleton", "ranges": [[11, 30], [32, 32], [115, 115]] },
+        { "label": "构造器：注入模型适配器与工具", "kind": "body", "ranges": [[41, 51]] },
         { "label": "runTurn：组装请求并调用模型", "kind": "body", "ranges": [[53, 76]] },
         { "label": "停止条件与工具执行", "kind": "body", "ranges": [[78, 95]] },
         { "label": "工具执行：校验与异常包装", "kind": "body", "ranges": [[98, 113]] }
       ]
     },
     "changeStory": {
-      "title": "模型负责选择，Harness 负责执行与收束",
-      "summary": "DSH 不让模型直接执行动作，而是把一个 Turn 拆成可重复的 Step：根据当前状态构造请求，接收模型提出的 Tool Call，由 Harness 校验并执行，再把 Tool Result 送入下一步。没有新调用时结束 Turn，越过运行时边界时明确失败。",
-      "harnessRole": "执行内核：把模型输出变成可验证的行动",
-      "connection": "第一问确定 Harness 的最小闭环。后五问分别为这条循环补上可控输入、可组合能力、权威记录、运行时适配和跨轮协调。没有 Agent Loop，其他机制没有执行载体；只有 Agent Loop，又不足以成为 Harness。",
+      "title": "模型选择动作，Harness 校验并执行",
+      "summary": "DSH 把一个 Turn 分成可重复的 Step。每个 Step 根据当前状态构造请求，接收模型提出的 Tool Call（工具调用），由 Harness 校验并执行，再把 Tool Result（工具结果）加入下一步。没有新调用时结束 Turn；超过运行时限制时明确返回失败。",
+      "harnessRole": "执行层：把模型输出转换为经过校验的操作",
+      "connection": "第一问确定 Harness 的最小执行循环。后五问分别管理循环的输入、能力、记录、运行时适配和跨轮协调。Agent Loop 为这些机制提供执行位置，完整 Harness 还需要其余五项机制共同工作。",
       "outcomes": [
-        "能沿 Agent.runTurn() 说清 request → response → tool result → next step",
-        "能解释模型只提出 Tool Call，真正的查找、校验和执行都属于 Harness",
+        "能沿 Agent.runTurn() 说明请求、回复、工具结果和下一步的执行顺序",
+        "能解释模型提出 Tool Call，Harness 负责工具查找、参数校验和执行",
         "能区分 Step、Turn 与 maxSteps，并指出每一种停止发生在哪里"
       ]
     }
@@ -57,22 +53,18 @@
     "sourceRange": { "start": 38, "end": 137 },
     "codeGuide": {
       "title": "从完整消息生成可复用的请求",
-      "description": "上下文模块依次完成三件事：投影过长工具结果，按变化频率排列请求部分，再计算相邻请求的最长相同前缀。",
+      "description": "上下文模块依次投影过长的工具结果，按变化频率排列请求内容，再计算相邻请求开头连续相同的部分。",
       "observations": [
-        { "title": "投影不改写原始消息", "text": "只有 Tool Message 会被检查；短结果完整复制，长结果保留头尾并写入省略字符数。此时调用者仍持有未投影的内存消息，第四章再将它们迁入 Session Log。", "lines": [38, 67] },
+        { "title": "投影保留原始消息", "text": "代码只检查 Tool Message（工具消息）。短结果完整复制，长结果保留头尾并记录省略字符数。调用者仍持有未投影的内存消息，第四章再将它们迁入 Session Log。", "lines": [38, 67] },
         { "title": "按变化频率组织请求", "text": "系统规则和工具放在前面，历史消息按顺序追加，本步动态说明最后加入。这个顺序直接决定变化最早会出现在哪里。", "lines": [70, 99] },
-        { "title": "前缀比较从第一个差异处停止", "text": "两份请求先做确定性序列化，再从开头逐项比较。共享长度和首次失效位置只是教学估算，不冒充模型服务的真实缓存命中。", "lines": [101, 137] }
-      ],
-      "folds": [
-        { "lines": [77, 85], "label": "历史消息的 RequestPart 字段" },
-        { "lines": [107, 114], "label": "首次请求的基线统计" }
+        { "title": "前缀比较在第一个差异处停止", "text": "两份请求先进行确定性序列化，再从开头逐项比较。共享长度和首次变化位置仅用于教学估算，不代表模型服务的真实缓存命中。", "lines": [101, 137] }
       ],
       "fills": [
-        { "label": "四个接口：投影、部件、比较、裁剪", "kind": "skeleton", "ranges": [[3, 7], [15, 23], [25, 31], [33, 36]] },
+        { "label": "投影、部件、比较和裁剪接口", "kind": "skeleton", "ranges": [[3, 7], [15, 23], [25, 31], [33, 36]] },
         { "label": "默认投影设置", "kind": "body", "ranges": [[9, 13]] },
         { "label": "projectMessages：只裁剪工具结果", "kind": "body", "ranges": [[38, 48]] },
-        { "label": "clipToolResult：头尾保留、中间省略", "kind": "body", "ranges": [[49, 67]] },
-        { "label": "describeRequest：请求拆成教学部件", "kind": "body", "ranges": [[70, 99]] },
+        { "label": "clipToolResult：保留头尾并省略中间内容", "kind": "body", "ranges": [[49, 67]] },
+        { "label": "describeRequest：拆分请求内容", "kind": "body", "ranges": [[70, 99]] },
         { "label": "compareRequestPrefix：稳定前缀比较", "kind": "body", "ranges": [[101, 138]] },
         { "label": "估算 token 与工具 Schema", "kind": "body", "ranges": [[140, 147]] },
         { "label": "私有辅助：规范化排序比较", "kind": "body", "ranges": [[149, 173]] }
@@ -80,12 +72,12 @@
     },
     "changeStory": {
       "title": "完整记录、较短输入与稳定前缀可以同时成立",
-      "summary": "DSH 把“保存过什么”和“本步发送什么”分开：完整历史仍是权威记录，buildRequest() 只生成当前模型视图。裁剪与摘要控制体积；固定内容前置、历史追加和动态说明后置，则让相邻请求尽可能共享更长前缀。",
-      "harnessRole": "输入层：决定每个 Step 真正交给模型什么",
-      "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成这份请求。第四章会提供权威事件来源；第三、五章改变 Tool 与 Prompt 时，也会在这里改变请求前缀。上下文管理因此连接执行、插件与会话。",
+      "summary": "DSH 分别管理完整历史和本步模型请求。完整历史保留原始内容，buildRequest() 生成当前模型视图。裁剪与摘要控制长度；固定内容前置、历史追加和动态说明后置，使相邻请求能够共享更长的稳定前缀。",
+      "harnessRole": "输入层：决定每个 Step 交给模型的具体内容",
+      "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成该请求。第四章提供完整事件来源；第三、五章改变 Tool 与 Prompt 时，也会改变这里的请求前缀。上下文管理连接执行、插件与会话记录。",
       "outcomes": [
-        "能区分完整记录、模型投影与 Provider 最终请求，而不把三者混成 messages",
-        "能解释 clipToolResult() 为什么只改视图，不应改写原始 Tool Result",
+        "能区分完整记录、模型投影与 Provider 最终请求，并说明三者与 messages 的关系",
+        "能解释 clipToolResult() 只修改模型视图并保留原始 Tool Result 的原因",
         "能从 system、tools、history、dynamicContext 的顺序判断缓存从哪里失效"
       ]
     }
@@ -104,36 +96,32 @@
     "sourceRange": { "start": 45, "end": 123 },
     "codeGuide": {
       "title": "每项贡献怎样获得归属和撤销路径",
-      "description": "Context 把插件挂载当作一段受控生命周期。安装期间产生的 Service、Tool 与 Prompt 都记录 owner，并把清理动作压入同一条 effect 栈。",
+      "description": "Context 统一管理插件的安装与卸载。安装期间产生的 Service、Tool 与 Prompt 都记录 owner，并把清理函数加入同一个 effect 栈。",
       "observations": [
-        { "title": "setup 失败会进入回滚路径", "text": "Context 在 setup 前登记安装记录并标记 active owner。setup 抛错时尝试逆序撤销已登记 effect；这个 Nano 实现假定 cleanup 本身可以正常完成。", "lines": [45, 60] },
+        { "title": "setup 失败后撤销已登记内容", "text": "Context 在 setup 前登记安装记录并标记 active owner。setup 抛错时逆序撤销已登记的 effect。这个 Nano 实现假定 cleanup 可以正常完成。", "lines": [45, 60] },
         { "title": "卸载复用同一条 effect 栈", "text": "成功挂载返回幂等卸载函数。卸载先撤销贡献，再清除插件和依赖关系；重复调用不会重复执行副作用。", "lines": [62, 83] },
-        { "title": "注册动作自动绑定 owner", "text": "Service、Tool 与 Prompt 只能在插件 setup 期间注册。每次写入 Registry 的同时都登记一个只删除本 owner 贡献的清理函数。", "lines": [86, 123] }
-      ],
-      "folds": [
-        { "lines": [68, 74], "label": "依赖关系清理细节" },
-        { "lines": [96, 105], "label": "Service 查找与依赖记录" }
+        { "title": "注册内容自动绑定 owner", "text": "Service、Tool 与 Prompt 只能在插件 setup 期间注册。每次写入 Registry 时，Context 都会登记一个只删除该 owner 贡献的清理函数。", "lines": [86, 123] }
       ],
       "fills": [
-        { "label": "三类声明与 Context 骨架", "kind": "skeleton", "ranges": [[3, 6], [8, 11], [13, 20], [36, 36], [194, 194]] },
+        { "label": "三类声明与 Context 结构", "kind": "skeleton", "ranges": [[3, 6], [8, 11], [13, 20], [36, 36], [194, 194]] },
         { "label": "内部类型与私有字段", "kind": "body", "ranges": [[22, 34], [37, 43]] },
         { "label": "mount：安装、回滚与卸载", "kind": "body", "ranges": [[45, 77]] },
         { "label": "effect、provide 与 use", "kind": "body", "ranges": [[79, 105]] },
         { "label": "工具、提示词与监听器注册", "kind": "body", "ranges": [[107, 135]] },
-        { "label": "读取与检视：emit 到 inspect", "kind": "body", "ranges": [[137, 175]] },
+        { "label": "读取与检查：emit 到 inspect", "kind": "body", "ranges": [[137, 175]] },
         { "label": "私有辅助：挂载守卫与回滚", "kind": "body", "ranges": [[177, 193]] },
         { "label": "模块级工具：once 与关系比较", "kind": "body", "ranges": [[196, 214]] }
       ]
     },
     "changeStory": {
-      "title": "运行时能力拥有统一的安装边界",
-      "summary": "“一切皆插件”不是把每个对象都写成插件类，而是让进入 Context 的 Service、Tool、Prompt 与 Listener 都拥有 owner 和 disposer。挂载成功才提交整组能力，失败或卸载则沿同一条 effect 栈逆序撤回。",
+      "title": "运行时能力使用统一的安装与卸载流程",
+      "summary": "一切皆插件要求进入 Context 的 Service、Tool、Prompt 与 Listener 都记录 owner（来源插件）和 disposer（卸载函数），普通对象无须改写成插件类。整组能力在挂载成功后生效，安装失败或主动卸载时沿同一个 effect 栈逆序撤销。",
       "harnessRole": "组装层：决定 Agent 此刻拥有哪些能力",
-      "connection": "第一章只消费当前工具目录，第二章把它放进模型请求；本章解释这些工具和规则从哪里来、怎样成组退出。第五章不会另造自修改机制，而是把这里的 mount/unmount 生命周期开放给 Agent 使用。",
+      "connection": "第一章读取当前工具目录，第二章把它加入模型请求；本章说明这些工具和规则的来源及卸载方式。第五章把这里的 mount/unmount 生命周期开放给 Agent，在受控范围内变更运行时能力。",
       "outcomes": [
         "能区分 Tool 这个模型动作与 Plugin 这个能力安装单元",
         "能沿 Context.mount()、effect() 与 disposer 说明成功、失败和卸载三条路径",
-        "能从 inspect() 的 owner 与 relation 还原当前运行时是怎样组装出来的"
+        "能根据 inspect() 返回的 owner 与 relation 说明当前运行时的能力来源和依赖"
       ]
     }
   },
@@ -147,35 +135,32 @@
     "lessonPath": "docs/lessons/m04.md",
     "shortTitle": "让运行有迹可循",
     "title": "从日志重建执行过程",
-    "question": "DSH 怎么记录和保存 Agent 执行过程？",
+    "question": "DSH 怎么记录和保存 Agent 执行过程?",
     "sourceRange": { "start": 84, "end": 194 },
     "codeGuide": {
-      "title": "Session Log 怎样成为请求与 Trace 的共同记录",
-      "description": "日志先以稳定编号追加观察事件；重建时再定位目标请求头、选择最近 checkpoint，并把此前事件投影为模型消息。",
+      "title": "Session Log 怎样同时生成请求与 Trace",
+      "description": "日志使用稳定编号追加观察事件。重建请求时，代码定位目标请求头、选择最近的 checkpoint，并把此前事件投影为模型消息。",
       "observations": [
         { "title": "事件只追加，不就地改写", "text": "append 会克隆事件、分配递增编号并放到末尾。checkpoint 也只是新增事件，而且只能覆盖已经存在的历史。", "lines": [84, 108] },
-        { "title": "请求头固定重建边界", "text": "stepId 先定位目标 request/header；只有它之前发生的事件属于本步历史。最近 checkpoint 决定模型投影从哪里接续。", "lines": [130, 153] },
-        { "title": "事件重新投影为模型消息", "text": "工具调用先按 Step 归组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。", "lines": [155, 194] }
-      ],
-      "folds": [
-        { "lines": [113, 128], "label": "Runtime 事件写入 Session 的桥接代码" }
+        { "title": "请求头确定重建范围", "text": "stepId 先定位目标 request/header；该事件之前发生的内容属于本步历史。最近的 checkpoint 决定模型投影从哪里继续。", "lines": [130, 153] },
+        { "title": "事件投影为模型消息", "text": "工具调用先按 Step 分组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。", "lines": [155, 194] }
       ],
       "fills": [
-        { "label": "事件类型系统与 SessionLog 骨架", "kind": "skeleton", "ranges": [[11, 14], [16, 69], [77, 82], [84, 84], [109, 109]] },
+        { "label": "事件类型系统与 SessionLog 结构", "kind": "skeleton", "ranges": [[11, 14], [16, 69], [77, 82], [84, 84], [109, 109]] },
         { "label": "私有状态与只读事件视图", "kind": "body", "ranges": [[85, 91]] },
         { "label": "append、编号与检查点", "kind": "body", "ranges": [[93, 108]] },
         { "label": "服务令牌与日志插件", "kind": "body", "ranges": [[111, 128]] },
         { "label": "buildRequest：定位头部与摘要", "kind": "body", "ranges": [[130, 153]] },
         { "label": "事件投影为模型消息", "kind": "body", "ranges": [[155, 186]] },
-        { "label": "统一请求组装与轨迹工具", "kind": "body", "ranges": [[188, 211]] },
+        { "label": "统一请求组装与 Trace 工具", "kind": "body", "ranges": [[188, 211]] },
         { "label": "私有辅助：标题、详情与插件名", "kind": "body", "ranges": [[213, 266]] }
       ]
     },
     "changeStory": {
       "title": "请求与时间线来自同一份记录",
-      "summary": "DSH 把用户消息、请求头、模型回复、工具往返、运行时变化和 Goal 状态写入同一条 append-only Session Log。buildRequest() 从目标 request/header 向前重建当时输入，Trace 则把同一批 Event 翻译成人能阅读的执行过程。",
+      "summary": "DSH 把用户消息、请求头、模型回复、工具往返、运行时变化和 Goal 状态写入同一条 append-only（只追加）Session Log。buildRequest() 根据目标 request/header 重建当时的输入，Trace 使用同一批 Event 生成可读的执行过程。",
       "harnessRole": "记忆与证据层：为请求、回放和审计提供共同来源",
-      "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；这些都在本章汇入同一记录源。第五章的能力实验和第六章的 Goal/Round 也继续追加 Event，而不是各自维护隐藏状态。",
+      "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；本章把这些内容写入同一记录源。第五章的能力实验和第六章的 Goal/Round 也继续追加 Event，所有视图都从明确记录中生成。",
       "outcomes": [
         "能说明为什么 request/header 是重建某个 Step 的时间边界",
         "能解释 checkpoint 只替换模型投影，不删除已经发生的 Event",
@@ -193,19 +178,15 @@
     "lessonPath": "docs/lessons/m05.md",
     "shortTitle": "运行时自进化",
     "title": "在受控边界内自进化",
-    "question": "DSH 是如何持续自进化的？",
+    "question": "DSH 是如何持续自进化的?",
     "sourceRange": { "start": 35, "end": 90 },
     "codeGuide": {
       "title": "Agent 怎样获得受限的运行时变更能力",
-      "description": "Runtime Tools 插件把检查、安装和移除暴露成普通工具，但候选范围由可信目录限定，真正的变更仍复用 Context 的挂载与回滚。",
+      "description": "Runtime Tools（运行时工具）插件提供检查、安装和移除操作。可信目录限定候选范围，能力变更继续使用 Context 的挂载与回滚流程。",
       "observations": [
-        { "title": "边界先写进 Prompt 和生命周期", "text": "插件取得可信目录，维护本次实验的卸载函数，并声明只能临时安装目录中的名称；插件自身退出时也会清理未撤销实验。", "lines": [35, 49] },
-        { "title": "检查与安装都是普通工具", "text": "inspect_runtime 返回当前快照。install_capability 拒绝重复或未知名称，命中后调用 context.mount，并保存 disposer。", "lines": [50, 73] },
-        { "title": "移除必须恢复新的能力快照", "text": "remove_capability 找到安装时保存的 disposer，先从实验表删除，再完整卸载插件，最后返回当前工具目录供 Agent 验证。", "lines": [74, 90] }
-      ],
-      "folds": [
-        { "lines": [67, 71], "label": "安装成功后的返回字段" },
-        { "lines": [84, 88], "label": "卸载成功后的返回字段" }
+        { "title": "Prompt 和生命周期共同限制变更", "text": "插件取得可信目录，保存本次实验的卸载函数，并声明只能临时安装目录中的名称；插件卸载时也会清理尚未撤销的实验。", "lines": [35, 49] },
+        { "title": "检查与安装都是普通工具", "text": "inspect_runtime 返回当前运行时状态。install_capability 拒绝重复或未知名称，命中后调用 context.mount，并保存 disposer。", "lines": [50, 73] },
+        { "title": "移除后返回当前能力状态", "text": "remove_capability 找到安装时保存的 disposer，先从实验表删除记录，再完整卸载插件，最后返回当前工具目录供 Agent 检查。", "lines": [74, 90] }
       ],
       "fills": [
         { "label": "类型别名与受信任目录类", "kind": "skeleton", "ranges": [[4, 4], [6, 20]] },
@@ -219,12 +200,12 @@
     },
     "changeStory": {
       "title": "Agent 可以做可验证、可撤销的能力实验",
-      "summary": "DSH 先把 inspect、install 与 remove 暴露成普通 Tool，再让 Agent 从可信目录选择 Plugin。安装只改变后续请求中的能力快照；真正调用新工具得到结果后，Agent 才有证据决定保留还是通过 disposer 撤回。",
+      "summary": "DSH 把 inspect、install 与 remove 封装成普通 Tool，并让 Agent 从可信目录选择 Plugin。安装结果从后续请求开始生效。Agent 调用新工具并取得实际结果后，才能据此保留能力或通过 disposer 撤销安装。",
       "harnessRole": "适配层：让 Agent 在运行中试验并更换能力",
-      "connection": "这条闭环同时调用前四章：Agent Loop 执行运行时工具，请求投影呈现新的 Tool/Prompt，Plugin 提供可逆生命周期，Session Log 记录挂载、调用和卸载。所谓自进化，是这些机制组合后的运行时适配。",
+      "connection": "这项流程同时使用前四章的机制：Agent Loop 执行运行时工具，请求投影加入新的 Tool/Prompt，Plugin 提供可逆生命周期，Session Log 记录挂载、调用和卸载。这里的自进化指这些机制共同完成的运行时适配。",
       "outcomes": [
-        "能沿 inspect → install → use → remove 说清一次能力实验的完整证据链",
-        "能解释安装完成与能力有效为什么不是同一件事",
+        "能按照 inspect、install、use、remove 的顺序说明一次能力实验的完整证据",
+        "能说明安装完成与能力有效之间的差别",
         "能指出新 Tool/Prompt 从哪次请求开始可见，以及卸载后怎样验证无残留"
       ]
     }
@@ -242,31 +223,31 @@
     "question": "DSH 是如何持续完成长程任务的？",
     "sourceRange": { "start": 33, "end": 114 },
     "codeGuide": {
-      "title": "Goal 状态机怎样包住普通 Agent Turn",
-      "description": "LongTaskRunner 不替代 Agent Loop，只负责保存目标、启动一个个 Round，并依据结构化结果决定完成、受阻、继续或到达上限。",
+      "title": "Goal 状态机怎样管理多个 Agent Turn",
+      "description": "LongTaskRunner 保存目标并依次启动 Round。每个 Round 仍使用普通 Agent Loop，外层根据结构化结果决定完成、受阻、继续或到达上限。",
       "observations": [
         { "title": "Goal 把跨轮状态集中保存", "text": "构造器固定 objective、status、轮数与原因；run 开始时先把 Goal 创建事件写入 Session Log。", "lines": [33, 60] },
-        { "title": "每个 Round 都有编号和明确输入", "text": "外循环只在 active 时运行。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部注入的 runRound；是否启动 Agent Turn 由组合层决定。", "lines": [62, 82] },
+        { "title": "每个 Round 都有编号和明确输入", "text": "外循环只在 active 时运行。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部注入的 runRound。组合层决定 runRound 是否启动 Agent Turn。", "lines": [62, 82] },
         { "title": "继续必须通过进展判断", "text": "completed、blocked、无进展和 max-rounds 都是显式出口；只有取得进展且仍未完成时，状态才保持 active 并进入下一轮。", "lines": [83, 114] }
       ],
       "fills": [
-        { "label": "类型声明与 LongTaskRunner 骨架", "kind": "skeleton", "ranges": [[3, 3], [5, 12], [14, 17], [19, 23], [25, 31], [33, 33], [115, 115]] },
+        { "label": "类型声明与 LongTaskRunner 结构", "kind": "skeleton", "ranges": [[3, 3], [5, 12], [14, 17], [19, 23], [25, 31], [33, 33], [115, 115]] },
         { "label": "私有状态：轮次、会话与运行函数", "kind": "body", "ranges": [[34, 38]] },
         { "label": "构造器：初始化目标状态", "kind": "body", "ranges": [[39, 52]] },
         { "label": "run：写入目标创建事件", "kind": "body", "ranges": [[54, 60]] },
         { "label": "轮次循环：推进与记录", "kind": "body", "ranges": [[62, 81]] },
         { "label": "停止条件：完成、受阻、上限", "kind": "body", "ranges": [[83, 102]] },
-        { "label": "收束：状态落定与事件写入", "kind": "body", "ranges": [[104, 114]] }
+        { "label": "完成状态与事件写入", "kind": "body", "ranges": [[104, 114]] }
       ]
     },
     "changeStory": {
       "title": "Turn 可以停止，Goal 再决定是否续行",
-      "summary": "DSH 不把一次 Agent Loop 拉成无限循环，而是在外层保存 Goal，并以 Round 为单位反复启动普通 Turn。每轮结束后，协调器依据可观察的 progressed、completed 与 blocked 结果决定继续、完成、受阻或到达上限。",
+      "summary": "DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，协调器依据可观察的 progressed、completed 与 blocked 结果决定继续、完成、受阻或到达上限。",
       "harnessRole": "协调层：让有限 Turn 共同推进一个长期 Goal",
-      "connection": "每个 Round 都复用完整 Harness：第一章执行 Step，第二章构造请求，第三章提供能力，第四章延续记录，第五章允许途中适配。第六问把前五问包进更慢的状态机，六个答案到这里才拼成可持续运行的 DeepSeek Harness。",
+      "connection": "每个 Round 都使用完整 Harness：第一章执行 Step，第二章构造请求，第三章提供能力，第四章延续记录，第五章允许运行中适配。第六章用 Goal 状态机协调这些机制，使 DeepSeek Harness 能够分轮推进长期目标。",
       "outcomes": [
-        "能按 Goal → Round → Turn → Step 从慢到快解释四层控制结构",
-        "能说明续行依据为什么必须来自可观察结果，而不是模型一句“还没完成”",
+        "能按照 Goal、Round、Turn、Step 的顺序解释四层控制结构",
+        "能说明协调器怎样根据可观察结果决定是否续行",
         "能指出 completed、blocked、no progress 与 max-rounds 的明确出口"
       ]
     }

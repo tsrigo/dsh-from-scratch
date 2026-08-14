@@ -16,8 +16,8 @@ learning-layout（两列 grid，参考 nano-dsh .main）
 │   ├─ 证据卡（evidence 内嵌内容：请求对比 / 时间线 / 能力图 / 总结，见 §4）
 │   └─ 图示（ContextCutaway、PresetAssembly、RoundSequence 等原样保留在正文流）
 └─ aside.code-dock（右侧，sticky，只放代码）
-    ├─ 文件标签 + 折叠计数
-    └─ 源码（渐进填充：骨架 → 实现段；is-new 紫色高亮；folds 折叠；行号真实）
+    ├─ 文件标签 + 当前段计数
+    └─ 源码（渐进填充：骨架 → 实现段；is-new 紫色高亮；行号真实）
 ```
 
 - 右侧代码区**不再有** panel-intro 观察点列表、tab 系统、步骤选择器——全部迁入正文。
@@ -46,14 +46,14 @@ learning-layout（两列 grid，参考 nano-dsh .main）
 
 `scripts/generate-tutorial-data.ts`：从 `config.fills` 校验（区间单调不重叠、在文件行数内、
 骨架在 sourceRange 前）并写入 `chapter.fills`。Python 版若无标注则缺省 `fills: []`，
-前端退化为"整段显示 + folds 折叠"（现状行为）。
+前端退化为"整段显示"（现状行为）。
 
 ### 2.3 m01 完整样例（src/agent.ts，173 行）
 
 | # | kind | ranges | label | 对应观察点 |
 |---|---|---|---|---|
 | 1 | skeleton | [52,52] [173,173] | 声明 Agent 骨架 | — |
-| 2 | body | [53,75] | 私有字段与构造器 | obs1 [53,76]（fold 62-66 渲染时折叠） |
+| 2 | body | [53,75] | 私有字段与构造器 | obs1 [53,76] |
 | 3 | body | [77,97] | Step 循环与请求组装 | obs2 [73,95] 的后半 |
 | 4 | body | [98,113] | 流式等待模型回复 | obs3 [98,113] |
 | 5 | body | [114,132] | 无工具调用即结束 Turn | — |
@@ -61,7 +61,7 @@ learning-layout（两列 grid，参考 nano-dsh .main）
 | 7 | body | [151,172] | 工具执行：校验与运行 | — |
 
 其余五章实现时按同法划分（骨架 = 章主文件的类/函数声明；实现段 = 观察点区间 +
-源文件真实边界）。m06 无 folds，观察点区间 [33,60] [62,82] [83,114] 直接切段。
+源文件真实边界）。m06 的观察点区间 [33,60] [62,82] [83,114] 直接切段。
 
 ## 3. 滚动联动与渐进填充（移植自 nano-dsh）
 
@@ -98,8 +98,8 @@ learning-layout（两列 grid，参考 nano-dsh .main）
 | `Hero / BuildPrelude / LanguagePrimer / LiveReplaySection` | 原样保留 |
 | `ChapterArticle` | 布局改单列正文；删除 mobile-switcher 双栏逻辑（移动端 = 正文在上、代码在下滚动） |
 | `LessonNarrative` | 删除 cue 联动；段落流交错插入填充卡片 + 证据卡 |
-| `SourceView` | 重命名为代码区：快照渲染 + is-new + folds + 行号；删除观察点列表与复制按钮保留 |
-| `CodeBlock` | 加 `newLines` prop（旧版实现复用）；folds 逻辑保留 |
+| `SourceView` | 重命名为代码区：快照渲染 + is-new + 真实行号；删除观察点列表与复制按钮保留 |
+| `CodeBlock` | 加 `newLines` prop（旧版实现复用）；逐行直接渲染，不再隐藏代码 |
 | `EvidencePanel / MoreEvidence / step picker / RequestView / TraceView / GraphView / DiffView` | 改为正文内嵌压缩版证据卡组件（`EvidenceCard`） |
 | `scroll-sync.ts` | 从旧分支内容恢复（buildCheckpoints 改为 fills 版：`snapshotForCheckpoint` / `addedLines` / `checkpointForRange`） |
 
@@ -123,7 +123,7 @@ learning-layout（两列 grid，参考 nano-dsh .main）
 1. `feat(data): add fill slices to checkpoints and generator` —— checkpoints.json 六章 fills
    标注 + 生成器校验/输出 + tutorial.json 重新生成 + scroll-sync.ts 恢复与单测。
 2. `feat(site): two-column reader with progressive code fill` —— 布局重写 + 滚动联动 +
-   填充卡片 + is-new/folds 渲染。
+   填充卡片 + is-new 渲染。
 3. `feat(site): move evidence into the article flow` —— 证据卡内嵌 + 总结卡 + 请求/时间线/能力图压缩版。
 4. `feat(site): hash, lock, progress, mobile` —— 顶栏控件与移动端。
 5. `docs: record reader redesign` —— 本设计归档。

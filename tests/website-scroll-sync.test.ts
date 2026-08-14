@@ -75,8 +75,18 @@ describe("snapshotForCheckpoint", () => {
   it("without fills the whole source is shown at once", () => {
     const m01 = pythonTutorial.chapters[0]!;
     const snapshot = snapshotForCheckpoint(m01, 0);
-    expect(snapshot.length).toBe(m01.source.content.split("\n").length);
+    expect(snapshot.length).toBe(m01.source.content.trimEnd().split(/\r?\n/u).length);
     expect(isFinalCheckpoint(m01, 0)).toBe(true);
+  });
+
+  it("keeps every displayed line mapped to its source line", () => {
+    for (const chapter of [...tutorial.chapters, ...pythonTutorial.chapters]) {
+      const sourceLines = chapter.source.content.trimEnd().split(/\r?\n/u);
+      const snapshot = snapshotForCheckpoint(chapter, chapterFills(chapter).length - 1);
+      for (const line of snapshot) {
+        expect(line.text).toBe(sourceLines[line.number - 1]);
+      }
+    }
   });
 });
 

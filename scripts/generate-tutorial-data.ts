@@ -34,7 +34,6 @@ interface CheckpointConfig {
     title: string;
     description: string;
     observations: Array<{ title: string; text: string; lines: [number, number] }>;
-    folds?: Array<{ lines: [number, number]; label: string }>;
     fills?: Array<{ label: string; kind: "skeleton" | "body"; ranges: Array<[number, number]> }>;
   };  changeStory: {
     title: string;
@@ -522,24 +521,6 @@ function verifyCodeGuideCoverage(config: CheckpointConfig, sourceLineCount: numb
       `${config.id}: observation range ${observationStart}-${observationEnd} falls outside ${start}-${end}`,
     );
   }
-  const folds = [...(config.codeGuide.folds ?? [])]
-    .sort((left, right) => left.lines[0] - right.lines[0]);
-  for (const [index, fold] of folds.entries()) {
-    const [foldStart, foldEnd] = fold.lines;
-    assert(fold.label.trim().length > 0, `${config.id}: folded code needs a label`);
-    assert(
-      foldStart >= start && foldStart <= foldEnd && foldEnd <= end,
-      `${config.id}: folded range ${foldStart}-${foldEnd} falls outside ${start}-${end}`,
-    );
-    const previous = folds[index - 1];
-    assert(!previous || previous.lines[1] < foldStart, `${config.id}: folded code ranges overlap`);
-    for (const observation of config.codeGuide.observations) {
-      assert(
-        foldStart > observation.lines[0] || foldEnd < observation.lines[1],
-        `${config.id}: folded range ${foldStart}-${foldEnd} hides all of ${observation.title}`,
-      );
-    }
-  }
 }
 
 function verifyFills(config: CheckpointConfig, sourceLines: string[]): void {
@@ -570,7 +551,7 @@ function verifyFills(config: CheckpointConfig, sourceLines: string[]): void {
     }
   }
 
-  // 观察点与折叠区逐行覆盖（空行豁免：空行不承载内容，允许落在 fills 之外）
+  // 观察点逐行覆盖（空行豁免：空行不承载内容，允许落在 fills 之外）
   const covered = new Set<number>();
   for (const fill of fills) {
     for (const [fillStart, fillEnd] of fill.ranges) {
@@ -586,9 +567,6 @@ function verifyFills(config: CheckpointConfig, sourceLines: string[]): void {
   };
   for (const observation of config.codeGuide.observations) {
     assertCovered(`observation ${observation.title}`, observation.lines[0], observation.lines[1]);
-  }
-  for (const fold of config.codeGuide.folds ?? []) {
-    assertCovered(`fold ${fold.lines[0]}-${fold.lines[1]}`, fold.lines[0], fold.lines[1]);
   }
 }
 

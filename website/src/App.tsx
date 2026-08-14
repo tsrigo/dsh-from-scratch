@@ -1,6 +1,5 @@
 import {
   type CSSProperties,
-  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -84,6 +83,11 @@ interface LessonEvidenceBlock {
   target: EvidenceTarget;
 }
 
+interface LockedCodeView {
+  chapterId: string;
+  checkpoint: number | null;
+}
+
 type LessonBlock =
   | { kind: "heading"; text: string }
   | { kind: "paragraph"; text: string }
@@ -95,7 +99,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState("chapter-1");
   const [checkpoint, setCheckpoint] = useState<number | null>(null);
-  const [locked, setLocked] = useState(false);
+  const [lockedCodeView, setLockedCodeView] = useState<LockedCodeView | null>(null);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const activeChapterIdRef = useRef(activeChapterId);
   useEffect(() => { activeChapterIdRef.current = activeChapterId; }, [activeChapterId]);
@@ -124,7 +128,7 @@ export function App() {
   }, [language]);
 
   useEffect(() => {
-    if (!data || locked) return;
+    if (!data || lockedCodeView) return;
     // 全局滚动联动（nano-dsh Reader 同款）：遍历所有填充锚点，激活
     // 「最后一个顶部越过视口 25% 线」的锚点；向上滚动时锚点回退，
     // 编辑器随之回退（代码段逐段消失）；滚回页面顶部时清空编辑器。
@@ -174,7 +178,7 @@ export function App() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
     };
-  }, [data, locked]);
+  }, [data, lockedCodeView]);
 
   // URL hash 章节导航：刷新/前进后退保持章节位置；切换章节 = 换文件 + 滚到章首。
   useEffect(() => {
@@ -202,11 +206,17 @@ export function App() {
   if (error) return <LoadFailure message={error} />;
   if (!data || !activeChapter) return <Loading />;
 
-  const fills = chapterFills(activeChapter);
+  const locked = lockedCodeView !== null;
+  const lockedChapter = lockedCodeView
+    ? data.chapters.find((chapter) => chapter.id === lockedCodeView.chapterId) ?? activeChapter
+    : activeChapter;
+  const codeChapter = locked ? lockedChapter : activeChapter;
+  const codeCheckpoint = locked ? lockedCodeView!.checkpoint : checkpoint;
+  const codeFills = chapterFills(codeChapter);
   // 进度含「空」起始态：锚点总数 = 骨架 + body 段
-  const progress = checkpoint === null || fills.length === 0
+  const progress = codeCheckpoint === null || codeFills.length === 0
     ? 0
-    : Math.round(((checkpoint + 1) / (fills.length + 1)) * 100);
+    : Math.round(((codeCheckpoint + 1) / (codeFills.length + 1)) * 100);
 
   const navigateTo = (chapter: Chapter) => {
     setActiveChapterId(chapter.id);
@@ -248,7 +258,11 @@ export function App() {
         onLanguage={switchLanguage}
         onNavigate={navigateTo}
         locked={locked}
-        onToggleLock={() => setLocked((current) => !current)}
+        onToggleLock={() => {
+          setLockedCodeView((current) => current
+            ? null
+            : { chapterId: activeChapter.id, checkpoint });
+        }}
         progress={progress}
       />
       <main>
@@ -270,8 +284,8 @@ export function App() {
               />
             ))}
           </article>
-          <aside className="code-dock" aria-label="随正文逐段补全的源码">
-            <CodeDock chapter={activeChapter} checkpoint={checkpoint} />
+          <aside className="code-dock" aria-label="根据阅读位置逐段显示的源码">
+            <CodeDock chapter={codeChapter} checkpoint={codeCheckpoint} />
           </aside>
         </div>
       </main>
@@ -1001,7 +1015,7 @@ function LanguagePrimer({ markdown, language }: { markdown: string; language: Tu
       <summary className="primer-summary">
         <div>
           <p className="eyebrow">阅读补充 · 约 3 分钟</p>
-          <h2 id="language-primer-title">{label} 不熟？先认四个路标。</h2>
+          <h2 id="language-primer-title">{label} 的四个阅读基础</h2>
         </div>
         <span aria-hidden="true" />
       </summary>
@@ -1010,7 +1024,7 @@ function LanguagePrimer({ markdown, language }: { markdown: string; language: Tu
         <div className="primer-cards">
           {sections.cards.map((card, index) => (
             <article key={card.title}>
-              <span>路标 {index + 1}</span>
+              <span>基础 {index + 1}</span>
               <h3>{card.title}</h3>
               <pre><SyntaxCode code={card.code} language={language} /></pre>
               <p>{renderInlineCode(card.body)}</p>
@@ -1026,12 +1040,12 @@ function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () 
   return (
     <section id="six-questions" className="build-prelude scaffolded" aria-labelledby="build-prelude-title">
       <div className="build-prelude-copy">
-        <p className="eyebrow">阅读地图</p>
-        <h2 id="build-prelude-title">六个问题，理解 DeepSeek Harness。</h2>
-        <p>Loop 让历史增长，上下文投影控制输入；插件管理变化，会话日志保存过程；运行时能力可以受控调整，Goal 再把工作带到下一轮。</p>
+        <p className="eyebrow">教程结构</p>
+        <h2 id="build-prelude-title">六个问题，理解 DeepSeek Harness</h2>
+        <p>Agent Loop 根据反馈重复执行步骤，上下文投影控制每次模型输入。插件管理运行时能力，会话日志保存执行过程。Goal 在每轮结束后根据目标状态决定是否继续。</p>
         <div className="prelude-actions">
           <button onClick={onStart}>从六个问题开始</button>
-          <span>每章先讲整体机制，右侧再细读一个主文件</span>
+          <span>每章说明一项机制，并配合右侧主文件逐段讲解</span>
         </div>
       </div>
       <div className="scaffold-tree">
@@ -1041,7 +1055,7 @@ function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () 
             <i>{String(index + 1).padStart(2, "0")}</i>
             <code>{chapter.source.path.replace(/^(?:src|python_harness)\//u, "")}</code>
             <span className="scaffold-chapter">
-              <strong>第{chapterNumeral(chapter.number)}章 · {chapter.shortTitle}</strong>
+              <strong>{fixedChapterTitle(chapter)}</strong>
               <small>{chapter.question}</small>
             </span>
           </div>
@@ -1072,10 +1086,13 @@ function Header({
 }) {
   return (
     <header className="site-header">
-      <button className="wordmark" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-        <span className="wordmark-dot" />
-        <span>DeepSeek Harness</span>
-        <span className="wordmark-muted">/ from scratch</span>
+      <button
+        className="wordmark"
+        onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        aria-label="回到 DeepSeek Harness 首页"
+      >
+        <img className="wordmark-logo" src="/deepseek-harness-logo.png" alt="" />
+        <span className="wordmark-copy">DeepSeek Harness from Scratch</span>
       </button>
       <nav className="chapter-nav" aria-label="章节导航">
         {data.chapters.map((chapter) => (
@@ -1083,40 +1100,87 @@ function Header({
             key={chapter.id}
             className={activeId === chapter.id ? "active" : ""}
             onClick={() => onNavigate(chapter)}
+            aria-label={fixedChapterTitle(chapter)}
             aria-current={activeId === chapter.id ? "step" : undefined}
           >
-            <span>{chapterName(chapter.number)}</span>
-            {chapter.shortTitle}
+            <span className="chapter-number">{chapterName(chapter.number)}·</span>
+            <strong>{chapter.shortTitle}</strong>
           </button>
         ))}
       </nav>
       <div className="header-actions">
-        <div
-          className="progress-track"
-          role="progressbar"
-          aria-valuenow={progress}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          title="本章代码补全进度"
-        >
-          <div className="progress-bar" style={{ width: `${progress}%` }} />
+        <div className="progress-help">
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-valuenow={progress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-describedby="code-progress-help"
+          >
+            <div className="progress-bar" style={{ width: `${progress}%` }} />
+          </div>
+          <span id="code-progress-help" className="header-tooltip" role="tooltip">
+            <b>代码补全进度</b>
+            <span>进度根据阅读位置更新；锁定后保留当前文件和进度。</span>
+          </span>
         </div>
         <button
           type="button"
           className={`lock-button ${locked ? "active" : ""}`}
           onClick={onToggleLock}
           aria-pressed={locked}
-          title={locked ? "已锁定：代码不再随滚动变化" : "解锁：代码随滚动逐段补全"}
+          aria-label={locked ? "解除代码视图锁定，使内容继续根据阅读位置更新" : "锁定当前代码视图，保留当前文件和进度"}
+          aria-describedby="code-lock-help"
         >
-          {locked ? "🔒" : "🔓"}
+          {locked ? <LockIcon locked /> : <LockIcon />}
+          <span id="code-lock-help" className="lock-tooltip" role="tooltip">
+            <b>{locked ? "代码视图已锁定" : "锁定代码视图"}</b>
+            <span>{locked ? "点击后根据阅读位置继续更新" : "点击后保留当前文件和进度"}</span>
+          </span>
         </button>
-        <div className="language-switch" role="group" aria-label="教程实现语言">
-          <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
-          <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
+        <div className="language-control">
+          <div className="language-switch" role="group" aria-label="教程实现语言" aria-describedby="language-switch-help">
+            <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
+            <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
+          </div>
+          <span id="language-switch-help" className="header-tooltip" role="tooltip">
+            <b>选择实现语言</b>
+          <span>切换 TypeScript 或 Python；两版讲解相同机制。</span>
+          </span>
         </div>
-        <a className="repo-link" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">deepseek-harness ↗</a>
+        <div className="github-links">
+          <a
+            className="github-link"
+            href="https://github.com/tsrigo/dsh-from-scratch"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="在 GitHub 查看 dsh-from-scratch"
+            title="tsrigo/dsh-from-scratch"
+          >
+            <GitHubIcon />
+          </a>
+        </div>
       </div>
     </header>
+  );
+}
+
+function LockIcon({ locked = false }: { locked?: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <rect x="5" y="10" width="14" height="10" rx="2" />
+      {locked ? <path d="M8 10V7a4 4 0 0 1 8 0v3" /> : <path d="M8 10V7a4 4 0 0 1 7.3-2.2" />}
+      <path d="M12 14v2" />
+    </svg>
+  );
+}
+
+function GitHubIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.28-.01-1.02-.01-2-3.2.7-3.88-1.54-3.88-1.54-.53-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.67 1.25 3.32.96.1-.74.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.47.11-3.06 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.77.11 3.06.73.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.4-5.25 5.68.41.35.78 1.04.78 2.1 0 1.52-.01 2.75-.01 3.12 0 .3.21.67.8.55A11.5 11.5 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+    </svg>
   );
 }
 
@@ -1125,20 +1189,20 @@ function Hero({ data, onStart }: { data: TutorialData; onStart: () => void }) {
   return (
     <section className="hero">
       <div className="hero-copy">
-        <p className="eyebrow">{language} 从零搭建 · 可运行教程</p>
+        <p className="eyebrow">{language} 从零实现 · 可运行教程</p>
         <h1>
-          <span className="hero-line">看懂 DeepSeek Harness，</span>
-          <span className="hero-line">如何一步步</span>
-          <span className="hero-line hero-line-accent">完成复杂任务。</span>
+          <span className="hero-line">理解 DeepSeek Harness</span>
+          <span className="hero-line">如何逐步处理</span>
+          <span className="hero-line hero-line-accent">复杂任务</span>
         </h1>
           <p className="hero-intro">
-            Agent Harness 负责整理模型输入、执行工具、保存过程。
+            DeepSeek Harness（DSH）为模型执行任务提供运行环境，负责组织模型输入、执行工具并保存执行过程。
             <br />
-            六章各用一个最小样本，只回答一个机制问题。
+            六章分别使用一个可运行的最小样本，说明六项基础机制。
           </p>
         <div className="hero-actions">
           <button className="primary-action" onClick={onStart}>从六个问题开始 <span>↓</span></button>
-          <span className="offline-badge"><i /> 离线学习样本可直接查看</span>
+          <span className="offline-badge"><i /> 教程数据随网页提供，可离线查看</span>
         </div>
       </div>
       <div
@@ -1203,7 +1267,7 @@ function ChapterArticle({
       <div className="chapter-content">
         <div className="chapter-kicker">
           <span>{chapterName(chapter.number)}</span>
-          <span>本章主题 · {chapter.shortTitle}</span>
+          <span>{fixedChapterTitle(chapter)}</span>
         </div>
         <div className="chapter-heading">
           <div className="chapter-file">
@@ -1213,7 +1277,7 @@ function ChapterArticle({
           <h2>{chapter.title}</h2>
           <p className="chapter-question">{chapter.question}</p>
           <div className="reading-order" aria-label="正文与代码的联动顺序">
-            <span><b>→</b>滚动正文，右侧代码逐段补全：先见骨架，再见实现</span>
+            <span><b>→</b>滚动正文，右侧代码逐段显示：先显示结构，再显示实现</span>
           </div>
         </div>
         <CodeGuideCard chapter={chapter} />
@@ -1283,7 +1347,7 @@ function FillCard({
       data-chapter={chapter.id}
       data-fill-cp={fillIndex}
     >
-      <span className="fill-card-index">{fillIndex === 0 ? "骨架" : `代码 ${fillIndex}`}</span>
+      <span className="fill-card-index">{fillIndex === 0 ? "结构" : `代码 ${fillIndex}`}</span>
       <h4>{fill.label}</h4>
       {observation && <p>{observation.text}</p>}
     </div>
@@ -1468,7 +1532,6 @@ function CodeDock({
             code={extra.content}
             startLine={1}
             language={language}
-            folds={[]}
           />
         ) : safeCheckpoint === null || fills.length === 0 ? (
           fills.length === 0 ? (
@@ -1476,10 +1539,9 @@ function CodeDock({
               code={code}
               sourceLineNumbers={lineNumbers}
               language={language}
-              folds={chapter.codeGuide.folds ?? []}
             />
           ) : (
-            <div className="editor-empty">（尚未讲到这个文件）</div>
+            <div className="editor-empty">当前阅读位置尚未显示这个文件</div>
           )
         ) : (
           <CodeBlock
@@ -1488,11 +1550,10 @@ function CodeDock({
             language={language}
             newLines={safeCheckpoint === 0 ? null : added}
             enteringLines={enteringLines}
-            folds={chapter.codeGuide.folds ?? []}
           />
         )}
         {!extra && fills.length > 0 && safeCheckpoint !== null && safeCheckpoint < fills.length - 1 && (
-          <p className="code-dock-hint">继续向下滚动正文，下一段代码将补入上方</p>
+          <p className="code-dock-hint">继续向下阅读，右侧将显示下一段代码</p>
         )}
       </div>
     </div>
@@ -1521,7 +1582,7 @@ function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTa
     <div className="evidence-card-body request-card">
       <p className="request-step-title">第 {evidence.step} 次模型请求</p>
       <div className="request-metrics">
-        <div><small>整份工作包</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
+        <div><small>完整模型请求</small><b>约 {evidence.totalApproximateTokens}</b><span>token</span></div>
         <div><small>与上次相同的开头</small><b>约 {evidence.prefix.sharedApproximateTokens}</b><span>token</span></div>
       </div>
       <div className="request-anatomy">
@@ -1534,7 +1595,7 @@ function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTa
         <b>{invalidationLabel(evidence.prefix.firstInvalidation)}</b>
       </div>
       <details className="technical-details">
-        <summary><span>拆开这份请求</span><b>查看各部件与估算</b></summary>
+        <summary><span>查看请求组成</span><b>各部分内容与估算</b></summary>
         <div className="details-body">
           {evidence.parts.map((part) => (
             <details key={part.id} className={part.stability}>
@@ -1557,7 +1618,7 @@ function TraceCard({ chapter }: { chapter: Chapter }) {
   return (
     <div className="evidence-card-body trace-card">
       {chapter.events.length === 0 ? (
-        <p className="evidence-card-empty">这一章先保存本地执行轨迹；第四章让全部过程进入同一条只追加日志。</p>
+        <p className="evidence-card-empty">这一章先保存本地执行记录；第四章把全部过程写入同一条只追加日志。</p>
       ) : (
         <>
           <p className="trace-summary"><b>{chapter.events.length}</b> 条关键事件，按发生顺序只追加</p>
@@ -1600,7 +1661,7 @@ function GraphCard({ chapter }: { chapter: Chapter }) {
       </div>
       {chapter.number === "05" && (
         <p className={`capability-state ${capability ? "mounted" : "removed"}`}>
-          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录已经出现 word_count" : "未安装；工具目录处于基线状态"}
+          <i /> 临时分词统计能力{capability ? "已安装；当前工具目录包含 word_count" : "未安装；工具目录处于基线状态"}
         </p>
       )}
     </div>
@@ -1615,7 +1676,6 @@ function CodeBlock({
   highlightedRange = null,
   newLines = null,
   enteringLines = null,
-  folds = [],
   sourceLineNumbers = null,
 }: {
   code: string;
@@ -1626,72 +1686,43 @@ function CodeBlock({
   newLines?: Set<number> | null;
   /** 需要打字机写入动画的新增行（相对该行号排序确定交错延迟） */
   enteringLines?: Set<number> | null;
-  folds?: Array<{ lines: [number, number]; label: string }>;
   /** 快照渲染时逐行指定源文件真实行号（与 code 的行一一对应） */
   sourceLineNumbers?: number[] | null;
 }) {
-  const lines = code.trimEnd().split("\n");
+  const lines = code.trimEnd().split(/\r?\n/u);
   const languages = diffLanguages(lines, language);
-  const [expandedFolds, setExpandedFolds] = useState<Set<string>>(() => new Set());
-  const foldAtLine = new Map(
-    folds.map((fold) => [fold.lines[0], fold] as const),
-  );
   const enteringOrder = useMemo(() => {
     if (!enteringLines || enteringLines.size === 0) return new Map<number, number>();
     return new Map(
       [...enteringLines].sort((a, b) => a - b).map((line, index) => [line, index]),
     );
   }, [enteringLines]);
-  const rows: ReactNode[] = [];
-  for (let index = 0; index < lines.length;) {
-    const lineNumber = sourceLineNumbers?.[index] ?? startLine + index;
-    const fold = foldAtLine.get(lineNumber);
-    const foldKey = fold ? `${fold.lines[0]}-${fold.lines[1]}` : "";
-    if (fold && !expandedFolds.has(foldKey)) {
-      const highlighted = highlightedRange !== null
-        && fold.lines[0] <= highlightedRange[1]
-        && fold.lines[1] >= highlightedRange[0];
-      rows.push(
-        <div key={`fold-${foldKey}`} className={`code-fold ${highlighted ? "highlighted" : ""}`.trim()}>
-          <span className="line-no">⋯</span>
-          <button
-            type="button"
-            onClick={() => setExpandedFolds((current) => new Set(current).add(foldKey))}
-          >
-            展开第 {fold.lines[0]}–{fold.lines[1]} 行 · {fold.label}
-          </button>
-        </div>,
-      );
-      index += fold.lines[1] - fold.lines[0] + 1;
-      continue;
-    }
-    const line = lines[index] ?? "";
-    const highlighted = highlightedRange !== null
-      && lineNumber >= highlightedRange[0]
-      && lineNumber <= highlightedRange[1];
-    const enteringIndex = enteringOrder.get(lineNumber);
-    const isEntering = enteringIndex !== undefined;
-    rows.push(
-      <div
-        key={index}
-        data-line={lineNumber}
-        className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""} ${newLines?.has(lineNumber) ? "is-new" : ""} ${isEntering ? "is-entering" : ""}`.trim()}
-        style={isEntering ? ({
-          "--write-delay": `${120 + enteringIndex! * 28}ms`,
-          "--write-duration": `${Math.max(260, line.length * 10)}ms`,
-        } as CSSProperties) : undefined}
-      >
-        <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
-        {diff
-          ? <DiffCodeLine line={line} language={languages[index] ?? language} />
-          : <SyntaxCode code={line || " "} language={language} />}
-      </div>,
-    );
-    index += 1;
-  }
   return (
     <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
-      {rows}
+      {lines.map((line, index) => {
+        const lineNumber = sourceLineNumbers?.[index] ?? startLine + index;
+        const highlighted = highlightedRange !== null
+          && lineNumber >= highlightedRange[0]
+          && lineNumber <= highlightedRange[1];
+        const enteringIndex = enteringOrder.get(lineNumber);
+        const isEntering = enteringIndex !== undefined;
+        return (
+          <div
+            key={index}
+            data-line={lineNumber}
+            className={`${diff ? diffClass(line) : "code-line"} ${highlighted ? "highlighted" : ""} ${newLines?.has(lineNumber) ? "is-new" : ""} ${isEntering ? "is-entering" : ""}`.trim()}
+            style={isEntering ? ({
+              "--write-delay": `${120 + enteringIndex! * 28}ms`,
+              "--write-duration": `${Math.max(260, line.length * 10)}ms`,
+            } as CSSProperties) : undefined}
+          >
+            <span className="line-no">{String(lineNumber).padStart(3, "0")}</span>
+            {diff
+              ? <DiffCodeLine line={line} language={languages[index] ?? language} />
+              : <SyntaxCode code={line || " "} language={language} />}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1717,11 +1748,11 @@ function DiffCodeLine({ line, language }: { line: string; language: string }) {
 }
 
 function LoadFailure({ message }: { message: string }) {
-  return <div className="load-state"><b>学习数据没有装载</b><span>{message}</span><p>请先运行 pnpm tutorial:generate。</p></div>;
+  return <div className="load-state"><b>教程数据加载失败</b><span>{message}</span><p>请先运行 pnpm tutorial:generate。</p></div>;
 }
 
 function Loading() {
-  return <div className="load-state"><b>正在展开教程…</b><span>六章源码与运行轨迹即将就绪</span></div>;
+  return <div className="load-state"><b>正在加载教程…</b><span>正在读取六章源码与执行记录</span></div>;
 }
 
 function parseLesson(markdown: string): LessonBlock[] {
@@ -1813,7 +1844,7 @@ function parsePrimer(markdown: string, language: TutorialLanguage): {
   intro: string;
   cards: Array<{ title: string; code: string; body: string }>;
 } {
-  if (!markdown) return { intro: `${language === "python" ? "Python" : "TypeScript"} 阅读预检正在更新。`, cards: [] };
+  if (!markdown) return { intro: `${language === "python" ? "Python" : "TypeScript"} 阅读补充暂时不可用。`, cards: [] };
   const intro = markdown.split(/\n\s*\n/u)[1]?.trim() ?? "";
   const cards = [...markdown.matchAll(
     /##\s+([^\n]+)\n\s*```(?:ts|python)\n([\s\S]*?)```\n\s*([^\n][\s\S]*?)(?=\n##\s+|$)/gu,
@@ -1855,6 +1886,10 @@ function toolNameLabel(name: string): string {
 
 function chapterName(number: string): string {
   return `第${chapterNumeral(number)}章`;
+}
+
+function fixedChapterTitle(chapter: Chapter): string {
+  return `${chapterName(chapter.number)}·${chapter.shortTitle}`;
 }
 
 function chapterNumeral(number: string): string {
@@ -1964,7 +1999,7 @@ function traceLabel(type: string): string {
     "user/message": "用户输入",
     "step/start": "模型步骤开始",
     "step/end": "模型步骤结束",
-    "request/header": "模型工作包",
+    "request/header": "模型请求",
     "assistant/message": "模型回复",
     "tool/call": "工具调用",
     "tool/result": "工具结果",
@@ -1984,7 +2019,7 @@ function humanTraceTitle(item: Chapter["trace"][number]): string {
   if (item.title === item.type) {
     const earlyStep = /^step\/(\d+)\/start$/u.exec(item.type);
     if (earlyStep) return `第 ${earlyStep[1]} 个模型步骤开始`;
-    if (item.type === "llm/request") return "整理模型工作包";
+    if (item.type === "llm/request") return "生成模型请求";
     const tools = ({
       read_workspace_file: "读取工作区文件",
       apply_patch: "应用精确补丁",

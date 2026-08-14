@@ -72,51 +72,61 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
   display: flex;
   align-items: center;
   justify-self: start;
-  gap: 9px;
+  gap: 10px;
   padding: 0;
   border: 0;
   color: white;
   background: transparent;
-  font: 650 18px var(--display);
+  font: 650 19px var(--display);
   cursor: pointer;
 }
 
-.wordmark-dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--cyan);
-  box-shadow: 0 0 22px rgba(103, 213, 255, 0.65);
+.wordmark-logo {
+  width: 50px;
+  height: 48px;
+  flex: 0 0 auto;
+  display: block;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.18));
 }
+
+.wordmark-copy { min-width: 0; white-space: nowrap; }
 
 .wordmark-muted { color: #86a9c6; font-weight: 500; }
 
 .chapter-nav { display: flex; align-items: stretch; height: 72px; }
 
 .chapter-nav button {
-  min-width: 92px;
+  min-width: 112px;
   padding: 0 14px;
   border: 0;
   border-left: 1px solid rgba(255, 255, 255, 0.08);
   color: #9ab5ca;
   background: transparent;
-  font: 550 11.5px var(--body);
+  font: 550 12.5px var(--body);
   cursor: pointer;
   transition: color 160ms ease, background 160ms ease;
 }
 
 .chapter-nav button:last-child { border-right: 1px solid rgba(255, 255, 255, 0.08); }
-.chapter-nav button span { display: block; margin-bottom: 3px; color: #658ca9; font-size: 11px; }
+.chapter-nav button .chapter-number { display: block; margin-bottom: 3px; color: #658ca9; font-size: 11px; }
+.chapter-nav button strong { display: block; color: inherit; font: inherit; white-space: nowrap; }
 .chapter-nav button:hover { color: #edf7ff; background: rgba(77, 163, 255, 0.08); }
 .chapter-nav button.active { color: var(--cyan); background: rgba(77, 163, 255, 0.12); box-shadow: inset 0 -3px var(--cyan); }
 
-.repo-link {
-  justify-self: end;
+.github-links { display: inline-flex; align-items: center; gap: 8px; }
+.github-link {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
   color: #a9c3d8;
-  font: 500 12px var(--body);
-  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease;
 }
-.repo-link:hover { color: var(--cyan); }
+.github-link:hover, .github-link:focus-visible { color: var(--cyan); background: rgba(77, 163, 255, 0.1); border-color: rgba(156, 207, 246, 0.3); outline: 0; }
+.github-link svg { width: 23px; height: 23px; flex: none; fill: currentColor; }
 
 .hero {
   position: relative;
@@ -212,7 +222,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 @keyframes dash { to { stroke-dashoffset: -150; } }
 
 .typescript-primer {
-  max-width: 1600px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 30px max(5vw, 54px);
   background: rgba(246, 250, 255, 0.97);
@@ -224,7 +234,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .primer-summary .eyebrow { margin: 0 0 7px; color: #3a78aa; }
 .primer-summary h2 { margin: 0; font: 670 clamp(23px, 2vw, 31px)/1.25 var(--display); letter-spacing: -0.025em; }
 .primer-summary > span { flex: none; min-width: 110px; padding: 10px 13px; color: #236fa5; background: #e5f1fb; border: 1px solid #b6d0e4; border-radius: 6px; font-size: 12px; text-align: center; }
-.primer-summary > span::before { content: "展开四个路标"; }
+.primer-summary > span::before { content: "展开四个基础"; }
 .typescript-primer[open] .primer-summary > span::before { content: "收起补充"; }
 .primer-body { padding-top: 28px; }
 .primer-intro { max-width: 850px; margin: 0; color: #49677f; font-size: 15px; line-height: 1.85; }
@@ -240,7 +250,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
   display: grid;
   grid-template-columns: minmax(360px, 0.9fr) minmax(480px, 1.1fr);
   gap: clamp(45px, 6vw, 100px);
-  max-width: 1600px;
+  max-width: 1680px;
   margin: 0 auto;
   padding: 72px max(5vw, 54px);
   background: #eaf4fd;
@@ -568,9 +578,22 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .progress-track { width: 88px; height: 4px; overflow: hidden; background: rgba(156, 207, 246, 0.16); border-radius: 999px; }
 .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); border-radius: 999px; transition: width 260ms ease; }
-.lock-button { width: 34px; height: 34px; display: grid; place-content: center; border: 1px solid rgba(156, 207, 246, 0.22); color: #9fc4de; background: rgba(77, 163, 255, 0.07); border-radius: 7px; font-size: 14px; cursor: pointer; }
-.lock-button:hover { color: #fff; background: rgba(77, 163, 255, 0.14); }
+.progress-help, .language-control { position: relative; display: flex; align-items: center; min-height: 34px; }
+.progress-help { padding-inline: 3px; cursor: help; }
+.header-tooltip { position: absolute; z-index: 50; top: calc(100% + 10px); right: 0; display: grid; width: max-content; max-width: 230px; gap: 3px; padding: 9px 11px; color: #eaf5ff; background: #102d48; border: 1px solid rgba(156, 207, 246, 0.3); border-radius: 7px; box-shadow: 0 10px 26px rgba(3, 21, 35, 0.25); font-size: 11px; line-height: 1.45; text-align: left; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity 150ms ease, transform 150ms ease; visibility: hidden; }
+.header-tooltip::before { position: absolute; top: -5px; right: 11px; width: 8px; height: 8px; background: #102d48; border-top: 1px solid rgba(156, 207, 246, 0.3); border-left: 1px solid rgba(156, 207, 246, 0.3); content: ""; transform: rotate(45deg); }
+.header-tooltip b { color: #fff; font-size: 11px; }
+.header-tooltip span { color: #a6c4da; }
+.progress-help:hover .header-tooltip, .language-control:hover .header-tooltip, .language-control:focus-within .header-tooltip { opacity: 1; transform: translateY(0); visibility: visible; }
+.lock-button { position: relative; width: 34px; height: 34px; display: grid; place-content: center; padding: 0; border: 1px solid rgba(156, 207, 246, 0.22); color: #9fc4de; background: rgba(77, 163, 255, 0.07); border-radius: 7px; cursor: pointer; transition: color 160ms ease, background 160ms ease, border-color 160ms ease; }
+.lock-button svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; }
+.lock-button:hover, .lock-button:focus-visible { color: #fff; background: rgba(77, 163, 255, 0.16); border-color: rgba(156, 207, 246, 0.48); outline: 0; }
 .lock-button.active { color: #08243a; background: var(--cyan); border-color: var(--cyan); }
+.lock-tooltip { position: absolute; z-index: 50; top: calc(100% + 10px); right: 0; display: grid; width: max-content; max-width: 220px; gap: 3px; padding: 9px 11px; color: #eaf5ff; background: #102d48; border: 1px solid rgba(156, 207, 246, 0.3); border-radius: 7px; box-shadow: 0 10px 26px rgba(3, 21, 35, 0.25); font-size: 11px; line-height: 1.45; text-align: left; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity 150ms ease, transform 150ms ease; visibility: hidden; }
+.lock-tooltip::before { position: absolute; top: -5px; right: 11px; width: 8px; height: 8px; background: #102d48; border-top: 1px solid rgba(156, 207, 246, 0.3); border-left: 1px solid rgba(156, 207, 246, 0.3); content: ""; transform: rotate(45deg); }
+.lock-tooltip b { color: #fff; font-size: 11px; }
+.lock-tooltip span { color: #a6c4da; }
+.lock-button:hover .lock-tooltip, .lock-button:focus-visible .lock-tooltip { opacity: 1; transform: translateY(0); visibility: visible; }
 .panel-sync-note { position: absolute; z-index: 20; top: 53px; right: 14px; display: flex; align-items: center; gap: 7px; max-width: calc(100% - 28px); padding: 9px 11px; color: #f4f9ff; background: #23477f; border: 1px solid #7898ca; border-radius: 6px; box-shadow: 0 8px 24px rgba(23, 39, 91, 0.2); font-size: 11.5px; animation: panel-sync-in 2.5s ease forwards; pointer-events: none; }
 .panel-sync-note i { width: 7px; height: 7px; flex: none; background: #b9d5f2; border-radius: 50%; }
 @keyframes panel-sync-in { 0% { opacity: 0; transform: translateY(-5px); } 12%, 76% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; } }
@@ -759,7 +782,8 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
 @media (max-width: 1240px) {
   .site-header { grid-template-columns: auto 1fr auto; padding: 0 18px; }
   .chapter-nav button { min-width: 70px; padding: 0 9px; font-size: 0; }
-  .chapter-nav button span { margin: 0; font-size: 11.5px; }
+  .chapter-nav button .chapter-number { margin: 0; font-size: 11.5px; }
+  .chapter-nav button strong { display: none; }
   .hero { grid-template-columns: 1.08fr 0.92fr; padding-inline: 5vw; }
   .hero h1 { font-size: clamp(48px, 5.6vw, 68px); }
   .learning-layout { grid-template-columns: minmax(460px, 0.9fr) minmax(490px, 1.1fr); }
@@ -816,8 +840,9 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
 
 @media (max-width: 560px) {
   .site-header { height: 56px; padding-inline: 16px; }
-  .wordmark { font-size: 17px; }
-  .wordmark-muted { display: none; }
+  .wordmark { gap: 8px; font-size: 17px; }
+  .wordmark-logo { width: 40px; height: 38px; }
+  .wordmark-copy { overflow: hidden; text-overflow: ellipsis; }
   .chapter-nav { height: 54px; }
   .chapter-nav button { height: 54px; }
   .hero { padding: 48px 20px 44px; }
@@ -1945,7 +1970,6 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 
 @media (max-width: 1240px) {
   .site-header { grid-template-columns: auto 1fr auto; }
-  .header-actions .repo-link { display: none; }
 }
 
 @media (max-width: 960px) {
@@ -2677,34 +2701,6 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   overscroll-behavior: contain;
   scrollbar-color: #9ebde6 transparent;
   scrollbar-width: thin;
-}
-.source-view .code-fold {
-  align-items: center;
-  color: #60769a;
-  background: #edf4fc;
-  border-block: 1px dashed #bed2ea;
-}
-.source-view .code-fold button {
-  padding: 4px 0;
-  border: 0;
-  color: #496a9d;
-  background: transparent;
-  font: 600 11px/1.45 var(--body);
-  cursor: pointer;
-}
-.source-view .code-fold button:hover,
-.source-view .code-fold button:focus-visible {
-  color: #17377f;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  outline: none;
-}
-.source-view .code-lines.has-line-focus .code-fold { opacity: 0.34; }
-.source-view .code-lines.has-line-focus .code-fold.highlighted {
-  opacity: 1;
-  color: #0a1b57;
-  background: #dceafb;
-  box-shadow: inset 3px 0 #4e78c9;
 }
 .source-view > .full-source {
   flex: none;
