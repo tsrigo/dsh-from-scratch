@@ -1120,7 +1120,7 @@ function Header({
           <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
           <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
         </div>
-        <a className="repo-link" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">上游项目 ↗</a>
+        <a className="repo-link" href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noreferrer">deepseek-harness ↗</a>
       </div>
     </header>
   );

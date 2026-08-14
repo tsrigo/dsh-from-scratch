@@ -2259,12 +2259,12 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 9px;
+  padding: 7px 11px;
   color: #60759a;
   background: transparent;
   border: 1px solid #c5d8ed;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   cursor: pointer;
   transition: color 170ms ease, background-color 170ms ease, border-color 170ms ease;
 }
@@ -2343,7 +2343,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 }
 
 .chapter-evidence-tabs {
-  min-height: 64px;
+  min-height: 70px;
 }
 .chapter-evidence-tabs button {
   display: grid;
@@ -2355,11 +2355,12 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 }
 .chapter-evidence-tabs button small {
   color: #7890b6;
-  font: 650 10.5px var(--mono);
+  font: 650 12px var(--mono);
 }
 .chapter-evidence-tabs button span {
   overflow: hidden;
-  font-size: 11.5px;
+  font-size: 13.5px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2681,15 +2682,89 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
     position: relative;
     height: min(76vw, 560px);
     margin: 28px -28px 0;
+    opacity: 0.72;
+    filter: saturate(0.78);
+    mask-image: linear-gradient(to bottom, transparent 0, black 13%, black 100%);
   }
 
   .build-prelude { scroll-margin-top: 64px; }
 }
 
 @media (max-width: 560px) {
-  .hero { padding: 48px 20px 0; }
-  .hero-art {
-    height: min(92vw, 440px);
-    margin: 24px -20px 0;
+  .hero { padding: 44px 20px 0; }
+  .hero h1 {
+    font-size: clamp(32px, 9.6vw, 41px);
+    line-height: 1.08;
+    letter-spacing: -0.045em;
   }
+  .hero h1 .hero-line {
+    white-space: normal;
+    text-wrap: balance;
+  }
+  .hero-intro {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  .hero-actions { gap: 16px; }
+  .hero-art {
+    height: min(100vw, 470px);
+    margin: 18px -20px 0;
+  }
+
+  .build-prelude {
+    gap: 30px;
+    padding: 44px 20px 52px;
+  }
+  .build-prelude h2 {
+    font-size: clamp(31px, 8.5vw, 38px);
+    line-height: 1.16;
+  }
+  .scaffold-tree { padding: 18px 16px 16px; }
+  .scaffold-tree div {
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 4px 10px;
+    min-height: 0;
+    padding: 13px 0;
+  }
+  .scaffold-tree i {
+    grid-column: 1;
+    grid-row: 1 / 3;
+    margin-top: 1px;
+  }
+  .scaffold-tree code {
+    grid-column: 2;
+    grid-row: 1;
+    overflow: visible;
+    color: #405580;
+    font-size: 12.5px;
+    line-height: 1.45;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .scaffold-chapter {
+    grid-column: 2;
+    grid-row: 2;
+    gap: 3px;
+    margin-top: 3px;
+  }
+  .scaffold-chapter strong,
+  .scaffold-chapter small {
+    overflow: visible;
+    font-size: 13.5px;
+    line-height: 1.5;
+    text-overflow: clip;
+    white-space: normal;
+  }
+  .scaffold-chapter small { color: #60749a; }
+}
+
+@media (max-width: 360px) {
+  .hero h1 { font-size: 32px; }
+  .hero-intro br { display: none; }
+  .primary-action { width: 100%; justify-content: space-between; }
+  .offline-badge { font-size: 12px; }
+  .scaffold-chapter strong,
+  .scaffold-chapter small { font-size: 13px; }
 }
