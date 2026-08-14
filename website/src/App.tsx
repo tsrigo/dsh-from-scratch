@@ -207,14 +207,20 @@ export function App() {
         const last = anchors[anchors.length - 1];
         if (last) currentAnchor = last;
       }
-      // 章节由章首决定；checkpoint 只由当前章内的代码锚点决定。这样位于
-      // 章首和第一张代码卡之间时，不会错误沿用上一章的标签与进度。
-      if (currentChapterId && currentChapterId !== activeChapterIdRef.current) {
+      // 章节由章首决定。滚回页面顶部（无章节）时清空编辑器；
+      // 进入新章节时先归零到骨架，再由章内锚点逐段推进——
+      // 避免「先显示全部、滚动后删掉重来」的跳变。
+      if (!currentChapterId) {
+        setCheckpoint(null);
+        return;
+      }
+      if (currentChapterId !== activeChapterIdRef.current) {
         activeChapterIdRef.current = currentChapterId;
         setActiveChapterId(currentChapterId);
+        setCheckpoint(0);
+        return;
       }
       if (!currentAnchor || currentAnchor.dataset.chapter !== currentChapterId) {
-        setCheckpoint(null);
         return;
       }
       const currentCheckpoint = Number(currentAnchor.dataset.fillCp);
@@ -1602,12 +1608,9 @@ function CodeDock({
   const code = snapshot.map((line) => line.text).join("\n");
   const lineNumbers = snapshot.map((line) => line.number);
   const language = languageForPath(file);
-  const segmentComments = fills.map((fill, index) => ({
-    beforeLine: Math.min(...fill.ranges.map(([start]) => start)),
-    text: `// ${fillStageLabel(index)}：${fill.label}`,
-  }));
-  // 写入动画只作用于主文件的新增行（extra 文件为完整查看，不动画）
-  const enteringLines = !extra && safeCheckpoint !== null && safeCheckpoint > 0
+  // 写入动画作用于主文件的所有新增内容：进入章节时的骨架（cp0）与
+  // 逐段补入的代码同样有「长出 + 打字」动画；extra 文件为完整查看，不动画。
+  const enteringLines = !extra && safeCheckpoint !== null
     ? added
     : null;
   return (
@@ -1628,16 +1631,21 @@ function CodeDock({
         </div>
       )}
       <div className="file-label">
-        <span>
-          {file}
-          {extra ? ` · 完整文件` : fills.length > 0
-            ? safeCheckpoint === null
-              ? ` · 结构 + ${Math.max(fills.length - 1, 0)} 段代码`
-              : safeCheckpoint === 0
-                ? " · 结构"
-                : ` · 代码 ${safeCheckpoint}/${fills.length - 1}`
-            : ""}
-        </span>
+        <div className="file-meta">
+          <span className="file-name">{file}{extra ? " · 完整文件" : ""}</span>
+          <span className="file-stage">
+            {!extra && fills.length > 0
+              ? safeCheckpoint === null
+                ? "尚未开始"
+                : safeCheckpoint === 0
+                  ? "结构"
+                  : `代码 ${safeCheckpoint}/${fills.length - 1}`
+              : ""}
+          </span>
+        </div>
+        {!extra && fills.length > 0 && (
+          <CodeOutline fills={fills} checkpoint={safeCheckpoint} language={language} />
+        )}
         <button onClick={() => navigator.clipboard?.writeText(extra ? extra.content : code)}>复制</button>
       </div>
       <div ref={bodyRef} className="code-dock-body">
@@ -1655,16 +1663,15 @@ function CodeDock({
               language={language}
             />
           ) : (
-            <CodeOutline fills={fills} language={language} />
+            <div className="editor-empty">（尚未讲到这个文件）</div>
           )
         ) : (
           <CodeBlock
             code={code}
             sourceLineNumbers={lineNumbers}
             language={language}
-            newLines={safeCheckpoint === 0 ? null : added}
+            newLines={added}
             enteringLines={enteringLines}
-            annotations={segmentComments}
           />
         )}
         {!extra && fills.length > 0 && safeCheckpoint !== null && safeCheckpoint < fills.length - 1 && (
@@ -1675,26 +1682,41 @@ function CodeDock({
   );
 }
 
-function fillStageLabel(index: number): string {
-  return index === 0 ? "结构" : `代码 ${index}`;
-}
-
-/** 进入章节、尚未触发首个 checkpoint 时，先用注释列出整章的补全顺序。 */
-function CodeOutline({ fills, language }: {
+/** 补全顺序目录（三行专注模式）：只显示上一段、当前段、下一段。
+ * 中间一行代表现在，随 checkpoint 推进滚动；首尾边界自动收窄为两行。 */
+function CodeOutline({ fills, checkpoint, language }: {
   fills: ReturnType<typeof chapterFills>;
+  checkpoint: number | null;
   language: string;
 }) {
   const comment = language === "python" ? "#" : "//";
-  const code = [
-    `${comment} 本章先显示结构，再补全 ${Math.max(fills.length - 1, 0)} 段代码：`,
-    ...fills.map((fill, index) => `${comment} ${fillStageLabel(index)}：${fill.label}`),
-  ].join("\n");
+  const current = Math.min(Math.max(checkpoint ?? 0, 0), fills.length - 1);
+  const indexes = [];
+  if (current - 1 >= 0) indexes.push(current - 1);
+  indexes.push(current);
+  if (current + 1 < fills.length) indexes.push(current + 1);
   return (
-    <div className="code-outline">
-      <CodeBlock code={code} language={language} />
-      <p>继续向下阅读，代码会按照上面的顺序逐段显示。</p>
+    <div className="code-outline" role="list" aria-label="本章补全顺序">
+      {indexes.map((index) => {
+        const fill = fills[index]!;
+        const reached = checkpoint !== null && index < checkpoint;
+        const isCurrent = index === current;
+        return (
+          <div key={fill.label} className={`code-outline-line ${isCurrent ? "current" : reached ? "reached" : ""}`}>
+            <span className="line-no" aria-hidden="true">···</span>
+            <code>
+              {comment} {fillStageLabel(index)}：{fill.label}
+              {isCurrent ? " ← 现在" : reached ? " ✓" : ""}
+            </code>
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+function fillStageLabel(index: number): string {
+  return index === 0 ? "结构" : `代码 ${index}`;
 }
 
 /** 总结卡（压缩版，供 lesson evidence 块使用）：本章答案 */

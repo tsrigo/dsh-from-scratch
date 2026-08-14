@@ -588,10 +588,14 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .code-dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .code-dock-body > .code-lines { flex: 1; min-height: 0; }
 .code-dock-hint { margin: 0; padding: 10px 17px; color: #6f9cba; background: #0b2237; border-top: 1px solid rgba(155, 205, 244, 0.11); font-size: 11.5px; text-align: center; }
-.code-outline { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #071a2b; }
-.code-outline .code-lines { flex: 1; padding-top: 28px; }
-.code-outline .code-line:first-child { margin-bottom: 8px; }
-.code-outline > p { margin: 0; padding: 12px 18px; color: #86a8bf; background: #0b2237; border-top: 1px solid rgba(155, 205, 244, 0.11); font-size: 12px; text-align: center; }
+/* 补全顺序目录（三行专注模式）：上一段灰、当前段高亮、下一段待显示 */
+.code-outline { padding: 10px 0 7px; border-bottom: 1px solid rgba(155, 205, 244, 0.1); background: #071a2b; }
+.code-outline-line { display: flex; min-width: max-content; min-height: 22px; padding-right: 20px; color: #4d6a84; font: 500 12.5px/1.9 var(--mono); white-space: pre; transition: color 200ms; }
+.code-outline-line .line-no { flex: 0 0 55px; padding-right: 14px; color: #334f67; text-align: right; user-select: none; }
+.code-outline-line.reached { color: #6f95b2; }
+.code-outline-line.reached .line-no { color: #4d86ad; }
+.code-outline-line.current { color: #dceeff; }
+.code-outline-line.current .line-no { color: var(--cyan); }
 .code-segment-comment { margin-top: 13px; color: #7990ae; background: rgba(113, 137, 169, 0.08); border-top: 1px solid rgba(113, 137, 169, 0.16); }
 .code-segment-comment:first-child { margin-top: 0; }
 .code-segment-comment code { font-style: italic; }
@@ -679,10 +683,22 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .panel-intro li.active::before { color: #051d30; background: #a5e7ff; box-shadow: 0 0 0 3px rgba(103, 213, 255, 0.12); }
 
 .focus-code { border-bottom: 1px solid rgba(155, 205, 244, 0.14); }
-.file-label { min-height: 45px; display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 0 17px; color: #9cb8cd; background: #0b2237; border-bottom: 1px solid rgba(155, 205, 244, 0.11); font: 500 13px var(--mono); }
-.file-label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-label button { flex: none; border: 0; color: var(--cyan); background: transparent; font: 600 13px var(--body); cursor: pointer; }
-.file-label button:hover { color: #b8edff; }
+/* 紧凑文件头：文件名在上、进度在文件名正下方，三行目录占右侧空间。
+ * file-label 与代码区为浅色主题（#e4effc / #f7faff），文字用深色保证对比。 */
+.file-label { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto; align-items: center; gap: 2px 16px; padding: 7px 12px; color: #405987; background: #e4effc; border-bottom: 1px solid rgba(41, 62, 120, 0.12); }
+.file-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; align-self: stretch; justify-content: center; }
+.file-name { overflow: hidden; color: #17377f; font: 600 12.5px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.file-stage { color: #315fba; font: 500 11px var(--mono); }
+.file-label button { flex: none; border: 0; color: #315fba; background: transparent; font: 600 12px var(--body); cursor: pointer; }
+.file-label button:hover { color: #0a1b57; }
+/* 三行目录（在文件名与进度的右侧空间）：无背景，深色文字与浅色背景高对比 */
+.file-label .code-outline { display: grid; gap: 1px; padding: 0; border-bottom: 0; background: transparent; }
+.file-label .code-outline-line { min-height: 19px; padding: 0 4px; color: #64799d; font-size: 11.5px; line-height: 19px; }
+.file-label .code-outline-line .line-no { flex-basis: 0; padding-right: 8px; color: #8aa0c2; }
+.file-label .code-outline-line.reached { color: #315fba; }
+.file-label .code-outline-line.reached .line-no { color: #5578b5; }
+.file-label .code-outline-line.current { color: #0a1b57; font-weight: 600; }
+.file-label .code-outline-line.current .line-no { color: #4e78c9; }
 .code-lines { overflow: auto; padding: 13px 0 28px; color: #d2e5f4; background: #071a2b; font: 500 13.5px/1.7 var(--mono); tab-size: 2; }
 .code-lines > div { display: flex; min-width: max-content; min-height: 22px; padding-right: 20px; white-space: pre; }
 .code-lines code { font: inherit; }

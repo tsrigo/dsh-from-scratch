@@ -65,12 +65,13 @@ export function snapshotForCheckpoint(chapter: Chapter, checkpoint: number): Sna
     .map((number) => ({ number, text: contentLines[number - 1] ?? "" }));
 }
 
-/** 相对上一快照新增的非空代码行号集合；空行只用于保持真实行号，不触发高亮。 */
+/** 相对上一快照新增的行号集合（含空行）：新增代码块中的空行与代码行
+ * 一起高亮，读者才能看到完整的新增块边界。 */
 export function newLineNumbers(previous: SnapshotLine[], current: SnapshotLine[]): Set<number> {
   const previousNumbers = new Set(previous.map((line) => line.number));
   return new Set(
     current
-      .filter((line) => !previousNumbers.has(line.number) && line.text.trim() !== "")
+      .filter((line) => !previousNumbers.has(line.number))
       .map((line) => line.number),
   );
 }

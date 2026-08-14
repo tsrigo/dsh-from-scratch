@@ -147,12 +147,11 @@ describe("newLineNumbers", () => {
     const next = snapshotForCheckpoint(m01, 1);
     const added = newLineNumbers(skeleton, next);
     const expected = next.filter(
-      (line) => !skeleton.some((previous) => previous.number === line.number) && line.text.trim() !== "",
+      (line) => !skeleton.some((previous) => previous.number === line.number),
     );
     expect(added.size).toBe(expected.length);
     for (const number of added) {
       expect(skeleton.some((line) => line.number === number)).toBe(false);
-      expect(next.find((line) => line.number === number)?.text.trim()).not.toBe("");
     }
   });
 
@@ -162,12 +161,16 @@ describe("newLineNumbers", () => {
     expect(newLineNumbers(snapshot, snapshot).size).toBe(0);
   });
 
-  it("does not highlight the blank line between chapter four ranges", () => {
+  it("highlights blank lines that belong to the new block, not pre-existing ones", () => {
     const m04 = tutorial.chapters[3]!;
     const previous = snapshotForCheckpoint(m04, 6);
     const current = snapshotForCheckpoint(m04, 7);
+    const added = newLineNumbers(previous, current);
+    // 212 已在上一 checkpoint 显示（空行补齐），不属于新块，不高亮
     expect(current.find((line) => line.number === 212)?.text).toBe("");
-    expect(newLineNumbers(previous, current)).not.toContain(212);
-    expect(newLineNumbers(previous, current)).toContain(213);
+    expect(added).not.toContain(212);
+    // 新块内部及尾部的空行随块高亮
+    expect(added).toContain(213);
+    expect(added).toContain(230);
   });
 });
