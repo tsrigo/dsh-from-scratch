@@ -561,13 +561,25 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .code-lines .code-line.is-new .line-no { color: #d8b4fe; }
 .code-lines.has-line-focus .code-line.is-new { opacity: 0.75; }
 .code-lines.has-line-focus .code-line.is-new.highlighted { opacity: 1; }
-/* 打字机写入动画（pi-from-scratch code-write 同款）：新行内容从左到右逐字展开 */
+/* 打字机写入动画（pi-from-scratch code-write 同款）：新行先「长出」让位——
+ * 行高度从 0 展开，上方代码被推向上、下方代码被推向下留出位置；
+ * 随后内容从左到右逐字写入。--write-delay 按行号交错。 */
+.code-line.is-entering {
+  max-height: 0;
+  overflow: hidden;
+  animation: code-insert 320ms cubic-bezier(.2, .9, .25, 1) forwards;
+  animation-delay: var(--write-delay, 0ms);
+}
 .code-line.is-entering code {
   display: block;
   width: max-content;
   clip-path: inset(0 100% 0 0);
   animation: code-write var(--write-duration, 760ms) steps(18, end) forwards;
-  animation-delay: calc(var(--write-delay, 0ms) + 90ms);
+  animation-delay: calc(var(--write-delay, 0ms) + 410ms);
+}
+@keyframes code-insert {
+  from { max-height: 0; transform: translateY(8px); }
+  to { max-height: 200px; transform: translateY(0); }
 }
 @keyframes code-write {
   from { clip-path: inset(0 100% 0 0); }

@@ -1405,7 +1405,7 @@ function smoothScrollTo(
   const start = scroller.scrollTop;
   const delta = targetTop - start;
   if (Math.abs(delta) < 1) return;
-  const duration = Math.min(620, Math.max(280, Math.abs(delta) * 0.9));
+  const duration = Math.min(1000, Math.max(450, Math.abs(delta) * 1.3));
   const begin = performance.now();
   const step = (now: number) => {
     const progress = Math.min(1, (now - begin) / duration);
