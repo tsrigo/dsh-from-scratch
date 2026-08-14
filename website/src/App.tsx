@@ -51,11 +51,20 @@ const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
 const SHOW_LIVE_REPLAY = false;
 
 type TutorialLanguage = "typescript" | "python";
+type UiLocale = "zh" | "en";
 
 function initialLanguage(): TutorialLanguage {
   const query = new URLSearchParams(window.location.search).get("lang");
   if (query === "python") return "python";
   return window.localStorage.getItem("tutorial-language") === "python" ? "python" : "typescript";
+}
+
+function initialLocale(): UiLocale {
+  const query = new URLSearchParams(window.location.search).get("locale");
+  if (query === "en" || query === "zh") return query;
+  const stored = window.localStorage.getItem("tutorial-locale");
+  if (stored === "en" || stored === "zh") return stored;
+  return "zh";
 }
 
 type MobileTab = "article" | PanelTab | "more";
@@ -116,6 +125,7 @@ function lastElementAbove(elements: HTMLElement[], line: number): HTMLElement | 
 
 export function App() {
   const [language, setLanguage] = useState<TutorialLanguage>(initialLanguage);
+  const [locale, setLocale] = useState<UiLocale>(initialLocale);
   const compactLayout = useCompactLayout();
   const [data, setData] = useState<TutorialData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -149,7 +159,11 @@ export function App() {
     let current = true;
     setData(null);
     setError(null);
-    const source = language === "python" ? "/generated/tutorial-python.json" : "/generated/tutorial.json";
+    const source = language === "python"
+      ? "/generated/tutorial-python.json"
+      : locale === "en"
+        ? "/generated/tutorial.en.json"
+        : "/generated/tutorial.json";
     fetch(source)
       .then((response) => {
         if (!response.ok) throw new Error(`tutorial data: ${response.status}`);
@@ -166,7 +180,17 @@ export function App() {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
       });
     return () => { current = false; };
-  }, [language]);
+  }, [language, locale]);
+
+  useEffect(() => {
+    document.documentElement.lang = locale === "en" ? "en" : "zh-CN";
+    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute(
+      "content",
+      locale === "en"
+        ? "Six runnable chapters explain tool calls, context, session logs, runtime evolution, and long-running tasks in an Agent harness."
+        : "用六个可运行章节，从零理解智能体运行框架的工具调用、上下文、过程日志与分轮任务。",
+    );
+  }, [locale]);
 
   useEffect(() => {
     if (!data || lockedCodeView) return;
@@ -263,8 +287,8 @@ export function App() {
     [activeChapterId, data],
   );
 
-  if (error) return <LoadFailure message={error} />;
-  if (!data || !activeChapter) return <Loading />;
+  if (error) return <LoadFailure message={error} locale={locale} />;
+  if (!data || !activeChapter) return <Loading locale={locale} />;
 
   const locked = lockedCodeView !== null;
   const lockedChapter = lockedCodeView
@@ -303,6 +327,16 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "auto" });
   };
 
+  const switchLocale = (nextLocale: UiLocale) => {
+    if (nextLocale === locale) return;
+    const url = new URL(window.location.href);
+    if (nextLocale === "en") url.searchParams.set("locale", "en");
+    else url.searchParams.delete("locale");
+    window.history.replaceState(null, "", url);
+    window.localStorage.setItem("tutorial-locale", nextLocale);
+    setLocale(nextLocale);
+  };
+
   const navigateToQuestions = () => {
     document.getElementById("six-questions")?.scrollIntoView({
       behavior: window.matchMedia("(max-width: 960px)").matches ? "auto" : "smooth",
@@ -316,7 +350,9 @@ export function App() {
         data={data}
         activeId={activeChapter.id}
         language={language}
+        locale={locale}
         onLanguage={switchLanguage}
+        onLocale={switchLocale}
         onNavigate={navigateTo}
         locked={locked}
         onToggleLock={() => {
@@ -327,12 +363,12 @@ export function App() {
         progress={progress}
       />
       <main>
-        <Hero data={data} onStart={navigateToQuestions} />
-        <BuildPrelude chapters={data.chapters} onStart={() => navigateTo(data.chapters[0]!)} />
-        <LanguagePrimer markdown={data.project.primer ?? ""} language={language} />
+        <Hero data={data} locale={locale} onStart={navigateToQuestions} />
+        <BuildPrelude chapters={data.chapters} locale={locale} onStart={() => navigateTo(data.chapters[0]!)} />
+        <LanguagePrimer markdown={data.project.primer ?? ""} language={language} locale={locale} />
         {SHOW_LIVE_REPLAY && <LiveReplaySection replay={data.liveReplay} />}
         <div className="learning-layout">
-          <article className="chapters" aria-label="渐进教程">
+          <article className="chapters" aria-label={locale === "en" ? "Step-by-step tutorial" : "渐进教程"}>
             {data.chapters.map((chapter) => (
               <ChapterArticle
                 key={chapter.id}
@@ -341,18 +377,24 @@ export function App() {
                 sectionRefs={sectionRefs}
                 checkpoint={activeChapter.id === chapter.id ? checkpoint : null}
                 showMobileCode={compactLayout}
+                locale={locale}
               />
             ))}
           </article>
-          <aside className="code-dock" aria-label="根据阅读位置逐段显示的源码">
-            <CodeDock chapter={codeChapter} checkpoint={codeCheckpoint} />
+          <aside className="code-dock" aria-label={locale === "en" ? "Source code revealed as you read" : "根据阅读位置逐段显示的源码"}>
+            <CodeDock chapter={codeChapter} checkpoint={codeCheckpoint} locale={locale} />
           </aside>
         </div>
       </main>
       <footer>
         <p className="site-footer-disclaimer">
-          免责声明：本项目为独立的教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系；<br />
-          相关名称仅用于技术学习与参考说明。
+          {locale === "en" ? <>
+            Disclaimer: This independent educational implementation is not affiliated with, authorized by, or developed in partnership with DeepSeek or its affiliates.<br />
+            Related names are used only for technical study and reference.
+          </> : <>
+            免责声明：本项目为独立的教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系；<br />
+            相关名称仅用于技术学习与参考说明。
+          </>}
         </p>
       </footer>
     </div>
@@ -1088,24 +1130,28 @@ function formatReplayDate(value: string): string {
   }).format(new Date(value));
 }
 
-function LanguagePrimer({ markdown, language }: { markdown: string; language: TutorialLanguage }) {
+function LanguagePrimer({ markdown, language, locale }: { markdown: string; language: TutorialLanguage; locale: UiLocale }) {
   const sections = parsePrimer(markdown, language);
   const label = language === "python" ? "Python" : "TypeScript";
   return (
     <details className="typescript-primer">
       <summary className="primer-summary">
         <div>
-          <p className="eyebrow">阅读补充 · 约 3 分钟</p>
-          <h2 id="language-primer-title">{label} 的四个阅读基础</h2>
+          <p className="eyebrow">{locale === "en" ? "READING GUIDE · ABOUT 3 MINUTES" : "阅读补充 · 约 3 分钟"}</p>
+          <h2 id="language-primer-title">{locale === "en" ? `Four ${label} basics for reading the code` : `${label} 的四个阅读基础`}</h2>
         </div>
-        <span aria-hidden="true" />
+        <span
+          aria-hidden="true"
+          data-expand={locale === "en" ? "Show four basics" : "展开四个基础"}
+          data-collapse={locale === "en" ? "Hide guide" : "收起补充"}
+        />
       </summary>
       <div className="primer-body" aria-labelledby="language-primer-title">
         <p className="primer-intro">{sections.intro}</p>
         <div className="primer-cards">
           {sections.cards.map((card, index) => (
             <article key={card.title}>
-              <span>基础 {index + 1}</span>
+              <span>{locale === "en" ? `BASIC ${index + 1}` : `基础 ${index + 1}`}</span>
               <h3>{card.title}</h3>
               <pre><SyntaxCode code={card.code} language={language} /></pre>
               <p>{renderInlineCode(card.body)}</p>
@@ -1117,16 +1163,18 @@ function LanguagePrimer({ markdown, language }: { markdown: string; language: Tu
   );
 }
 
-function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () => void }) {
+function BuildPrelude({ chapters, locale, onStart }: { chapters: Chapter[]; locale: UiLocale; onStart: () => void }) {
   return (
     <section id="six-questions" className="build-prelude scaffolded" aria-labelledby="build-prelude-title">
       <div className="build-prelude-copy">
-        <p className="eyebrow">教程结构</p>
-        <h2 id="build-prelude-title">六个问题，理解 DeepSeek Harness</h2>
-        <p>Agent Loop 根据反馈重复执行步骤，上下文投影控制每次模型输入。插件管理运行时能力，会话日志保存执行过程。Goal 在每轮结束后根据目标状态决定是否继续。</p>
+        <p className="eyebrow">{locale === "en" ? "TUTORIAL STRUCTURE" : "教程结构"}</p>
+        <h2 id="build-prelude-title">{locale === "en" ? "Six questions for understanding DeepSeek Harness" : "六个问题，理解 DeepSeek Harness"}</h2>
+        <p>{locale === "en"
+          ? "The Agent Loop repeats steps in response to feedback, while context projection controls each model input. Plugins manage runtime capabilities, and the Session Log preserves the execution history. After each Round, the Goal state determines whether the task continues."
+          : "Agent Loop 根据反馈重复执行步骤，上下文投影控制每次模型输入。插件管理运行时能力，会话日志保存执行过程。Goal 在每轮结束后根据目标状态决定是否继续。"}</p>
         <div className="prelude-actions">
-          <button onClick={onStart}>从六个问题开始</button>
-          <span>每章说明一项机制，并配合右侧主文件逐段讲解</span>
+          <button onClick={onStart}>{locale === "en" ? "Start with the six questions" : "从六个问题开始"}</button>
+          <span>{locale === "en" ? "Each chapter explains one mechanism alongside its main source file" : "每章说明一项机制，并配合右侧主文件逐段讲解"}</span>
         </div>
       </div>
       <div className="scaffold-tree">
@@ -1136,7 +1184,7 @@ function BuildPrelude({ chapters, onStart }: { chapters: Chapter[]; onStart: () 
             <i>{String(index + 1).padStart(2, "0")}</i>
             <code>{chapter.source.path.replace(/^(?:src|python_harness)\//u, "")}</code>
             <span className="scaffold-chapter">
-              <strong>{fixedChapterTitle(chapter)}</strong>
+              <strong>{fixedChapterTitle(chapter, locale)}</strong>
               <small>{chapter.question}</small>
             </span>
           </div>
@@ -1150,7 +1198,9 @@ function Header({
   data,
   activeId,
   language,
+  locale,
   onLanguage,
+  onLocale,
   onNavigate,
   locked,
   onToggleLock,
@@ -1159,7 +1209,9 @@ function Header({
   data: TutorialData;
   activeId: string;
   language: TutorialLanguage;
+  locale: UiLocale;
   onLanguage: (language: TutorialLanguage) => void;
+  onLocale: (locale: UiLocale) => void;
   onNavigate: (chapter: Chapter) => void;
   locked: boolean;
   onToggleLock: () => void;
@@ -1170,22 +1222,22 @@ function Header({
       <button
         className="wordmark"
         onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-        aria-label="回到 DeepSeek Harness 首页"
+        aria-label={locale === "en" ? "Back to the DeepSeek Harness home page" : "回到 DeepSeek Harness 首页"}
       >
         <img className="wordmark-logo" src="/deepseek-harness-logo.png" alt="" />
         <span className="wordmark-copy">DeepSeek Harness from Scratch</span>
       </button>
-      <nav className="chapter-nav" aria-label="章节导航">
+      <nav className="chapter-nav" aria-label={locale === "en" ? "Chapter navigation" : "章节导航"}>
         {data.chapters.map((chapter) => (
           <button
             key={chapter.id}
             className={activeId === chapter.id ? "active" : ""}
             onClick={() => onNavigate(chapter)}
-            aria-label={fixedChapterTitle(chapter)}
+            aria-label={fixedChapterTitle(chapter, locale)}
             aria-current={activeId === chapter.id ? "step" : undefined}
           >
-            <span className="chapter-number">{chapterName(chapter.number)}·</span>
-            <strong>{chapter.shortTitle}</strong>
+            <span className="chapter-number">{chapterName(chapter.number, locale)}·</span>
+            <strong>{chapterNavTitle(chapter, locale)}</strong>
           </button>
         ))}
       </nav>
@@ -1202,8 +1254,8 @@ function Header({
             <div className="progress-bar" style={{ width: `${progress}%` }} />
           </div>
           <span id="code-progress-help" className="header-tooltip" role="tooltip">
-            <b>代码补全进度</b>
-            <span>进度根据阅读位置更新；锁定后保留当前文件和进度。</span>
+            <b>{locale === "en" ? "Code reveal progress" : "代码补全进度"}</b>
+            <span>{locale === "en" ? "Progress follows your reading position. Lock it to keep the current file and stage." : "进度根据阅读位置更新；锁定后保留当前文件和进度。"}</span>
           </span>
         </div>
         <button
@@ -1211,24 +1263,32 @@ function Header({
           className={`lock-button ${locked ? "active" : ""}`}
           onClick={onToggleLock}
           aria-pressed={locked}
-          aria-label={locked ? "解除代码视图锁定，使内容继续根据阅读位置更新" : "锁定当前代码视图，保留当前文件和进度"}
+          aria-label={locale === "en"
+            ? locked ? "Unlock the code view and resume scroll-based updates" : "Lock the current code file and reveal stage"
+            : locked ? "解除代码视图锁定，使内容继续根据阅读位置更新" : "锁定当前代码视图，保留当前文件和进度"}
           aria-describedby="code-lock-help"
         >
           {locked ? <LockIcon locked /> : <LockIcon />}
           <span id="code-lock-help" className="lock-tooltip" role="tooltip">
-            <b>{locked ? "代码视图已锁定" : "锁定代码视图"}</b>
-            <span>{locked ? "点击后根据阅读位置继续更新" : "点击后保留当前文件和进度"}</span>
+            <b>{locale === "en" ? locked ? "Code view locked" : "Lock code view" : locked ? "代码视图已锁定" : "锁定代码视图"}</b>
+            <span>{locale === "en" ? locked ? "Click to resume scroll-based updates" : "Click to keep the current file and stage" : locked ? "点击后根据阅读位置继续更新" : "点击后保留当前文件和进度"}</span>
           </span>
         </button>
         <div className="language-control">
-          <div className="language-switch" role="group" aria-label="教程实现语言" aria-describedby="language-switch-help">
+          <div className="language-switch" role="group" aria-label={locale === "en" ? "Tutorial implementation language" : "教程实现语言"} aria-describedby="language-switch-help">
             <button className={language === "typescript" ? "active" : ""} onClick={() => onLanguage("typescript")} aria-pressed={language === "typescript"}>TS</button>
             <button className={language === "python" ? "active" : ""} onClick={() => onLanguage("python")} aria-pressed={language === "python"}>Python</button>
           </div>
           <span id="language-switch-help" className="header-tooltip" role="tooltip">
-            <b>选择实现语言</b>
-          <span>切换 TypeScript 或 Python；两版讲解相同机制。</span>
+            <b>{locale === "en" ? "Implementation language" : "选择实现语言"}</b>
+          <span>{locale === "en" ? "Switch between TypeScript and Python. Both versions explain the same mechanisms." : "切换 TypeScript 或 Python；两版讲解相同机制。"}</span>
           </span>
+        </div>
+        <div className="locale-control">
+          <div className="locale-switch" role="group" aria-label={locale === "en" ? "Page language" : "网页语言"}>
+            <button className={locale === "zh" ? "active" : ""} onClick={() => onLocale("zh")} aria-pressed={locale === "zh"}>中文</button>
+            <button className={locale === "en" ? "active" : ""} onClick={() => onLocale("en")} aria-pressed={locale === "en"}>EN</button>
+          </div>
         </div>
         <div className="github-links">
           <a
@@ -1236,7 +1296,7 @@ function Header({
             href="https://github.com/tsrigo/dsh-from-scratch"
             target="_blank"
             rel="noreferrer"
-            aria-label="在 GitHub 查看 dsh-from-scratch"
+            aria-label={locale === "en" ? "View dsh-from-scratch on GitHub" : "在 GitHub 查看 dsh-from-scratch"}
             title="tsrigo/dsh-from-scratch"
           >
             <GitHubIcon />
@@ -1265,31 +1325,31 @@ function GitHubIcon() {
   );
 }
 
-function Hero({ data, onStart }: { data: TutorialData; onStart: () => void }) {
+function Hero({ data, locale, onStart }: { data: TutorialData; locale: UiLocale; onStart: () => void }) {
   const language = data.project.languageLabel ?? "TypeScript";
   return (
     <section className="hero">
       <div className="hero-copy">
-        <p className="eyebrow">{language} 从零实现 · 可运行教程</p>
+        <p className="eyebrow">{locale === "en" ? `${language} FROM SCRATCH · RUNNABLE TUTORIAL` : `${language} 从零实现 · 可运行教程`}</p>
         <h1>
-          <span className="hero-line">理解 DeepSeek Harness</span>
-          <span className="hero-line">如何逐步处理</span>
-          <span className="hero-line hero-line-accent">复杂任务</span>
+          <span className="hero-line">{locale === "en" ? "Understand how" : "理解 DeepSeek Harness"}</span>
+          <span className="hero-line">{locale === "en" ? "DeepSeek Harness handles" : "如何逐步处理"}</span>
+          <span className="hero-line hero-line-accent">{locale === "en" ? "complex tasks" : "复杂任务"}</span>
         </h1>
           <p className="hero-intro">
-            DeepSeek Harness（DSH）为模型执行任务提供运行环境，负责组织模型输入、执行工具并保存执行过程。
+            {locale === "en" ? "DeepSeek Harness (DSH) provides the runtime in which a model completes tasks. It organizes model input, executes tools, and preserves the execution history." : "DeepSeek Harness（DSH）为模型执行任务提供运行环境，负责组织模型输入、执行工具并保存执行过程。"}
             <br />
-            六章分别使用一个可运行的最小样本，说明六项基础机制。
+            {locale === "en" ? "Each of the six chapters uses a minimal runnable example to explain one foundational mechanism." : "六章分别使用一个可运行的最小样本，说明六项基础机制。"}
           </p>
         <div className="hero-actions">
-          <button className="primary-action" onClick={onStart}>从六个问题开始 <span>↓</span></button>
-          <span className="offline-badge"><i /> 教程数据随网页提供，可离线查看</span>
+          <button className="primary-action" onClick={onStart}>{locale === "en" ? "Start with the six questions" : "从六个问题开始"} <span>↓</span></button>
+          <span className="offline-badge"><i /> {locale === "en" ? "Tutorial data is included for offline reading" : "教程数据随网页提供，可离线查看"}</span>
         </div>
       </div>
       <div
         className="hero-art"
         role="img"
-        aria-label="手持教鞭与书本的蓝色水彩学院导师"
+        aria-label={locale === "en" ? "Blue watercolor illustration of a tutor holding a pointer and a book" : "手持教鞭与书本的蓝色水彩学院导师"}
       >
         <div className="hero-art-fill" aria-hidden="true" />
         <div className="hero-art-image" aria-hidden="true" />
@@ -1339,12 +1399,14 @@ const ChapterArticle = memo(function ChapterArticle({
   sectionRefs,
   checkpoint,
   showMobileCode,
+  locale,
 }: {
   chapter: Chapter;
   active: boolean;
   sectionRefs: RefObject<Map<string, HTMLElement>>;
   checkpoint: number | null;
   showMobileCode: boolean;
+  locale: UiLocale;
 }) {
   return (
     <section
@@ -1360,6 +1422,7 @@ const ChapterArticle = memo(function ChapterArticle({
         chapter={chapter}
         checkpoint={checkpoint}
         showMobileCode={showMobileCode}
+        locale={locale}
       />
     </section>
   );
@@ -1371,10 +1434,12 @@ const ChapterContent = memo(function ChapterContent({
   chapter,
   checkpoint,
   showMobileCode,
+  locale,
 }: {
   chapter: Chapter;
   checkpoint: number | null;
   showMobileCode: boolean;
+  locale: UiLocale;
 }) {
   const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
   const flow = useMemo(() => interleaveFillCards(lesson, chapter), [lesson, chapter]);
@@ -1382,20 +1447,20 @@ const ChapterContent = memo(function ChapterContent({
   return (
     <div className="chapter-content">
         <div className="chapter-kicker">
-          <span>{fixedChapterTitle(chapter)}</span>
+          <span>{fixedChapterTitle(chapter, locale)}</span>
         </div>
         <div className="chapter-heading">
           <div className="chapter-file">
-            <span>当前正在写入</span>
+            <span>{locale === "en" ? "CURRENT FILE" : "当前正在写入"}</span>
             <code>{chapter.source.path}</code>
           </div>
           <h2>{chapter.title}</h2>
           <p className="chapter-question">{chapter.question}</p>
-          <div className="reading-order" aria-label="正文与代码的联动顺序">
-            <span><b>→</b>滚动正文，右侧代码逐段显示：先显示结构，再显示实现</span>
+          <div className="reading-order" aria-label={locale === "en" ? "How the article controls the code view" : "正文与代码的联动顺序"}>
+            <span><b>→</b>{locale === "en" ? "Scroll through the article to reveal the structure, then each implementation section" : "滚动正文，右侧代码逐段显示：先显示结构，再显示实现"}</span>
           </div>
         </div>
-        <CodeGuideCard chapter={chapter} />
+        <CodeGuideCard chapter={chapter} locale={locale} />
         <div className="lesson-copy">
           {flow.map((item, index) => {
             if (item.kind === "heading") return <h3 key={`heading-${index}`}>{item.text}</h3>;
@@ -1410,25 +1475,26 @@ const ChapterContent = memo(function ChapterContent({
                   fillIndex={item.fillIndex}
                   fill={fill}
                   active={checkpoint !== null && checkpoint >= item.fillIndex}
+                  locale={locale}
                 />
               );
             }
-            return <EvidenceContentCard key={`evidence-${item.id}`} chapter={chapter} block={item} />;
+            return <EvidenceContentCard key={`evidence-${item.id}`} chapter={chapter} block={item} locale={locale} />;
           })}
         </div>
-        <ChapterSummaryCard chapter={chapter} />
+        <ChapterSummaryCard chapter={chapter} locale={locale} />
         <div className="chapter-code-mobile">
-          {showMobileCode && <CodeDock chapter={chapter} checkpoint={checkpoint} />}
+          {showMobileCode && <CodeDock chapter={chapter} checkpoint={checkpoint} locale={locale} />}
         </div>
     </div>
   );
 });
 
-function CodeGuideCard({ chapter }: { chapter: Chapter }) {
+function CodeGuideCard({ chapter, locale }: { chapter: Chapter; locale: UiLocale }) {
   return (
-    <section className="code-guide-card" aria-label="本章源码导览">
+    <section className="code-guide-card" aria-label={locale === "en" ? "Source guide for this chapter" : "本章源码导览"}>
       <div className="card-heading">
-        <span>本章源码导览</span>
+        <span>{locale === "en" ? "SOURCE GUIDE" : "本章源码导览"}</span>
         <h3>{chapter.codeGuide.title}</h3>
       </div>
       <p>{chapter.codeGuide.description}</p>
@@ -1443,11 +1509,13 @@ function FillCard({
   fillIndex,
   fill,
   active,
+  locale,
 }: {
   chapter: Chapter;
   fillIndex: number;
   fill: NonNullable<Chapter["codeGuide"]["fills"]>[number];
   active: boolean;
+  locale: UiLocale;
 }) {
   const observation = fillIndex > 0
     ? chapter.codeGuide.observations.find(
@@ -1464,7 +1532,7 @@ function FillCard({
       data-fill-cp={fillIndex}
     >
       <div className="fill-card-heading">
-        <span className="fill-card-index">{fillIndex === 0 ? "结构" : `代码 ${fillIndex}`}</span>
+        <span className="fill-card-index">{fillIndex === 0 ? locale === "en" ? "STRUCTURE" : "结构" : locale === "en" ? `CODE ${fillIndex}` : `代码 ${fillIndex}`}</span>
         <h4>{fill.label}</h4>
       </div>
       {observation && <p>{observation.text}</p>}
@@ -1473,7 +1541,7 @@ function FillCard({
 }
 
 /** 证据卡：lesson 里的 evidence 块，按 target.tab 渲染压缩版内容。 */
-function EvidenceContentCard({ chapter, block }: { chapter: Chapter; block: LessonEvidenceBlock }) {
+function EvidenceContentCard({ chapter, block, locale }: { chapter: Chapter; block: LessonEvidenceBlock; locale: UiLocale }) {
   const target = block.target;
   return (
     <section className={`evidence-content-card evidence-${target.tab}`} data-evidence-cue={block.id}>
@@ -1482,31 +1550,33 @@ function EvidenceContentCard({ chapter, block }: { chapter: Chapter; block: Less
         <h4>{block.label}</h4>
       </div>
       <p className="evidence-content-description">{block.description}</p>
-      {target.tab === "request" && <RequestCard chapter={chapter} target={target} />}
-      {target.tab === "events" && <TraceCard chapter={chapter} />}
-      {target.tab === "graph" && <GraphCard chapter={chapter} target={target} />}
-      {target.tab === "diff" && <SummaryCard chapter={chapter} />}
+      {target.tab === "request" && <RequestCard chapter={chapter} target={target} locale={locale} />}
+      {target.tab === "events" && <TraceCard chapter={chapter} target={target} locale={locale} />}
+      {target.tab === "graph" && <GraphCard chapter={chapter} target={target} locale={locale} />}
+      {target.tab === "diff" && <SummaryCard chapter={chapter} locale={locale} />}
     </section>
   );
 }
 
-function ChapterSummaryCard({ chapter }: { chapter: Chapter }) {
+function ChapterSummaryCard({ chapter, locale }: { chapter: Chapter; locale: UiLocale }) {
   const { changeStory } = chapter;
   return (
-    <section className="chapter-summary-card" aria-label="本章总结">
+    <section className="chapter-summary-card" aria-label={locale === "en" ? "Chapter summary" : "本章总结"}>
       <div className="card-heading">
-        <span>本章总结</span>
+        <span>{locale === "en" ? "CHAPTER SUMMARY" : "本章总结"}</span>
         <h3>{changeStory.title}</h3>
       </div>
       <p>{changeStory.summary}</p>
       <dl>
-        <div><dt>Harness 的角色</dt><dd>{changeStory.harnessRole}</dd></div>
-        <div><dt>与全书的连接</dt><dd>{changeStory.connection}</dd></div>
+        <div><dt>{locale === "en" ? "Harness role" : "Harness 的角色"}</dt><dd>{changeStory.harnessRole}</dd></div>
+        <div><dt>{locale === "en" ? "Connection to the tutorial" : "与全书的连接"}</dt><dd>{changeStory.connection}</dd></div>
       </dl>
       <ul>
         {changeStory.outcomes.map((outcome) => <li key={outcome}><i>✓</i><span>{outcome}</span></li>)}
       </ul>
-      <small>本章代码改动 {chapter.diffStats.filesChanged} 个文件 · +{chapter.diffStats.additions} / −{chapter.diffStats.deletions} 行</small>
+      <small>{locale === "en"
+        ? `Chapter code changes: ${chapter.diffStats.filesChanged} file${chapter.diffStats.filesChanged === 1 ? "" : "s"} · +${chapter.diffStats.additions} / −${chapter.diffStats.deletions} lines`
+        : `本章代码改动 ${chapter.diffStats.filesChanged} 个文件 · +${chapter.diffStats.additions} / −${chapter.diffStats.deletions} 行`}</small>
     </section>
   );
 }
@@ -1543,9 +1613,11 @@ function smoothScrollTo(
 function CodeDock({
   chapter,
   checkpoint,
+  locale,
 }: {
   chapter: Chapter;
   checkpoint: number | null;
+  locale: UiLocale;
 }) {
   const fills = chapterFills(chapter);
   const extraFiles = chapter.extraFiles ?? [];
@@ -1622,7 +1694,7 @@ function CodeDock({
   return (
     <div className="code-dock-shell">
       {tabs.length > 0 && (
-        <div className="code-tabs" role="tablist" aria-label="已打开的文件">
+        <div className="code-tabs" role="tablist" aria-label={locale === "en" ? "Open files" : "已打开的文件"}>
           {tabs.map((path) => (
             <button
               key={path}
@@ -1638,21 +1710,21 @@ function CodeDock({
       )}
       <div className="file-label">
         <div className="file-meta">
-          <span className="file-name">{file}{extra ? " · 完整文件" : ""}</span>
+          <span className="file-name">{file}{extra ? locale === "en" ? " · FULL FILE" : " · 完整文件" : ""}</span>
           <span className="file-stage">
             {!extra && fills.length > 0
               ? safeCheckpoint === null
-                ? "尚未开始"
+                ? locale === "en" ? "NOT STARTED" : "尚未开始"
                 : safeCheckpoint === 0
-                  ? "结构"
-                  : `代码 ${safeCheckpoint}/${fills.length - 1}`
+                  ? locale === "en" ? "STRUCTURE" : "结构"
+                  : locale === "en" ? `CODE ${safeCheckpoint}/${fills.length - 1}` : `代码 ${safeCheckpoint}/${fills.length - 1}`
               : ""}
           </span>
         </div>
         {!extra && fills.length > 0 && (
-          <CodeOutline fills={fills} checkpoint={safeCheckpoint} language={language} />
+          <CodeOutline fills={fills} checkpoint={safeCheckpoint} language={language} locale={locale} />
         )}
-        <button onClick={() => navigator.clipboard?.writeText(extra ? extra.content : code)}>复制</button>
+        <button onClick={() => navigator.clipboard?.writeText(extra ? extra.content : code)}>{locale === "en" ? "Copy" : "复制"}</button>
       </div>
       <div ref={bodyRef} className="code-dock-body">
         {extra ? (
@@ -1669,7 +1741,7 @@ function CodeDock({
               language={language}
             />
           ) : (
-            <div className="editor-empty">（尚未讲到这个文件）</div>
+            <div className="editor-empty">{locale === "en" ? "(This file has not been introduced yet)" : "（尚未讲到这个文件）"}</div>
           )
         ) : (
           <CodeBlock
@@ -1681,7 +1753,7 @@ function CodeDock({
           />
         )}
         {!extra && fills.length > 0 && safeCheckpoint !== null && safeCheckpoint < fills.length - 1 && (
-          <p className="code-dock-hint">继续向下阅读，右侧将显示下一段代码</p>
+          <p className="code-dock-hint">{locale === "en" ? "Continue reading to reveal the next section of code" : "继续向下阅读，右侧将显示下一段代码"}</p>
         )}
       </div>
     </div>
@@ -1690,10 +1762,11 @@ function CodeDock({
 
 /** 补全顺序目录（三行专注模式）：只显示上一段、当前段、下一段。
  * 中间一行代表现在，随 checkpoint 推进滚动；首尾边界自动收窄为两行。 */
-function CodeOutline({ fills, checkpoint, language }: {
+function CodeOutline({ fills, checkpoint, language, locale }: {
   fills: ReturnType<typeof chapterFills>;
   checkpoint: number | null;
   language: string;
+  locale: UiLocale;
 }) {
   const comment = language === "python" ? "#" : "//";
   const current = Math.min(Math.max(checkpoint ?? 0, 0), fills.length - 1);
@@ -1702,7 +1775,7 @@ function CodeOutline({ fills, checkpoint, language }: {
   indexes.push(current);
   if (current + 1 < fills.length) indexes.push(current + 1);
   return (
-    <div className="code-outline" role="list" aria-label="本章补全顺序">
+    <div className="code-outline" role="list" aria-label={locale === "en" ? "Code reveal order for this chapter" : "本章补全顺序"}>
       {indexes.map((index) => {
         const fill = fills[index]!;
         const reached = checkpoint !== null && index < checkpoint;
@@ -1711,8 +1784,8 @@ function CodeOutline({ fills, checkpoint, language }: {
           <div key={fill.label} className={`code-outline-line ${isCurrent ? "current" : reached ? "reached" : ""}`}>
             <span className="line-no" aria-hidden="true">···</span>
             <code>
-              {comment} {fillStageLabel(index)}：{fill.label}
-              {isCurrent ? " ← 现在" : reached ? " ✓" : ""}
+              {comment} {fillStageLabel(index, locale)}: {fill.label}
+              {isCurrent ? locale === "en" ? " ← NOW" : " ← 现在" : reached ? " ✓" : ""}
             </code>
           </div>
         );
@@ -1721,63 +1794,69 @@ function CodeOutline({ fills, checkpoint, language }: {
   );
 }
 
-function fillStageLabel(index: number): string {
-  return index === 0 ? "结构" : `代码 ${index}`;
+function fillStageLabel(index: number, locale: UiLocale): string {
+  return index === 0 ? locale === "en" ? "STRUCTURE" : "结构" : locale === "en" ? `CODE ${index}` : `代码 ${index}`;
 }
 
 /** 总结卡（压缩版，供 lesson evidence 块使用）：本章答案 */
-function SummaryCard({ chapter }: { chapter: Chapter }) {
+function SummaryCard({ chapter, locale }: { chapter: Chapter; locale: UiLocale }) {
   const { changeStory } = chapter;
   return (
     <div className="evidence-card-body summary-card">
       <p className="summary-question">{chapter.question}</p>
       <h4>{changeStory.title}</h4>
       <p>{changeStory.summary}</p>
-      <p className="summary-role"><b>Harness 的角色</b>{changeStory.harnessRole}</p>
+      <p className="summary-role"><b>{locale === "en" ? "Harness role" : "Harness 的角色"}</b>{changeStory.harnessRole}</p>
       <p className="summary-connection">{changeStory.connection}</p>
     </div>
   );
 }
 
 /** 请求对比卡（压缩版）：相邻请求的 token 估算与首次失效位置 */
-function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTarget }) {
+function RequestCard({ chapter, target, locale }: { chapter: Chapter; target: EvidenceTarget; locale: UiLocale }) {
   const step = target.step ?? Math.min(chapter.requests.length - 1, 1);
   const evidence = chapter.requests[step] ?? chapter.requests[0]!;
+  const previous = chapter.requests[Math.max(0, step - 1)] ?? evidence;
+  const sharedParts = evidence.prefix.sharedParts;
+  const previousTail = previous.parts.slice(sharedParts);
+  const currentTail = evidence.parts.slice(sharedParts);
   return (
     <div className="evidence-card-body request-card">
-      <div className="request-head">
-        <span className="request-step-title">第 {evidence.step} 次模型请求</span>
-        <span className="request-total">约 {evidence.totalApproximateTokens} token</span>
+      <div className="request-compare-heading">
+        <b>{locale === "en" ? "Two consecutive model requests" : "相邻两次模型请求"}</b>
+        <span>{locale === "en" ? `Shared prefix: about ${evidence.prefix.sharedApproximateTokens} tokens` : `相同开头约 ${evidence.prefix.sharedApproximateTokens} token`}</span>
       </div>
-      <div className="request-bar" aria-label="请求结构比例">
-        {evidence.parts.map((part) => (
-          <span
-            key={part.id}
-            className={part.stability}
-            style={{ flexGrow: part.approximateTokens }}
-            title={`${requestPartLabel(part)}：约 ${part.approximateTokens} token`}
-          />
-        ))}
+      <div className="request-comparison" aria-label={locale === "en" ? `Comparison of model requests ${previous.step} and ${evidence.step}` : `第 ${previous.step} 次和第 ${evidence.step} 次模型请求对比`}>
+        <RequestComparisonRow
+          chapter={chapter}
+          evidence={previous}
+          sharedParts={sharedParts}
+          tail={previousTail}
+          locale={locale}
+        />
+        <div className="request-rebuild-arrow"><i>↓</i><span>{locale === "en" ? "Rebuild after appending new events" : "追加新记录后重新构建"}</span></div>
+        <RequestComparisonRow
+          chapter={chapter}
+          evidence={evidence}
+          sharedParts={sharedParts}
+          tail={currentTail}
+          current
+          locale={locale}
+        />
       </div>
-      <div className="request-legend">
-        <span><i className="stable" />固定区</span>
-        <span><i className="append-only" />累积区</span>
-        <span><i className="step-variable" />本步区</span>
-        <span className="request-shared">与上次相同开头约 {evidence.prefix.sharedApproximateTokens} token</span>
-      </div>
-      <div className="invalidation">
-        <span>相同开头从这里发生变化</span>
-        <b>{invalidationLabel(evidence.prefix.firstInvalidation)}</b>
+      <div className="request-compare-conclusion">
+        <b>{locale === "en" ? "First change" : "首次变化"}</b>
+        <span>{invalidationLabel(evidence.prefix.firstInvalidation, locale)}{locale === "en" ? "; all earlier content and ordering remain unchanged" : "；此前内容和顺序保持相同"}</span>
       </div>
       <details className="technical-details" open>
-        <summary><span>查看请求组成</span><b>各部分内容与估算</b></summary>
-        <p className="details-note">点击每个部分，可展开查看具体内容与估算。</p>
+        <summary><span>{locale === "en" ? "Inspect request" : "查看请求组成"}</span><b>{locale === "en" ? "Contents and estimates by section" : "各部分内容与估算"}</b></summary>
+        <p className="details-note">{locale === "en" ? "Select a section to inspect its content and estimate." : "点击每个部分，可展开查看具体内容与估算。"}</p>
         <div className="request-parts">
           {evidence.parts.map((part) => (
             <details key={part.id} className={part.stability}>
               <summary>
-                <span>{requestPartLabel(part)}</span>
-                <small>{stabilityLabel(part.stability)} · 约 {part.approximateTokens} token</small>
+                <span>{requestPartLabel(part, locale)}</span>
+                <small>{stabilityLabel(part.stability, locale)} · {locale === "en" ? `about ${part.approximateTokens} tokens` : `约 ${part.approximateTokens} token`}</small>
               </summary>
               <pre><SyntaxCode code={formatJson(part.value)} language="json" /></pre>
             </details>
@@ -1788,62 +1867,140 @@ function RequestCard({ chapter, target }: { chapter: Chapter; target: EvidenceTa
   );
 }
 
+function RequestComparisonRow({
+  chapter,
+  evidence,
+  sharedParts,
+  tail,
+  current = false,
+  locale,
+}: {
+  chapter: Chapter;
+  evidence: RequestEvidence;
+  sharedParts: number;
+  tail: RequestPart[];
+  current?: boolean;
+  locale: UiLocale;
+}) {
+  return (
+    <div className={`request-compare-row ${current ? "current" : "previous"}`}>
+      <div className="request-row-label">
+        <small>{locale === "en" ? `REQUEST ${evidence.step}` : `请求 ${evidence.step}`}</small>
+        <b>{locale === "en" ? `about ${evidence.totalApproximateTokens} tokens` : `约 ${evidence.totalApproximateTokens} token`}</b>
+      </div>
+      <div className="request-segments">
+        {sharedParts > 0 && (
+          <span className="shared">
+            <b>{locale === "en" ? "Shared prefix" : "相同开头"}</b>
+            <small>{locale === "en" ? "Rules, tools, and existing history" : "规则、工具与已有历史"}</small>
+          </span>
+        )}
+        {tail.map((part, index) => (
+          <span className={part.stability === "step-variable" ? "variable" : "added"} key={part.id}>
+            <b>{requestComparisonPartLabel(chapter, part, locale)}</b>
+            <small>{locale === "en" ? `about ${part.approximateTokens} tokens` : `约 ${part.approximateTokens} token`}</small>
+            {current && part.stability !== "step-variable" && <i>{locale === "en" ? "NEW" : "新增"}</i>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function requestComparisonPartLabel(chapter: Chapter, part: RequestPart, locale: UiLocale): string {
+  if (part.stability === "step-variable") return locale === "en" ? "Step context" : "本步说明";
+  if (part.label.startsWith("assistant")) {
+    return locale === "en"
+      ? chapter.number === "06" ? "Previous Round progress" : "Model Tool Call"
+      : chapter.number === "06" ? "上一轮进展" : "模型发起工具调用";
+  }
+  if (part.label.startsWith("tool")) return requestPartLabel(part, locale);
+  if (part.label.startsWith("user") && chapter.number === "06") return locale === "en" ? "Next Round task" : "下一轮任务";
+  return requestPartLabel(part, locale);
+}
+
 /** 时间线卡（压缩版）：关键事件摘要 */
-function TraceCard({ chapter }: { chapter: Chapter }) {
-  const items = chapter.trace.slice(0, 8);
+function TraceCard({ chapter, target, locale }: { chapter: Chapter; target: EvidenceTarget; locale: UiLocale }) {
+  const focusIndex = traceFocusIndex(chapter.trace, target);
+  const start = chapter.trace.length > 8 ? Math.max(0, focusIndex - 3) : 0;
+  const window = chapter.trace.length > 8
+    ? chapter.trace.slice(start, focusIndex + 1)
+    : chapter.trace;
+  const focus = chapter.trace[focusIndex];
+  const items = focus?.type === "tool/result" && focus.title.endsWith("word_count")
+    ? window.filter((item) => item.type === "runtime/plugin-mounted" || item.title.endsWith("word_count"))
+    : window;
   return (
     <div className="evidence-card-body trace-card">
       {chapter.events.length === 0 ? (
-        <p className="evidence-card-empty">这一章先保存本地执行记录；第四章把全部过程写入同一条只追加日志。</p>
+        <p className="evidence-card-empty">{locale === "en" ? "This chapter keeps execution records locally. Chapter 4 stores the complete process in one append-only log." : "这一章先保存本地执行记录；第四章把全部过程写入同一条只追加日志。"}</p>
       ) : (
         <>
-          <p className="trace-summary"><b>{chapter.events.length}</b> 条关键事件，按发生顺序只追加</p>
+          <div className="trace-focus-summary">
+            <span>{locale === "en" ? "EVIDENCE WINDOW" : "证据窗口"}</span>
+            <b>{locale === "en" ? "EVENT" : "事件"} {focus ? String(focus.eventId).padStart(2, "0") : "—"} · {focus ? traceLabel(focus.type, locale) : locale === "en" ? "No target" : "无目标"}</b>
+            <small>{locale === "en" ? `${items.length} directly related events shown; ${chapter.events.length} in this chapter` : `显示 ${items.length} 条直接相关事件；全章共 ${chapter.events.length} 条`}</small>
+          </div>
           <ol>
             {items.map((item) => (
-              <li key={`${item.eventId}-${item.type}`} className={traceClass(item.type)}>
+              <li key={`${item.eventId}-${item.type}`} className={`${traceClass(item.type)} ${item.eventId === focus?.eventId ? "focus" : ""}`}>
                 <span>{String(item.eventId).padStart(2, "0")}</span>
                 <i />
                 <div>
-                  <small>{traceLabel(item.type)}</small>
-                  <b>{humanTraceTitle(item)}</b>
+                  <small>{traceLabel(item.type, locale)}</small>
+                  <b>{humanTraceTitle(item, locale)}</b>
+                  {item.detail && <span className="trace-detail">{item.detail}</span>}
                 </div>
               </li>
             ))}
           </ol>
-          {chapter.trace.length > 8 && <p className="evidence-card-more">…共 {chapter.trace.length} 条事件</p>}
         </>
       )}
     </div>
   );
 }
 
+function traceFocusIndex(trace: Chapter["trace"], target: EvidenceTarget): number {
+  if (!target.event || trace.length === 0) return Math.max(0, trace.length - 1);
+  const matches = trace
+    .map((item, index) => item.type === target.event?.type ? index : -1)
+    .filter((index) => index >= 0);
+  if (matches.length === 0) return trace.length - 1;
+  if (target.event.occurrence === "last") return matches.at(-1)!;
+  const occurrence = typeof target.event.occurrence === "number" ? target.event.occurrence : 1;
+  return matches[Math.max(0, occurrence - 1)] ?? matches.at(-1)!;
+}
+
 /** 能力图卡（压缩版）：插件归属快照 */
-function GraphCard({ chapter, target }: { chapter: Chapter; target: EvidenceTarget }) {
+function GraphCard({ chapter, target, locale }: { chapter: Chapter; target: EvidenceTarget; locale: UiLocale }) {
   const graph = graphSnapshotForEvidenceStep(chapter, target.step);
   if (!graph) {
     return (
       <div className="evidence-card-body graph-card">
-        <p className="evidence-card-empty">能力归属会在第三章加入：前两章直接组装工具，不记录来源。</p>
+        <p className="evidence-card-empty">{locale === "en" ? "Chapter 3 adds capability ownership. The first two chapters assemble tools directly without recording their source." : "能力归属会在第三章加入：前两章直接组装工具，不记录来源。"}</p>
       </div>
     );
   }
   if (chapter.number === "05") {
-    return <EvolutionGraphCard chapter={chapter} graph={graph} />;
+    return <EvolutionGraphCard chapter={chapter} graph={graph} locale={locale} />;
+  }
+  if (chapter.number === "03") {
+    return <DependencyGraphCard graph={graph} locale={locale} />;
   }
   return (
     <div className="evidence-card-body graph-card">
       <div className="graph-ledger">
-        <section><small>插件 · {graph.plugins.length}</small>{graph.plugins.map((plugin) => <span key={plugin}>{prettyPlugin(plugin)}</span>)}</section>
-        <section><small>工具 · {graph.tools.length}</small>{graph.tools.map((tool) => <span key={tool.name}>{tool.name}</span>)}</section>
-        <section><small>提示词 · {graph.prompts.length}</small>{graph.prompts.map((prompt) => <span key={prompt.id ?? prompt.text} title={prompt.text}>{prettyPrompt(prompt.id)}</span>)}</section>
-        <section><small>服务 · {graph.services.length}</small>{graph.services.map((service) => <span key={service.name}>{service.name}</span>)}</section>
+        <section><small>{locale === "en" ? "PLUGINS" : "插件"} · {graph.plugins.length}</small>{graph.plugins.map((plugin) => <span key={plugin}>{prettyPlugin(plugin, locale)}</span>)}</section>
+        <section><small>{locale === "en" ? "TOOLS" : "工具"} · {graph.tools.length}</small>{graph.tools.map((tool) => <span key={tool.name}>{tool.name}</span>)}</section>
+        <section><small>{locale === "en" ? "PROMPTS" : "提示词"} · {graph.prompts.length}</small>{graph.prompts.map((prompt) => <span key={prompt.id ?? prompt.text} title={prompt.text}>{prettyPrompt(prompt.id, locale)}</span>)}</section>
+        <section><small>{locale === "en" ? "SERVICES" : "服务"} · {graph.services.length}</small>{graph.services.map((service) => <span key={service.name}>{service.name}</span>)}</section>
       </div>
       {graph.relations.length > 0 && (
         <p className="graph-relations">
-          <b>依赖</b>
+          <b>{locale === "en" ? "DEPENDENCIES" : "依赖"}</b>
           {graph.relations.map((relation) => (
             <span key={`${relation.consumer}-${relation.service}-${relation.provider}`}>
-              {prettyPlugin(relation.consumer)} → {prettyPlugin(relation.provider)}（{relation.service}）
+              {prettyPlugin(relation.consumer, locale)} → {prettyPlugin(relation.provider, locale)} ({relation.service})
             </span>
           ))}
         </p>
@@ -1852,10 +2009,56 @@ function GraphCard({ chapter, target }: { chapter: Chapter; target: EvidenceTarg
   );
 }
 
+function DependencyGraphCard({ graph, locale }: { graph: GraphSnapshot; locale: UiLocale }) {
+  const relation = graph.relations[0];
+  if (!relation) {
+    return <div className="evidence-card-body graph-card"><p className="evidence-card-empty">{locale === "en" ? "This snapshot has no plugin dependencies." : "当前快照没有插件依赖。"}</p></div>;
+  }
+  const contributions = [
+    ...graph.tools
+      .filter((tool) => (tool.owner ?? tool.plugin) === relation.consumer)
+      .map((tool) => ({ kind: "TOOL", name: tool.name })),
+    ...graph.prompts
+      .filter((prompt) => (prompt.owner ?? prompt.plugin) === relation.consumer)
+      .map((prompt) => ({ kind: "PROMPT", name: prettyPrompt(prompt.id, locale) })),
+  ];
+  return (
+    <div className="evidence-card-body dependency-snapshot">
+      <div className="dependency-flow" aria-label={locale === "en" ? `${relation.consumer} depends on the ${relation.service} service from ${relation.provider}` : `${relation.consumer} 依赖 ${relation.provider} 提供的 ${relation.service} 服务`}>
+        <div className="dependency-node consumer">
+          <small>{locale === "en" ? "CONSUMER PLUGIN" : "使用方插件"}</small>
+          <code>{relation.consumer}</code>
+        </div>
+        <div className="dependency-link" aria-hidden="true">
+          <span>{locale === "en" ? `uses ${relation.service}` : `使用 ${relation.service} 服务`}</span>
+          <b>→</b>
+        </div>
+        <div className="dependency-node provider">
+          <small>{locale === "en" ? "PROVIDER PLUGIN" : "提供方插件"}</small>
+          <code>{relation.provider}</code>
+        </div>
+      </div>
+      <div className="dependency-contributions">
+        <span className="dependency-branch" aria-hidden="true">↓</span>
+        <b>{locale === "en" ? `${relation.consumer} also contributes to Context` : `${relation.consumer} 同时向 Context 贡献`}</b>
+        <div>
+          {contributions.map((item) => (
+            <span key={`${item.kind}-${item.name}`}><small>{item.kind}</small><code>{item.name}</code></span>
+          ))}
+        </div>
+      </div>
+      <div className="dependency-conclusion">
+        <b>{locale === "en" ? "HOW TO READ THIS" : "读图结论"}</b>
+        <span>{locale === "en" ? "Context records each contribution's source in owner and links service consumers to providers through dependency records." : "Context 用 owner 记录贡献来源，用依赖关系连接服务的使用方和提供方。"}</span>
+      </div>
+    </div>
+  );
+}
+
 type EvolutionPhase = "baseline" | "mounted" | "restored";
 
 /** 第五章的能力快照只讲一次变化，不让读者从完整清单里自行找差异。 */
-function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: GraphSnapshot }) {
+function EvolutionGraphCard({ chapter, graph, locale }: { chapter: Chapter; graph: GraphSnapshot; locale: UiLocale }) {
   const baseline = chapter.graphs.find((snapshot) => snapshot.stepId === "before-install")
     ?? chapter.graphs[0]
     ?? graph;
@@ -1872,7 +2075,7 @@ function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: Graph
   const comparison = phase === "mounted" ? baseline : phase === "restored" ? mounted : null;
   const pluginDelta = comparison ? graph.plugins.length - comparison.plugins.length : 0;
   const toolDelta = comparison ? graph.tools.length - comparison.tools.length : 0;
-  const phaseCopy = ({
+  const phaseCopyZh = ({
     baseline: {
       pluginStatus: "尚未加入",
       toolStatus: "不可调用",
@@ -1895,11 +2098,35 @@ function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: Graph
       timing: "插件和工具数量都回到实验开始前的基线。",
     },
   } as const)[phase];
+  const phaseCopyEn = ({
+    baseline: {
+      pluginStatus: "Not installed",
+      toolStatus: "Unavailable",
+      relation: "Capability gap",
+      timingLabel: "NEXT STEP",
+      timing: "Define and run the plugin, then check whether these two positions change.",
+    },
+    mounted: {
+      pluginStatus: "Plugin added",
+      toolStatus: "Tool added",
+      relation: "Registers with Context",
+      timingLabel: "WHEN IT TAKES EFFECT",
+      timing: "The next model request reads the updated tool list.",
+    },
+    restored: {
+      pluginStatus: "Removed",
+      toolStatus: "Removed",
+      relation: "Contributions withdrawn",
+      timingLabel: "VERIFICATION",
+      timing: "Plugin and tool counts have returned to their pre-experiment baseline.",
+    },
+  } as const)[phase];
+  const phaseCopy = locale === "en" ? phaseCopyEn : phaseCopyZh;
 
   return (
     <div className={`evidence-card-body evolution-snapshot ${phase}`}>
-      <ol className="evolution-steps" aria-label="运行时能力变化阶段">
-        {["运行前", "已挂载", "已移除"].map((label, index) => (
+      <ol className="evolution-steps" aria-label={locale === "en" ? "Runtime capability stages" : "运行时能力变化阶段"}>
+        {(locale === "en" ? ["Before", "Mounted", "Removed"] : ["运行前", "已挂载", "已移除"]).map((label, index) => (
           <li className={index === phaseIndex ? "current" : index < phaseIndex ? "done" : ""} key={label}>
             <i>{index < phaseIndex ? "✓" : index + 1}</i>
             <span>{label}</span>
@@ -1907,7 +2134,7 @@ function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: Graph
         ))}
       </ol>
 
-      <div className="evolution-flow" aria-label={`${capabilityName} 提供 word_count 工具`}>
+      <div className="evolution-flow" aria-label={locale === "en" ? `${capabilityName} provides the word_count tool` : `${capabilityName} 提供 word_count 工具`}>
         <div className="evolution-node plugin">
           <small>PLUGIN</small>
           <code>{capabilityName}</code>
@@ -1924,15 +2151,15 @@ function EvolutionGraphCard({ chapter, graph }: { chapter: Chapter; graph: Graph
         </div>
       </div>
 
-      <div className="evolution-metrics" aria-label="能力数量变化">
-        <EvolutionMetric label="插件" before={comparison?.plugins.length} after={graph.plugins.length} delta={pluginDelta} />
-        <EvolutionMetric label="工具" before={comparison?.tools.length} after={graph.tools.length} delta={toolDelta} />
+      <div className="evolution-metrics" aria-label={locale === "en" ? "Capability count changes" : "能力数量变化"}>
+        <EvolutionMetric label={locale === "en" ? "Plugins" : "插件"} before={comparison?.plugins.length} after={graph.plugins.length} delta={pluginDelta} />
+        <EvolutionMetric label={locale === "en" ? "Tools" : "工具"} before={comparison?.tools.length} after={graph.tools.length} delta={toolDelta} />
       </div>
 
       <div className="evolution-note">
-        <span>未变化</span>
-        <b>提示词 {graph.prompts.length}</b>
-        <b>服务 {graph.services.length}</b>
+        <span>{locale === "en" ? "UNCHANGED" : "未变化"}</span>
+        <b>{locale === "en" ? "Prompts" : "提示词"} {graph.prompts.length}</b>
+        <b>{locale === "en" ? "Services" : "服务"} {graph.services.length}</b>
       </div>
       <div className="evolution-timing">
         <b>{phaseCopy.timingLabel}</b>
@@ -1986,6 +2213,7 @@ function CodeBlock({
   /** 在指定源文件行之前插入的教学注释，不占用真实行号。 */
   annotations?: Array<{ beforeLine: number; text: string }>;
 }) {
+  const english = document.documentElement.lang === "en";
   const lines = code.trimEnd().split(/\r?\n/u);
   const languages = diffLanguages(lines, language);
   const enteringOrder = useMemo(() => {
@@ -1995,7 +2223,7 @@ function CodeBlock({
     );
   }, [enteringLines]);
   return (
-    <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={diff ? "逐行代码差异" : "源代码"}>
+    <div className={`code-lines ${highlightedRange ? "has-line-focus" : ""}`} role="region" aria-label={english ? diff ? "Line-by-line code diff" : "Source code" : diff ? "逐行代码差异" : "源代码"}>
       {lines.map((line, index) => {
         const lineNumber = sourceLineNumbers?.[index] ?? startLine + index;
         const comments = annotations.filter((item) => item.beforeLine === lineNumber);
@@ -2052,12 +2280,12 @@ function DiffCodeLine({ line, language }: { line: string; language: string }) {
   );
 }
 
-function LoadFailure({ message }: { message: string }) {
-  return <div className="load-state"><b>教程数据加载失败</b><span>{message}</span><p>请先运行 pnpm tutorial:generate。</p></div>;
+function LoadFailure({ message, locale }: { message: string; locale: UiLocale }) {
+  return <div className="load-state"><b>{locale === "en" ? "Could not load tutorial data" : "教程数据加载失败"}</b><span>{message}</span><p>{locale === "en" ? "Run pnpm tutorial:generate first." : "请先运行 pnpm tutorial:generate。"}</p></div>;
 }
 
-function Loading() {
-  return <div className="load-state"><b>正在加载教程…</b><span>正在读取六章源码与执行记录</span></div>;
+function Loading({ locale }: { locale: UiLocale }) {
+  return <div className="load-state"><b>{locale === "en" ? "Loading tutorial…" : "正在加载教程…"}</b><span>{locale === "en" ? "Reading source and execution records for all six chapters" : "正在读取六章源码与执行记录"}</span></div>;
 }
 
 function parseLesson(markdown: string): LessonBlock[] {
@@ -2172,7 +2400,28 @@ function formatLineRange(range: [number, number]): string {
 }
 
 
-function toolNameLabel(name: string): string {
+function toolNameLabel(name: string, locale: UiLocale = "zh"): string {
+  if (locale === "en") {
+    return ({
+      read_workspace_file: "Read workspace file",
+      apply_patch: "Apply exact patch",
+      run_tests: "Run regression tests",
+      submit_patch: "Submit patch",
+      inspect_runtime: "Inspect runtime",
+      cordis_inspect: "List Cordis plugins and capabilities",
+      install_capability: "Install temporary capability",
+      remove_capability: "Remove temporary capability",
+      cordis_define: "Define Cordis plugin",
+      cordis_run: "Run Cordis plugin",
+      cordis_stop: "Stop Cordis plugin",
+      cordis_undefine: "Remove Cordis plugin",
+      get_time: "Get city time",
+      read_note: "Read note",
+      word_count: "Count words",
+      find_references: "Find references",
+      check_types: "Check TypeScript types",
+    } as Record<string, string>)[name] ?? name;
+  }
   return ({
     read_workspace_file: "读取工作区文件",
     apply_patch: "应用精确补丁",
@@ -2194,41 +2443,64 @@ function toolNameLabel(name: string): string {
   } as Record<string, string>)[name] ?? name;
 }
 
-function chapterName(number: string): string {
-  return `第${chapterNumeral(number)}章`;
+function chapterName(number: string, locale: UiLocale): string {
+  return locale === "en" ? `Chapter ${Number(number)}` : `第${chapterNumeral(number)}章`;
 }
 
-function fixedChapterTitle(chapter: Chapter): string {
-  return `${chapterName(chapter.number)}·${chapter.shortTitle}`;
+function chapterNavTitle(chapter: Chapter, locale: UiLocale): string {
+  if (locale === "zh") return chapter.shortTitle;
+  return ({
+    "01": "Agent Loop",
+    "02": "Context & Cache",
+    "03": "Plugins",
+    "04": "Traceable Runs",
+    "05": "Runtime Evolution",
+    "06": "Long Tasks",
+  } as Record<string, string>)[chapter.number] ?? chapter.shortTitle;
+}
+
+function fixedChapterTitle(chapter: Chapter, locale: UiLocale): string {
+  return locale === "en"
+    ? `${chapterName(chapter.number, locale)} · ${chapter.shortTitle}`
+    : `${chapterName(chapter.number, locale)}·${chapter.shortTitle}`;
 }
 
 function chapterNumeral(number: string): string {
   return ({ "01": "一", "02": "二", "03": "三", "04": "四", "05": "五", "06": "六" } as Record<string, string>)[number] ?? number;
 }
 
-function requestPartLabel(part: RequestPart): string {
-  if (part.kind === "system") return "系统规则";
-  if (part.kind === "tools") return "可用动作与参数规则";
-  if (part.kind === "dynamic") return "本步说明";
-  if (part.label.startsWith("user")) return "用户消息";
-  if (part.label.startsWith("assistant")) return "模型回复";
-  if (part.label.startsWith("system")) return "历史摘要";
+function requestPartLabel(part: RequestPart, locale: UiLocale): string {
+  if (part.kind === "system") return locale === "en" ? "System rules" : "系统规则";
+  if (part.kind === "tools") return locale === "en" ? "Available actions and parameter schemas" : "可用动作与参数规则";
+  if (part.kind === "dynamic") return locale === "en" ? "Step context" : "本步说明";
+  if (part.label.startsWith("user")) return locale === "en" ? "User message" : "用户消息";
+  if (part.label.startsWith("assistant")) return locale === "en" ? "Model response" : "模型回复";
+  if (part.label.startsWith("system")) return locale === "en" ? "History summary" : "历史摘要";
   if (part.label.startsWith("tool")) {
     const name = part.label.split(" · ")[1];
-    return name ? `工具结果 · ${name}` : "工具结果";
+    return name ? locale === "en" ? `Tool Result · ${name}` : `工具结果 · ${name}` : locale === "en" ? "Tool Result" : "工具结果";
   }
   return part.label;
 }
 
-function stabilityLabel(stability: RequestPart["stability"]): string {
-  return {
+function stabilityLabel(stability: RequestPart["stability"], locale: UiLocale): string {
+  return (locale === "en" ? {
+    stable: "Stable",
+    "append-only": "Append-only",
+    "step-variable": "Step-specific",
+  } : {
     stable: "固定区",
     "append-only": "累积区",
     "step-variable": "本步区",
-  }[stability];
+  })[stability];
 }
 
-function invalidationLabel(value: string | null): string {
+function invalidationLabel(value: string | null, locale: UiLocale): string {
+  if (locale === "en") {
+    if (value === null) return "The previous request is fully preserved as the prefix";
+    if (value.startsWith("First request")) return "Baseline request for this chapter; prefix comparison begins with the next Step";
+    return value;
+  }
   if (value === null) return "上一份请求完整保留在开头";
   if (value.startsWith("First request")) return "本章基线请求；从下一步开始比较前缀";
   return ({
@@ -2302,8 +2574,24 @@ function traceClass(type: string): string {
   return "";
 }
 
-function traceLabel(type: string): string {
-  return ({
+function traceLabel(type: string, locale: UiLocale): string {
+  const labels = locale === "en" ? {
+    "turn/start": "Turn started",
+    "turn/end": "Turn ended",
+    "user/message": "User input",
+    "step/start": "Model Step started",
+    "step/end": "Model Step ended",
+    "request/header": "Model request",
+    "assistant/message": "Model response",
+    "tool/call": "Tool Call",
+    "tool/result": "Tool Result",
+    "context/checkpoint": "Context checkpoint",
+    "runtime/plugin-mounted": "Capability installed",
+    "runtime/plugin-unmounted": "Capability removed",
+    "goal/created": "Goal created",
+    "goal/round-started": "Round started",
+    "goal/status-changed": "Goal status changed",
+  } : {
     "turn/start": "一轮开始",
     "turn/end": "一轮结束",
     "user/message": "用户输入",
@@ -2319,17 +2607,19 @@ function traceLabel(type: string): string {
     "goal/created": "任务已创建",
     "goal/round-started": "新一轮开始",
     "goal/status-changed": "任务状态变化",
-  } as Record<string, string>)[type] ?? "过程事件";
+  };
+  return (labels as Record<string, string>)[type] ?? (locale === "en" ? "Execution event" : "过程事件");
 }
 
-function humanTraceTitle(item: Chapter["trace"][number]): string {
-  if (item.type === "tool/call") return item.title.replace(/^call\s+/u, "请求使用 ");
-  if (item.type === "tool/result") return item.title.replace(/^result\s+/u, "收到结果 · ");
-  if (item.type === "goal/round-started") return item.title.replace(/^round\s+(\d+)\s*·/u, "第 $1 轮 ·");
+function humanTraceTitle(item: Chapter["trace"][number], locale: UiLocale): string {
+  if (item.type === "tool/call") return item.title.replace(/^call\s+/u, locale === "en" ? "Use " : "请求使用 ");
+  if (item.type === "tool/result") return item.title.replace(/^result\s+/u, locale === "en" ? "Received · " : "收到结果 · ");
+  if (item.type === "goal/round-started") return item.title.replace(/^round\s+(\d+)\s*·/u, locale === "en" ? "Round $1 ·" : "第 $1 轮 ·");
+  if (item.type === "goal/status-changed" && item.detail.startsWith("completed")) return locale === "en" ? "Goal completed" : "Goal 已完成";
   if (item.title === item.type) {
     const earlyStep = /^step\/(\d+)\/start$/u.exec(item.type);
-    if (earlyStep) return `第 ${earlyStep[1]} 个模型步骤开始`;
-    if (item.type === "llm/request") return "生成模型请求";
+    if (earlyStep) return locale === "en" ? `Model Step ${earlyStep[1]} started` : `第 ${earlyStep[1]} 个模型步骤开始`;
+    if (item.type === "llm/request") return locale === "en" ? "Build model request" : "生成模型请求";
     const tools = ({
       read_workspace_file: "读取工作区文件",
       apply_patch: "应用精确补丁",
@@ -2346,13 +2636,24 @@ function humanTraceTitle(item: Chapter["trace"][number]): string {
       find_references: "查找调用方",
       check_types: "检查 TypeScript 类型",
     } as Record<string, string>)[item.type];
-    return tools ?? traceLabel(item.type);
+    if (locale === "en") return toolNameLabel(item.type, locale) ?? traceLabel(item.type, locale);
+    return tools ?? traceLabel(item.type, locale);
   }
   return item.title;
 }
 
-function prettyPlugin(plugin: string): string {
-  const known = ({
+function prettyPlugin(plugin: string, locale: UiLocale): string {
+  const known = (locale === "en" ? {
+    "session-log": "Session Log",
+    "runtime-tools": "Capability management tools",
+    "trusted-capability-catalog": "Trusted capability catalog",
+    "capability:word_count": "Temporary · word count",
+    "dynamic:word_count": "Dynamic · word count",
+    "dynamic:typescript_analysis": "Dynamic · TypeScript analysis",
+    "checkout-workspace-state": "Checkout workspace state",
+    "checkout-workspace": "File and patch tools",
+    "checkout-tests": "Test and submission tools",
+  } : {
     "session-log": "过程日志",
     "runtime-tools": "能力管理工具",
     "trusted-capability-catalog": "受信任能力目录",
@@ -2365,14 +2666,14 @@ function prettyPlugin(plugin: string): string {
   } as Record<string, string>)[plugin];
   if (known) return known;
   return plugin
-    .replace(/^provider:/u, "模型 · ")
-    .replace(/^capability:/u, "临时 · ")
+    .replace(/^provider:/u, locale === "en" ? "Model · " : "模型 · ")
+    .replace(/^capability:/u, locale === "en" ? "Temporary · " : "临时 · ")
     .replaceAll("-", " ");
 }
 
-function prettyPrompt(id?: string): string {
-  if (id === "runtime-experiment-boundary") return "运行时实验边界";
-  if (id === "clock-rule") return "时间工具调用规则";
+function prettyPrompt(id: string | undefined, locale: UiLocale): string {
+  if (id === "runtime-experiment-boundary") return locale === "en" ? "Runtime experiment boundary" : "运行时实验边界";
+  if (id === "clock-rule") return locale === "en" ? "Time-tool call rule" : "时间工具调用规则";
   return id ?? "Prompt";
 }
 

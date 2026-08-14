@@ -112,7 +112,7 @@ const configs: PythonChapterConfig[] = [
     range: [13, 41],
     observations: [
       { title: "Goal 集中保存跨轮状态", text: "目标、状态、已启动轮数和轮数上限保存在同一对象中；Round 的阶段说明由外部预先定义。", lines: [13, 26] },
-      { title: "每轮都重申目标与当前阶段", text: "外循环只在 active 且未达上限时运行；每次调用 run_round 都携带同一 objective 与当前阶段说明。", lines: [29, 33] },
+      { title: "每轮都重申目标与当前阶段", text: "run_long_task 只在 Goal 为 active 且未达上限时继续；每次调用 run_round 都携带同一个 objective 与当前阶段说明。", lines: [29, 33] },
       { title: "状态决定是否续行", text: "accepted 和 blocked 会结束 Goal；状态仍为 active 的 Goal 在轮数边界标记为 limit_reached。", lines: [34, 41] },
     ],
     fills: [

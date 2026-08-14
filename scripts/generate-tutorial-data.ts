@@ -66,6 +66,8 @@ interface TeachingEvidence {
 }
 
 const root = resolve(import.meta.dirname, "..");
+const tutorialLocale = process.env.TUTORIAL_LOCALE === "en" ? "en" : "zh";
+const english = tutorialLocale === "en";
 /** 六个教学主文件（与章节一一对应，nano-dsh FILE_ORDER 精神）：
  * 文件 tab 展示「该章为止已出现」的主文件（按此顺序），内容为该 tag 的历史快照。 */
 const SIX_MAIN_FILES = [
@@ -81,9 +83,9 @@ function fileExistsInTag(tag: string, path: string): boolean {
   return git("ls-tree", "--name-only", tag, "--", path).trim() !== "";
 }
 const configs = JSON.parse(
-  await readFile(resolve(root, "docs/checkpoints.json"), "utf8"),
+  await readFile(resolve(root, english ? "docs/checkpoints.en.json" : "docs/checkpoints.json"), "utf8"),
 ) as CheckpointConfig[];
-const primer = await readFile(resolve(root, "docs/typescript-primer.md"), "utf8");
+const primer = await readFile(resolve(root, english ? "docs/typescript-primer.en.md" : "docs/typescript-primer.md"), "utf8");
 const liveReplay = JSON.parse(
   await readFile(resolve(root, "docs/replays/checkout-live.json"), "utf8"),
 ) as unknown;
@@ -96,7 +98,10 @@ for (const config of configs) {
   const source = config.sourceMode === "worktree"
     ? await readFile(resolve(root, config.sourcePath), "utf8")
     : git("show", `${config.tag}:${config.sourcePath}`);
-  const lesson = await readFile(resolve(root, config.lessonPath), "utf8");
+  const lessonPath = english
+    ? config.lessonPath.replace("docs/lessons/", "docs/lessons-en/")
+    : config.lessonPath;
+  const lesson = await readFile(resolve(root, lessonPath), "utf8");
   const diff = config.sourceMode === "worktree"
     ? git(
         "diff",
@@ -162,10 +167,10 @@ for (const config of configs) {
     extraFiles,
     diff: sanitizePublicText(diff),
     diffStats: summarizeDiff(diff),
-    requests,
-    events: evidence.events,
-    trace: evidence.trace,
-    graphs: evidence.graphs,
+    requests: english ? translateEvidence(requests) : requests,
+    events: english ? translateEvidence(evidence.events) : evidence.events,
+    trace: english ? translateEvidence(evidence.trace) : evidence.trace,
+    graphs: english ? translateEvidence(evidence.graphs) : evidence.graphs,
   });
 }
 
@@ -175,8 +180,10 @@ const output = {
     name: "dsh-from-scratch",
     language: "typescript",
     languageLabel: "TypeScript",
-    scenario: "六个彼此独立的最小机制样本",
-    dataPolicy: "章节源码来自六个机制 checkpoint；请求、事件与能力图是为单一概念生成的最小确定性样本。顶部静态回放仍保留完整编码任务。文本量与相同前缀均为教学估算。",
+    scenario: english ? "Six independent minimal mechanism examples" : "六个彼此独立的最小机制样本",
+    dataPolicy: english
+      ? "Chapter source comes from six mechanism checkpoints. Requests, events, and capability graphs are minimal deterministic examples built around one concept. The static replay at the top retains a complete coding task. Text size and shared-prefix figures are teaching estimates."
+      : "章节源码来自六个机制 checkpoint；请求、事件与能力图是为单一概念生成的最小确定性样本。顶部静态回放仍保留完整编码任务。文本量与相同前缀均为教学估算。",
     selectedScope: {
       jsonl: false,
       overflowRetry: false,
@@ -192,9 +199,10 @@ const output = {
 
 const outDir = resolve(root, "website/public/generated");
 await mkdir(outDir, { recursive: true });
-await writeFile(resolve(outDir, "tutorial.json"), `${JSON.stringify(output, null, 2)}\n`);
+const outputName = english ? "tutorial.en.json" : "tutorial.json";
+await writeFile(resolve(outDir, outputName), `${JSON.stringify(output, null, 2)}\n`);
 console.log(
-  `generated ${chapters.length} chapters · ${chapters.reduce((sum, chapter) => sum + chapter.events.length, 0)} events · ${chapters.reduce((sum, chapter) => sum + chapter.requests.length, 0)} requests`,
+  `generated ${outputName} · ${chapters.length} chapters · ${chapters.reduce((sum, chapter) => sum + chapter.events.length, 0)} events · ${chapters.reduce((sum, chapter) => sum + chapter.requests.length, 0)} requests`,
 );
 
 function teachingEvidence(id: string): TeachingEvidence {
@@ -473,6 +481,71 @@ function teachingEvidence(id: string): TeachingEvidence {
     default:
       throw new Error(`Unknown tutorial chapter: ${id}`);
   }
+}
+
+function translateEvidence<T>(value: T): T {
+  if (typeof value === "string") return translateEvidenceString(value) as T;
+  if (Array.isArray(value)) return value.map((item) => translateEvidence(item)) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, translateEvidence(item)]),
+    ) as T;
+  }
+  return value;
+}
+
+function translateEvidenceString(value: string): string {
+  const exact = ({
+    "Step 1：先取得事实。": "Step 1: retrieve the current facts.",
+    "Step 2：根据工具结果回答。": "Step 2: answer from the Tool Result.",
+    "Step 1：读取备忘录。": "Step 1: read the note.",
+    "Step 2：只回答备忘录内容。": "Step 2: answer only from the note.",
+    "先读取事实，再给出简短回答。": "Retrieve the facts first, then answer briefly.",
+    "需要事实时使用工具。": "Use a tool when the answer requires external facts.",
+    "需要事实时使用工具；拿到结果后直接回答。": "Use a tool when the answer requires external facts. Answer directly after receiving the result.",
+    "查一下北京现在的时间。": "Find the current time in Beijing.",
+    "北京现在几点？": "What time is it in Beijing?",
+    "我先查询时间。": "I will check the time first.",
+    "北京": "Beijing",
+    "备忘录里写了什么？": "What does the note say?",
+    "我先读取备忘录。": "I will read the note first.",
+    "回答时间问题前先调用 get_time。": "Call get_time before answering a question about the current time.",
+    "检查当前 Context，定义并运行任务需要的 Cordis 插件，验证后停止或移除。": "Inspect the current Context, define and run the Cordis plugin needed for the task, then stop or remove it after verification.",
+    "检查当前能力并定义 word_count 插件。": "Inspect the current capabilities and define the word_count plugin.",
+    "调用刚刚定义的 word_count 工具。": "Call the newly defined word_count tool.",
+    "动态插件已经移除。": "The dynamic plugin has been removed.",
+    "先检查当前 Context。需要新能力时，定义并运行一个 Cordis 插件；验证后停止或移除。": "Inspect the current Context first. If the task needs a new capability, define and run a Cordis plugin, then stop or remove it after verification.",
+    "统计 ‘one two three’ 的单词数；完成后恢复原能力。": "Count the words in 'one two three', then restore the original capabilities.",
+    "查询一个城市的当前时间。": "Get the current time in a city.",
+    "读取一条命名备忘录。": "Read a note by name.",
+    "查看当前 Context 中的插件及其能力。": "List the plugins and capabilities in the current Context.",
+    "登记 Agent 编写的 Cordis 插件代码。": "Register Cordis plugin code written by the Agent.",
+    "运行已经定义的 Cordis 插件。": "Run a defined Cordis plugin.",
+    "停止插件并保留定义。": "Stop the plugin and retain its definition.",
+    "停止插件并删除定义。": "Stop the plugin and delete its definition.",
+    "统计一段文本中以空白分隔的单词数。": "Count whitespace-separated words in a string.",
+    "统计单词": "count words",
+    "收集已有信息": "collect existing information",
+    "补全并交付": "complete and deliver",
+    "整理三条发布说明": "prepare three release notes",
+    "已找到两项，仍缺一项。": "Two items are ready; one is still missing.",
+    "三项均已写入交付物。": "All three items have been added to the deliverable.",
+  } as Record<string, string>)[value];
+  if (exact) return exact;
+
+  return value
+    .replaceAll("目标：整理三条发布说明。", "Goal: prepare three release notes.")
+    .replaceAll("本轮：收集已有信息。", "This Round: collect existing information.")
+    .replaceAll("本轮：补全并交付。", "This Round: complete and deliver.")
+    .replaceAll("completed: 三项均已写入交付物。", "completed: all three items have been added to the deliverable.")
+    .replaceAll("round 1 · 收集已有信息", "round 1 · collect existing information")
+    .replaceAll("round 2 · 补全并交付", "round 2 · complete and deliver")
+    .replaceAll("\"city\":\"北京\"", "\"city\":\"Beijing\"")
+    .replaceAll("\"purpose\":\"统计单词\"", "\"purpose\":\"count words\"")
+    .replaceAll("备忘录 today · 会议准备记录", "Note: today · meeting preparation")
+    .replaceAll("背景材料：", "Background: ")
+    .replaceAll("项目状态、待确认问题与讨论过程。", "Project status, open questions, and discussion notes. ")
+    .replaceAll("最终结论：下午三点开会。", "Conclusion: the meeting starts at 3:00 p.m.");
 }
 
 function baseRequest(options: {

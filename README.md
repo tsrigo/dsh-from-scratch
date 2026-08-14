@@ -1,71 +1,152 @@
-# deepseek-harness-from-scratch
+# DeepSeek Harness from Scratch
 
-一个原创、可离线运行的 TypeScript / Python Agent Harness（智能体运行框架）教程与交互式网站。六章分别使用一个最小样本，讲清 Agent Loop、上下文投影、插件生命周期、只追加会话日志、动态插件实验和跨轮续行。网站顶部可以随时切换两种实现语言。
+[中文](./README.md) | [English](./README.en.md)
 
-读者无需预先了解 TypeScript、Cordis 或智能体运行框架。网站先用四张预检卡解释常见语法，再让每章同步展示正文、聚焦代码、本章变化、模型请求、过程事件和能力图。真实回放中的“运行信号台”还会把每条录制事件投影为请求、模型、工具与会话之间的责任交接。完整源码与逐行代码差异放在可展开的工程附录中。
+一个可离线运行的 TypeScript 教程，用六个逐步增加的实现解释 DeepSeek Harness 的主要运行机制。
 
-## 离线运行
+DeepSeek Harness（DSH）为语言模型执行任务提供运行环境。它组织模型输入，向模型提供工具，执行经过校验的工具调用，保存运行过程，并在一次模型回复不足以完成任务时继续推进。这个仓库把上述机制整理成一套可以阅读、运行和测试的最小实现，同时提供一个与源码同步的交互式教学网站。
+
+六章各自使用一个独立的确定性样本，只保留当前问题需要的输入和运行事件。章节之间逐步加入上下文投影、插件生命周期、会话日志、动态插件和长程任务续行。读者可以分别检查每项机制引起的源码、模型请求和运行状态变化。
+
+本项目面向机制教学，代码规模和运行边界都有意保持有限。它不提供 DeepSeek Harness 的兼容接口，也不覆盖完整产品中的权限、持久化、任务调度和多 Agent 协作能力。
+
+## 快速开始
+
+需要 Node.js 22 或更高版本。项目使用 pnpm 11，版本已经写入 `package.json`。
 
 ```sh
+git clone https://github.com/tsrigo/dsh-from-scratch.git
+cd dsh-from-scratch
 corepack enable
 pnpm install
-pnpm demo
-pnpm test
-pnpm test:python
-pnpm typecheck
-pnpm build
-pnpm tutorial:generate
-pnpm site:build
-```
-
-`pnpm demo` 使用确定性模型模拟器，在三轮内诊断重复折扣、编写并运行 `typescript_analysis` Cordis 插件、调用新增工具、移除插件、修改代码、运行测试并提交补丁。命令不会读取应用程序编程接口（Application Programming Interface，API）密钥，也不会访问网络。
-
-本地浏览教学网站：
-
-```sh
-pnpm tutorial:generate
+pnpm exec tsx scripts/generate-tutorial-data.ts
 pnpm site:dev
 ```
 
-网站读取 TypeScript 的 [`website/public/generated/tutorial.json`](website/public/generated/tutorial.json) 或 Python 的 `tutorial-python.json`。生成器会在隔离临时目录中运行六份历史教学快照，校验后续章节的模型请求可以从会话事件中重建，再提取对应源码和变化数据。Python 教程源码位于 [`python_harness/`](python_harness)，只依赖标准库，并有独立测试。
+`scripts/generate-tutorial-data.ts` 默认生成中文版 TypeScript 数据。如需同时生成英文数据，可以另外执行：
 
-正文前的主回放来自一次真实 DeepSeek 流式运行。模型增量、工具调用、工具结果和 Goal 状态已经录制为静态样本，因此浏览器端不会发起模型调用，也不需要 API 密钥。
+```sh
+TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
+```
+
+生成过程与网站浏览都不调用模型，也不需要模型服务的应用程序编程接口（Application Programming Interface，API）密钥。
+
+## 浏览教学网站
+
+网站包含以下内容：
+
+- 四张 TypeScript 阅读准备卡，解释教程使用的类型标注、`interface`、`async` / `await` 和可区分联合类型。
+- 六个彼此独立的最小机制样本，以及与当前段落对应的源码、逐章差异、模型请求、Session Event（会话事件）、执行过程和插件关系。
+- 相邻请求的稳定前缀、首次变化位置和 token（模型处理文本的计量单位）数量估算。这些数据只用于解释请求结构，实际缓存命中与计费以模型服务返回的数据为准。
+
+生成器读取 [`docs/checkpoints.json`](./docs/checkpoints.json) 中的章节配置，从教学 checkpoint（检查点）和当前 TypeScript 源码提取内容，并把中文版结果写入 [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json)。英文版使用 [`docs/checkpoints.en.json`](./docs/checkpoints.en.json)、[`docs/lessons-en/`](./docs/lessons-en/) 和 [`docs/typescript-primer.en.md`](./docs/typescript-primer.en.md)，输出为 [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json)。生成期间还会检查源码行号、代码讲解覆盖范围，以及可以从事件重建的模型请求是否与原请求一致。
 
 ## 六章内容
 
-| 章节 | 加入的机制 | 页面证据 |
-|---|---|---|
-| 第一章 · Agent Loop | 有上限的普通工具调用循环 | 轮次／步骤、JSON Schema 参数校验、两种工具呈现方式 |
-| 第二章 · 上下文与缓存复用 | 模型输入投影 | 长测试日志裁剪、相同前缀、文本量估算与首次变化位置 |
-| 第三章 · 一切皆插件 | Cordis 插件生命周期 | 插件树、服务依赖、统一注册、回滚与卸载 |
-| 第四章 · 让运行有迹可循 | 只追加会话日志 | 事件顺序、持久化、任意步骤请求重建与执行过程回放 |
-| 第五章 · 运行时自进化 | 动态 Cordis 插件 | 检查、定义、运行、实际调用与移除前后的工具变化 |
-| 第六章 · 长程任务续行 | 有界跨轮续行 | 两轮整理三条发布说明，以及完成、受阻、达到上限三类停止状态 |
+### 第一章·Agent Loop
 
-Token（文本计量单位）和可复用前缀由教程根据请求文本估算，并在页面中标记为教学估算。实际缓存命中和计费以模型服务返回的数据为准。
+> DSH 的 Agent Loop 是什么样的?
 
-## 连接 DeepSeek
+`Agent.runTurn()` 把一个 Turn（一次连续执行）分成多个 Step（一次模型请求及其工具执行）。每个 Step 都从当前状态构造请求。模型返回 Tool Call（工具调用）后，Harness 使用 JSON Schema 校验参数，执行工具，再把 Tool Result（工具结果）加入下一次请求。模型没有继续调用工具时结束 Turn，超过 `maxSteps` 时明确终止。
 
-DeepSeek 与确定性模型模拟器复用同一个智能体、运行上下文、上下文投影和会话日志：
+本章还对照程序化工具调用（Programmatic Tool Calling，PTC）怎样把多个动作组织成 TypeScript 程序。仓库只提供静态对照，不实现 Code Runtime（代码运行环境）。
 
-```sh
-DEEPSEEK_API_KEY=... DEEPSEEK_MODEL=deepseek-v4-flash \
-  pnpm dev -- --provider deepseek --workspace ./demo-workspace
+### 第二章·上下文与缓存复用
+
+> 上下文是怎样组织的，为缓存复用做了什么优化？
+
+模型请求从完整记录投影得到。长工具结果只在模型视图中保留开头、结尾和省略字符数，原始结果继续保存在会话记录中。请求把稳定的系统提示词和工具定义放在前面，按顺序追加消息，把当前 Step 的动态说明放在最后，以保留较长的相同前缀。
+
+页面比较相邻请求经过规范化后的最长相同前缀，并估算对应的 token 数量。这里没有调用或模拟模型服务的 Prompt Cache（提示词缓存）。
+
+### 第三章·一切皆插件
+
+> 如何实现“一切皆插件”？
+
+`Context` 是插件统一使用的注册入口。插件可以提供 Service（运行时服务）、注册 Tool、贡献系统 Prompt（提示词），以及添加 Event Listener（事件监听器）。每项贡献都记录来源和 effect（随插件生命周期管理的操作）。插件安装失败或主动卸载时，`Context` 按相反顺序执行 effect 中登记的清理函数。
+
+这个最小运行时保留了 Cordis 插件生命周期中与教程直接相关的部分：依赖获取、能力归属、安装回滚、幂等卸载和运行时检查。
+
+### 第四章·让运行有迹可循
+
+> DSH 怎么记录和保存 Agent 执行过程?
+
+`SessionLog` 按发生顺序追加 Turn、Step、用户消息、模型回复、工具调用、工具结果、请求头、上下文检查点、插件变化和 Goal 状态。每个事件取得连续编号，已经写入的事件不会原地修改。
+
+`buildRequest()` 从这些事件重建指定 Step 的模型输入，`replayTrace()` 从同一组事件生成执行过程。上下文检查点只替换后续模型请求看到的较早历史，原始事件仍然保留。当前最小实现把日志保存在内存中；教程生成器将它序列化为网站使用的静态 JSON 数据。
+
+### 第五章·运行时自进化
+
+> DSH 是如何持续自进化的?
+
+常驻的 Runtime Tools（运行时工具）向 Agent 提供 `cordis_inspect`、`cordis_define`、`cordis_run`、`cordis_stop` 和 `cordis_undefine`。Agent 可以检查已有能力，提交一段 Cordis 插件代码，挂载插件，调用新增工具验证结果，再停止插件或删除定义。
+
+动态插件仍然经过第三章的 `Context.mount()`，所以新增工具与 Prompt 会进入后续模型请求，卸载时也使用相同的清理路径。代码通过 Node.js 的 `node:vm` 执行环境加载；这项实现用于可信教学样本，不构成面向不可信代码的安全沙箱。
+
+### 第六章·长程任务续行
+
+> DSH 是如何持续完成长程任务的？
+
+`LongTaskRunner` 在 Agent Loop 外保存 Goal（长期目标）、当前状态、已经开始的 Round（续行轮次）和轮数上限。每个 Round 启动一个普通 Agent Turn，并沿用同一个 `Context`、工作区和 `SessionLog`。单轮返回结构化的进展、完成或受阻结果，外层据此继续下一轮，或者以 `completed`、`blocked`、`max-rounds` 结束。
+
+Goal、Round、Turn 和 Step 分别处理长期目标、跨轮续行、一次连续执行和一次模型请求。测试覆盖正常完成、没有可观察进展、显式受阻和达到轮数上限。
+
+## 实现关系
+
+```mermaid
+flowchart LR
+    Goal[LongTaskRunner<br/>Goal 与 Round] --> Agent[Agent.runTurn<br/>Turn 与 Step]
+    Session[SessionLog<br/>只追加事件] --> Request[buildRequest<br/>模型请求]
+    Context[Context<br/>插件、工具与 Prompt] --> Agent
+    Context --> Request
+    Agent --> Session
+    Agent --> Request
+    Request --> Provider[模型适配器]
+    Provider --> Agent
+    Agent --> Tool[工具执行]
+    Tool --> Agent
 ```
 
-默认服务地址为 `https://api.deepseek.com`。API 密钥只从环境变量读取；没有密钥仍可运行离线演示、测试、教程生成和网站。适配层负责把统一请求映射到流式 Chat Completions，逐段组装文字和工具参数，并关闭思考模式。`DEEPSEEK_BASE_URL` 与 `DEEPSEEK_MODEL` 可以覆盖默认值。
+主要文件的职责如下：
 
-维护者需要更新真实回放时，显式运行：
+| 文件 | 职责 |
+|---|---|
+| [`src/protocol.ts`](./src/protocol.ts) | 厂商无关的消息、请求、流式事件和工具协议 |
+| [`src/agent.ts`](./src/agent.ts) | Agent Loop、停止条件、参数校验和工具执行 |
+| [`src/context.ts`](./src/context.ts) | 工具结果投影、请求分段、token 估算和稳定前缀比较 |
+| [`src/runtime.ts`](./src/runtime.ts) | 插件挂载、Service、Tool、Prompt、事件和 effect 生命周期 |
+| [`src/session.ts`](./src/session.ts) | 只追加事件、上下文检查点、请求重建和执行过程生成 |
+| [`src/runtime-tools.ts`](./src/runtime-tools.ts) | 动态插件的检查、定义、运行、停止和删除 |
+| [`src/long-task.ts`](./src/long-task.ts) | Goal 状态、Round 推进和停止原因 |
+| [`src/llm-fake.ts`](./src/llm-fake.ts) | 可离线复现的确定性模型回复 |
+| [`src/llm-deepseek.ts`](./src/llm-deepseek.ts) | DeepSeek 流式 Chat Completions 适配器 |
+
+## 验证
 
 ```sh
-DEEPSEEK_API_KEY=... pnpm replay:record
-pnpm tutorial:generate
+pnpm test
+pnpm typecheck
+pnpm build
+pnpm site:build
 ```
 
-录制命令只有在三轮 Goal 完成、`CHECKOUT-417` 补丁被接受且临时 TypeScript 分析能力已经移除时才会原子更新 [`docs/replays/checkout-live.json`](docs/replays/checkout-live.json)。普通 `tutorial:generate` 只读取并校验这份已提交样本，不访问网络。
+测试覆盖 Agent Loop 的正常与失败路径、DeepSeek 流式数据解析、上下文裁剪和检查点、插件安装与回滚、请求重建、动态插件实验、长程任务停止条件，以及网站数据与交互辅助逻辑。
 
-## 实现范围与致谢
+## 实现边界
 
-本项目通过六个可运行样本讲解 Agent Loop、上下文投影、插件生命周期、Session Log、动态 Cordis 插件和长程任务续行。程序化工具调用（Programmatic Tool Calling，PTC）用于静态展示另一种工具呈现方式。创造模式对应运行时检查以及动态 Cordis 插件的定义、运行、调用和移除。长程任务使用同一个 Session 中的 Goal 与 Round 推进。
+当前 TypeScript 版本有意省略以下生产能力：
 
-架构行为参考 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。章节的渐进实现方式、正文与源码同步关系、静态执行轨迹参考 [pi-from-scratch](https://github.com/SaladDay/pi-from-scratch)。程序化动效的语义阶段、运动层级与可复现状态方法参考 [vibe-motion/skills](https://github.com/vibe-motion/skills)。所有源码、文案、章节组织、组件、布局、动效和过程数据均为独立创作。
+- 完整 DeepSeek Harness 的插件目录、preset 加载与配置热重载。
+- PTC 的 Code Runtime、通用 Shell、任意文件读写和网络工具。
+- 面向不可信插件代码的权限、审批、进程隔离和安全沙箱。
+- Session Log 的 JSON Lines（JSONL，每行一条 JSON 记录）或 SQLite 持久化，以及进程重启后的恢复。
+- Schedule（定时任务）、后台 Job（作业）、Subagent（子 Agent）和 Workflow（工作流）。
+- 模型服务端缓存命中的测量、计费模拟和通用上下文压缩策略。
+
+这些边界让每章的代码与它回答的问题保持直接对应。需要完整产品能力时，请阅读 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。
+
+## 参考与许可
+
+架构行为参考 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)。章节的渐进实现、正文与源码同步方式参考 [pi-from-scratch](https://github.com/SaladDay/pi-from-scratch)。程序化动效的阶段划分与可复现状态方法参考 [vibe-motion/skills](https://github.com/vibe-motion/skills)。本仓库的源码、文案、章节组织、组件、布局、动效和过程数据均为独立创作。
+
+项目使用 [MIT License](./LICENSE)。本项目为独立教学实现，与 DeepSeek 及其关联方不存在隶属、授权或合作关系。
