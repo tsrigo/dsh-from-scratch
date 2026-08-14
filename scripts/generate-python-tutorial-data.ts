@@ -25,12 +25,12 @@ const configs: PythonChapterConfig[] = [
       { title: "失败也会写入反馈", text: "未知工具、参数错误和执行异常都会转换为结果并写入 messages；达到 max_steps 时由 Harness 明确报错。", lines: [67, 79] },
     ],
     fills: [
-      { label: "类型声明与 Agent 骨架", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 6], [9, 9], [12, 13], [16, 16], [19, 24], [41, 41], [79, 79]] },
-      { label: "validate_arguments：参数校验", kind: "body", ranges: [[27, 38]] },
-      { label: "构造器：注入 LLM 与工具", kind: "body", ranges: [[42, 45]] },
-      { label: "run：组装请求并调用模型", kind: "body", ranges: [[47, 60]] },
-      { label: "停止条件：无调用即返回", kind: "body", ranges: [[61, 66]] },
-      { label: "工具执行与错误反馈", kind: "body", ranges: [[67, 79]] },
+      { label: "类型声明与 Agent 骨架", kind: "skeleton", ranges: [[1,26],[41,41],[79,80]] },
+      { label: "validate_arguments：参数校验", kind: "body", ranges: [[27,40]] },
+      { label: "构造器：注入 LLM 与工具", kind: "body", ranges: [[42,46]] },
+      { label: "run：组装请求并调用模型", kind: "body", ranges: [[47,60]] },
+      { label: "停止条件：无调用即返回", kind: "body", ranges: [[61,66]] },
+      { label: "工具执行与错误反馈", kind: "body", ranges: [[67,79]] }
     ],
   },
   {
@@ -43,11 +43,11 @@ const configs: PythonChapterConfig[] = [
       { title: "前缀比较提供教学估算", text: "字符数用于近似 token 数量；shared_prefix 按固定顺序从开头比较到首个差异，不查询 Provider 的真实缓存。", lines: [41, 51] },
     ],
     fills: [
-      { label: "四个函数签名", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 6], [9, 9], [21, 21], [41, 41], [46, 46]] },
-      { label: "project_tool_result：裁剪长结果", kind: "body", ranges: [[10, 18]] },
-      { label: "build_request：稳定前缀排序", kind: "body", ranges: [[22, 38]] },
-      { label: "approximate_tokens：字符估算", kind: "body", ranges: [[42, 43]] },
-      { label: "shared_prefix：首个差异定位", kind: "body", ranges: [[47, 51]] },
+      { label: "四个函数签名", kind: "skeleton", ranges: [[1,9],[21,21],[41,41],[46,46]] },
+      { label: "project_tool_result：裁剪长结果", kind: "body", ranges: [[10,20]] },
+      { label: "build_request：稳定前缀排序", kind: "body", ranges: [[22,40]] },
+      { label: "approximate_tokens：字符估算", kind: "body", ranges: [[42,45]] },
+      { label: "shared_prefix：首个差异定位", kind: "body", ranges: [[47,52]] }
     ],
   },
   {
@@ -60,13 +60,13 @@ const configs: PythonChapterConfig[] = [
       { title: "注册内容同时登记清理函数", text: "Tool 与 Prompt 只能在安装期间进入 Registry，并立刻绑定删除该 owner 贡献的 cleanup；inspect 再生成当前运行时视图。", lines: [67, 89] },
     ],
     fills: [
-      { label: "类型声明与 Context 骨架", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 7], [10, 10], [13, 16], [19, 22], [25, 25], [89, 89]] },
-      { label: "构造器：Registry 状态", kind: "body", ranges: [[26, 32]] },
-      { label: "effect：登记清理函数", kind: "body", ranges: [[34, 37]] },
-      { label: "mount：安装、回滚与卸载", kind: "body", ranges: [[39, 61]] },
-      { label: "_rollback：逆序撤销", kind: "body", ranges: [[63, 65]] },
-      { label: "工具与提示词注册", kind: "body", ranges: [[67, 77]] },
-      { label: "inspect 与 owner 守卫", kind: "body", ranges: [[79, 89]] },
+      { label: "类型声明与 Context 骨架", kind: "skeleton", ranges: [[1,25],[89,90]] },
+      { label: "构造器：Registry 状态", kind: "body", ranges: [[26,33]] },
+      { label: "effect：登记清理函数", kind: "body", ranges: [[34,38]] },
+      { label: "mount：安装、回滚与卸载", kind: "body", ranges: [[39,62]] },
+      { label: "_rollback：逆序撤销", kind: "body", ranges: [[63,66]] },
+      { label: "工具与提示词注册", kind: "body", ranges: [[67,78]] },
+      { label: "inspect 与 owner 守卫", kind: "body", ranges: [[79,89]] }
     ],
   },
   {
@@ -79,12 +79,12 @@ const configs: PythonChapterConfig[] = [
       { title: "Request 与 Trace 使用同一份日志", text: "消息投影读取可识别事件，trace 格式化全部 Event。两种视图均从 Session Log 生成。", lines: [56, 68] },
     ],
     fills: [
-      { label: "事件类型与 SessionLog 骨架", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 6], [9, 13], [16, 16], [68, 68]] },
-      { label: "append：递增编号写入", kind: "body", ranges: [[17, 23]] },
-      { label: "request_step_ids：重建索引", kind: "body", ranges: [[25, 26]] },
-      { label: "build_request：定位头部与摘要", kind: "body", ranges: [[28, 54]] },
-      { label: "_message_from：事件转消息", kind: "body", ranges: [[56, 65]] },
-      { label: "trace：同一份日志的时间线", kind: "body", ranges: [[67, 68]] },
+      { label: "事件类型与 SessionLog 骨架", kind: "skeleton", ranges: [[1,16],[68,69]] },
+      { label: "append：递增编号写入", kind: "body", ranges: [[17,24]] },
+      { label: "request_step_ids：重建索引", kind: "body", ranges: [[25,27]] },
+      { label: "build_request：定位头部与摘要", kind: "body", ranges: [[28,55]] },
+      { label: "_message_from：事件转消息", kind: "body", ranges: [[56,66]] },
+      { label: "trace：同一份日志的时间线", kind: "body", ranges: [[67,68]] }
     ],
   },
   {
@@ -97,13 +97,13 @@ const configs: PythonChapterConfig[] = [
       { title: "停止与删除复用卸载函数", text: "cordis_stop 执行卸载函数但保留定义，cordis_undefine 停止插件并删除定义；插件贡献随 Context 生命周期一起撤销。", lines: [73, 94] },
     ],
     fills: [
-      { label: "工具包装与 runtime_tools_plugin 骨架", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 6], [8, 8], [10, 10], [13, 22], [25, 28], [118, 118]] },
-      { label: "定义表、清理与检查工具", kind: "body", ranges: [[29, 40]] },
-      { label: "登记插件代码", kind: "body", ranges: [[42, 55]] },
-      { label: "运行动态插件", kind: "body", ranges: [[57, 71]] },
-      { label: "停止与删除插件", kind: "body", ranges: [[73, 94]] },
-      { label: "注册五个 cordis 工具", kind: "body", ranges: [[96, 116]] },
-      { label: "编译、实例化与参数读取", kind: "body", ranges: [[121, 140]] },
+      { label: "工具包装与 runtime_tools_plugin 骨架", kind: "skeleton", ranges: [[1,28],[118,120]] },
+      { label: "定义表、清理与检查工具", kind: "body", ranges: [[29,41]] },
+      { label: "登记插件代码", kind: "body", ranges: [[42,56]] },
+      { label: "运行动态插件", kind: "body", ranges: [[57,72]] },
+      { label: "停止与删除插件", kind: "body", ranges: [[73,95]] },
+      { label: "注册五个 cordis 工具", kind: "body", ranges: [[96,117]] },
+      { label: "编译、实例化与参数读取", kind: "body", ranges: [[121,141]] }
     ],
   },
   {
@@ -116,10 +116,10 @@ const configs: PythonChapterConfig[] = [
       { title: "状态决定是否续行", text: "accepted 和 blocked 会结束 Goal；状态仍为 active 的 Goal 在轮数边界标记为 limit_reached。", lines: [34, 41] },
     ],
     fills: [
-      { label: "类型声明与 run_long_task 骨架", kind: "skeleton", ranges: [[1, 1], [3, 3], [5, 6], [9, 10], [13, 19], [29, 29], [41, 41]] },
-      { label: "轮次说明常量", kind: "body", ranges: [[22, 26]] },
-      { label: "循环：推进与调用 run_round", kind: "body", ranges: [[30, 33]] },
-      { label: "状态落定：完成、受阻、上限", kind: "body", ranges: [[34, 41]] },
+      { label: "类型声明与 run_long_task 骨架", kind: "skeleton", ranges: [[1,21],[29,29],[41,42]] },
+      { label: "轮次说明常量", kind: "body", ranges: [[22,28]] },
+      { label: "循环：推进与调用 run_round", kind: "body", ranges: [[30,33]] },
+      { label: "状态落定：完成、受阻、上限", kind: "body", ranges: [[34,41]] }
     ],
   },
 ];

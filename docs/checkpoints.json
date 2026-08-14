@@ -20,11 +20,11 @@
         { "title": "失败也会写入反馈", "text": "未知工具、参数校验失败和执行异常都会转换为结构化结果。模型可以在下一步读取失败原因并调整处理方式。", "lines": [98, 113] }
       ],
       "fills": [
-        { "label": "接口声明与 Agent 结构", "kind": "skeleton", "ranges": [[1, 9], [11, 30], [32, 32], [33, 39], [115, 115]] },
-        { "label": "构造器：注入模型适配器与工具", "kind": "body", "ranges": [[41, 51]] },
-        { "label": "runTurn：组装请求并调用模型", "kind": "body", "ranges": [[53, 76]] },
-        { "label": "停止条件与工具执行", "kind": "body", "ranges": [[78, 96]] },
-        { "label": "工具执行：校验与异常包装", "kind": "body", "ranges": [[98, 114]] }
+        { "label": "接口声明与 Agent 结构", "kind": "skeleton", "ranges": [[1,40],[115,116]] },
+        { "label": "构造器：注入模型适配器与工具", "kind": "body", "ranges": [[41,52]] },
+        { "label": "runTurn：组装请求并调用模型", "kind": "body", "ranges": [[53,77]] },
+        { "label": "停止条件与工具执行", "kind": "body", "ranges": [[78,97]] },
+        { "label": "工具执行：校验与异常包装", "kind": "body", "ranges": [[98,114]] }
       ]
     },
     "changeStory": {
@@ -60,14 +60,14 @@
         { "title": "前缀比较在第一个差异处停止", "text": "两份请求先进行确定性序列化，再从开头逐项比较。页面把共享长度和首次变化位置标记为教学估算，模型服务返回的数据用于判断实际缓存命中。", "lines": [101, 137] }
       ],
       "fills": [
-        { "label": "投影、部件、比较和裁剪接口", "kind": "skeleton", "ranges": [[1, 1], [3, 7], [15, 23], [24, 31], [33, 36]] },
-        { "label": "默认投影设置", "kind": "body", "ranges": [[9, 13]] },
-        { "label": "projectMessages：只裁剪工具结果", "kind": "body", "ranges": [[38, 48]] },
-        { "label": "clipToolResult：保留头尾并省略中间内容", "kind": "body", "ranges": [[49, 68]] },
-        { "label": "describeRequest：拆分请求内容", "kind": "body", "ranges": [[70, 99]] },
-        { "label": "compareRequestPrefix：稳定前缀比较", "kind": "body", "ranges": [[101, 138]] },
-        { "label": "估算 token 与工具 Schema", "kind": "body", "ranges": [[140, 147]] },
-        { "label": "私有辅助：规范化排序比较", "kind": "body", "ranges": [[149, 173]] }
+        { "label": "投影、部件、比较和裁剪接口", "kind": "skeleton", "ranges": [[1,8],[15,37]] },
+        { "label": "默认投影设置", "kind": "body", "ranges": [[9,14]] },
+        { "label": "projectMessages：只裁剪工具结果", "kind": "body", "ranges": [[38,48]] },
+        { "label": "clipToolResult：保留头尾并省略中间内容", "kind": "body", "ranges": [[49,69]] },
+        { "label": "describeRequest：拆分请求内容", "kind": "body", "ranges": [[70,100]] },
+        { "label": "compareRequestPrefix：稳定前缀比较", "kind": "body", "ranges": [[101,139]] },
+        { "label": "估算 token 与工具 Schema", "kind": "body", "ranges": [[140,148]] },
+        { "label": "私有辅助：规范化排序比较", "kind": "body", "ranges": [[149,174]] }
       ]
     },
     "changeStory": {
@@ -103,14 +103,14 @@
         { "title": "注册内容自动记录来源", "text": "插件在 setup 期间注册服务、工具、提示词与事件监听器。每次注册时，Context 都会记录来源插件，并登记一个撤销对应贡献的清理函数。", "lines": [86, 123] }
       ],
       "fills": [
-        { "label": "三类声明与 Context 结构", "kind": "skeleton", "ranges": [[1, 1], [3, 6], [8, 11], [13, 20], [36, 36], [194, 194]] },
-        { "label": "内部类型与私有字段", "kind": "body", "ranges": [[22, 34], [37, 43]] },
-        { "label": "mount：安装、回滚与卸载", "kind": "body", "ranges": [[45, 77]] },
-        { "label": "effect、provide 与 use", "kind": "body", "ranges": [[79, 105]] },
-        { "label": "工具、提示词与监听器注册", "kind": "body", "ranges": [[107, 135]] },
-        { "label": "读取与检查：emit 到 inspect", "kind": "body", "ranges": [[137, 175]] },
-        { "label": "私有辅助：挂载守卫与回滚", "kind": "body", "ranges": [[177, 193]] },
-        { "label": "模块级工具：once 与关系比较", "kind": "body", "ranges": [[196, 214]] }
+        { "label": "三类声明与 Context 结构", "kind": "skeleton", "ranges": [[1,21],[36,36],[194,195]] },
+        { "label": "内部类型与私有字段", "kind": "body", "ranges": [[22,35],[37,44]] },
+        { "label": "mount：安装、回滚与卸载", "kind": "body", "ranges": [[45,78]] },
+        { "label": "effect、provide 与 use", "kind": "body", "ranges": [[79,106]] },
+        { "label": "工具、提示词与监听器注册", "kind": "body", "ranges": [[107,136]] },
+        { "label": "读取与检查：emit 到 inspect", "kind": "body", "ranges": [[137,176]] },
+        { "label": "私有辅助：挂载守卫与回滚", "kind": "body", "ranges": [[177,193]] },
+        { "label": "模块级工具：once 与关系比较", "kind": "body", "ranges": [[196,215]] }
       ]
     },
     "changeStory": {
@@ -146,14 +146,14 @@
         { "title": "事件投影为模型消息", "text": "工具调用先按 Step 分组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。", "lines": [155, 194] }
       ],
       "fills": [
-        { "label": "事件类型系统与 SessionLog 结构", "kind": "skeleton", "ranges": [[1, 9], [11, 14], [16, 69], [71, 75], [77, 82], [84, 84], [109, 109]] },
-        { "label": "私有状态与只读事件视图", "kind": "body", "ranges": [[85, 91]] },
-        { "label": "append、编号与检查点", "kind": "body", "ranges": [[93, 108]] },
-        { "label": "服务令牌与日志插件", "kind": "body", "ranges": [[111, 128]] },
-        { "label": "buildRequest：定位头部与摘要", "kind": "body", "ranges": [[130, 153]] },
-        { "label": "事件投影为模型消息", "kind": "body", "ranges": [[155, 186]] },
-        { "label": "统一请求组装与 Trace 工具", "kind": "body", "ranges": [[188, 211]] },
-        { "label": "私有辅助：标题、详情与插件名", "kind": "body", "ranges": [[213, 266]] }
+        { "label": "事件类型系统与 SessionLog 结构", "kind": "skeleton", "ranges": [[1,84],[109,110]] },
+        { "label": "私有状态与只读事件视图", "kind": "body", "ranges": [[85,92]] },
+        { "label": "append、编号与检查点", "kind": "body", "ranges": [[93,108]] },
+        { "label": "服务令牌与日志插件", "kind": "body", "ranges": [[111,129]] },
+        { "label": "buildRequest：定位头部与摘要", "kind": "body", "ranges": [[130,154]] },
+        { "label": "事件投影为模型消息", "kind": "body", "ranges": [[155,187]] },
+        { "label": "统一请求组装与 Trace 工具", "kind": "body", "ranges": [[188,212]] },
+        { "label": "私有辅助：标题、详情与插件名", "kind": "body", "ranges": [[213,267]] }
       ]
     },
     "changeStory": {
@@ -190,12 +190,12 @@
         { "title": "停止与删除复用卸载函数", "text": "cordis_stop 执行卸载函数但保留定义，cordis_undefine 停止插件并删除定义；插件贡献随 Context 生命周期一起撤销。", "lines": [76, 102] }
       ],
       "fills": [
-        { "label": "动态插件定义", "kind": "skeleton", "ranges": [[1, 3], [5, 11]] },
-        { "label": "定义表、清理与检查工具", "kind": "body", "ranges": [[13, 34]] },
-        { "label": "登记插件代码", "kind": "body", "ranges": [[35, 56]] },
-        { "label": "运行动态插件", "kind": "body", "ranges": [[57, 75]] },
-        { "label": "停止与删除插件", "kind": "body", "ranges": [[76, 105]] },
-        { "label": "编译、实例化与参数读取", "kind": "body", "ranges": [[107, 144]] }
+        { "label": "动态插件定义", "kind": "skeleton", "ranges": [[1,12]] },
+        { "label": "定义表、清理与检查工具", "kind": "body", "ranges": [[13,34]] },
+        { "label": "登记插件代码", "kind": "body", "ranges": [[35,56]] },
+        { "label": "运行动态插件", "kind": "body", "ranges": [[57,75]] },
+        { "label": "停止与删除插件", "kind": "body", "ranges": [[76,106]] },
+        { "label": "编译、实例化与参数读取", "kind": "body", "ranges": [[107,145]] }
       ]
     },
     "changeStory": {
@@ -231,13 +231,13 @@
         { "title": "继续必须通过进展判断", "text": "completed、blocked、无进展和 max-rounds 都是显式出口；只有取得进展且仍未完成时，状态才保持 active 并进入下一轮。", "lines": [83, 114] }
       ],
       "fills": [
-        { "label": "类型声明与 LongTaskRunner 结构", "kind": "skeleton", "ranges": [[1, 1], [3, 3], [5, 12], [14, 17], [19, 23], [25, 31], [33, 33], [115, 115]] },
-        { "label": "私有状态：轮次、会话与运行函数", "kind": "body", "ranges": [[34, 38]] },
-        { "label": "构造器：初始化目标状态", "kind": "body", "ranges": [[39, 52]] },
-        { "label": "run：写入目标创建事件", "kind": "body", "ranges": [[54, 60]] },
-        { "label": "轮次循环：推进与记录", "kind": "body", "ranges": [[62, 81]] },
-        { "label": "停止条件：完成、受阻、上限", "kind": "body", "ranges": [[83, 102]] },
-        { "label": "完成状态与事件写入", "kind": "body", "ranges": [[104, 114]] }
+        { "label": "类型声明与 LongTaskRunner 结构", "kind": "skeleton", "ranges": [[1,33],[115,116]] },
+        { "label": "私有状态：轮次、会话与运行函数", "kind": "body", "ranges": [[34,38]] },
+        { "label": "构造器：初始化目标状态", "kind": "body", "ranges": [[39,53]] },
+        { "label": "run：写入目标创建事件", "kind": "body", "ranges": [[54,61]] },
+        { "label": "轮次循环：推进与记录", "kind": "body", "ranges": [[62,82]] },
+        { "label": "停止条件：完成、受阻、上限", "kind": "body", "ranges": [[83,103]] },
+        { "label": "完成状态与事件写入", "kind": "body", "ranges": [[104,114]] }
       ]
     },
     "changeStory": {
