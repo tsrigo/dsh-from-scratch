@@ -102,6 +102,7 @@ for (const config of configs) {
     ? config.lessonPath.replace("docs/lessons/", "docs/lessons-en/")
     : config.lessonPath;
   const lesson = await readFile(resolve(root, lessonPath), "utf8");
+  verifyLessonFillAnchors(config, lesson);
   const diff = config.sourceMode === "worktree"
     ? git(
         "diff",
@@ -753,6 +754,30 @@ function verifyFills(config: CheckpointConfig, sourceLines: string[]): void {
   for (const observation of config.codeGuide.observations) {
     assertCovered(`observation ${observation.title}`, observation.lines[0], observation.lines[1]);
   }
+}
+
+/** 正文可显式安排源码出现的位置。锚点一旦存在，就要求它完整且按源码补全顺序排列，
+ * 避免正文与右侧 checkpoint 演进到两套不同顺序。 */
+function verifyLessonFillAnchors(config: CheckpointConfig, lesson: string): void {
+  const matches = [...lesson.matchAll(/<!--\s*fill\s+([\s\S]+?)\s*-->/gu)];
+  if (matches.length === 0) return;
+  const fills = config.codeGuide.fills ?? [];
+  assert(fills.length > 0, `${config.id}: lesson has fill anchors but code guide has no fills`);
+  const indexes = matches.map((match) => {
+    try {
+      const directive = JSON.parse(match[1] ?? "") as { index?: unknown };
+      assert(Number.isInteger(directive.index) && (directive.index as number) >= 0,
+        `${config.id}: lesson fill anchor needs a non-negative integer index`);
+      return directive.index as number;
+    } catch (error) {
+      throw new Error(`${config.id}: invalid lesson fill anchor (${error instanceof Error ? error.message : String(error)})`);
+    }
+  });
+  assert.deepEqual(
+    indexes,
+    fills.map((_, index) => index),
+    `${config.id}: lesson fill anchors must name every fill exactly once, in reveal order`,
+  );
 }
 
 function summarizeDiff(diff: string): {

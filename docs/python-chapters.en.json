@@ -2,94 +2,121 @@
   {
     "observations": [
       {
-        "title": "Each request captures the current state when it is built",
-        "text": "The user objective first enters messages. For each Step, the Harness then combines the fixed rules, Tool schemas, complete history, and current Step number into a model request.",
-        "lines": [47, 60]
+        "title": "Argument checks and the constructor fix the execution boundary",
+        "text": "validate_arguments covers only the JSON Schema subset used in this tutorial. The constructor keeps the model, tool table, and Step limit, so the loop does not need to rediscover those dependencies on every request.",
+        "lines": [27, 45]
       },
       {
-        "title": "Tool calls determine whether execution continues",
-        "text": "The model response first enters the history. If it contains no tool_calls, the Turn ends. If it contains calls, the Harness runs them and starts the next Step after appending the results.",
-        "lines": [61, 66]
+        "title": "One Step fixes a request and decides whether to stop",
+        "text": "run first writes the user objective, then combines system rules, Tool Schema, current history, and the Step number into a request. When the model has no tool_calls, the current Turn ends.",
+        "lines": [47, 65]
       },
       {
-        "title": "Failures also become feedback",
-        "text": "Unknown tools, invalid arguments, and execution errors all become results in messages. If the Agent reaches max_steps, the Harness raises an explicit error.",
+        "title": "Tool execution and failures both return to history",
+        "text": "Unknown tools, invalid arguments, and execution exceptions all become tool results in messages. When max_steps is reached, the Harness raises an explicit error.",
         "lines": [67, 79]
       }
     ],
     "fills": [
-      { "label": "Type declarations and Agent structure" },
-      { "label": "validate_arguments: validate arguments" },
-      { "label": "Constructor: inject the model adapter and tools" },
-      { "label": "run: assemble the request and call the model" },
-      { "label": "Stop condition: return when there are no calls" },
-      { "label": "Tool execution and error feedback" }
-    ]
+      { "label": "Model protocol, Tool structure, and Agent shape" },
+      { "label": "Argument checks and the Agent's fixed dependencies" },
+      { "label": "run: build a request, receive a reply, and decide whether to stop" },
+      { "label": "Tool execution: validation, exceptions, and feedback" }
+    ],
+    "changeStory": {
+      "title": "Establish a verifiable Python execution baseline",
+      "summary": "Python Nano DSH uses Agent.run() to advance several Steps within one Turn: the model returns a Tool Call, the runtime checks its arguments against a simplified Schema and executes the tool, then writes the result into the next request. It retains the limitation that tools, history, and records remain in memory for later chapters to address.",
+      "harnessRole": "Execution baseline: convert model actions into validated tool results",
+      "connection": "This chapter first closes the loop between model, tool, and feedback. Chapter 2 controls the request view, Chapter 3 manages installable capabilities, and Chapter 4 puts runtime facts into a common record.",
+      "outcomes": [
+        "Trace requests, Tool Calls, Tool Results, and the next Step through Agent.run()",
+        "Explain why the runtime still needs to find tools, check arguments, and wrap exceptions after the model proposes an action",
+        "Distinguish a Step, a Turn, and max_steps, and identify the runtime problems this baseline leaves open"
+      ]
+    }
   },
   {
     "observations": [
       {
         "title": "Projection preserves the original messages",
-        "text": "Short results are returned in full. Long results retain the beginning and end and report the amount omitted. This function creates the model view while preserving the original content in the Session.",
+        "text": "Short results return in full. Long results retain their beginning and end and report the amount omitted. The function builds a model view while leaving the original content available to the caller.",
         "lines": [9, 18]
       },
       {
         "title": "Content that changes less often comes first",
-        "text": "build_request places system rules and tools first, followed by the projected history. The dynamicContext that changes in each Step comes last.",
+        "text": "build_request places system rules and tools first, followed by projected history. The dynamicContext that changes in each Step comes last.",
         "lines": [21, 38]
       },
       {
         "title": "Prefix comparison provides a teaching estimate",
-        "text": "Character counts provide an approximate token count. shared_prefix compares content in a fixed order from the beginning until the first difference; it does not query the provider's actual cache.",
+        "text": "Character counts provide an approximate token count. shared_prefix compares four top-level components in a fixed order until the first difference; it does not query the provider's actual cache.",
         "lines": [41, 51]
       }
     ],
     "fills": [
-      { "label": "Four function signatures" },
-      { "label": "project_tool_result: clip long results" },
-      { "label": "build_request: order the stable prefix" },
-      { "label": "approximate_tokens: estimate from characters" },
-      { "label": "shared_prefix: locate the first difference" }
-    ]
+      { "label": "Projection and request-comparison function shapes" },
+      { "label": "project_tool_result: clip long results in the model view" },
+      { "label": "build_request: order stable content, history, and Step instructions" },
+      { "label": "Estimate text size and locate the first change" }
+    ],
+    "changeStory": {
+      "title": "Complete facts and the current request have different jobs",
+      "summary": "Python Nano DSH copies messages while building a request and clips only the model view of Tool Results. System rules and tools come first, history appends in order, and Step instructions come last; shared_prefix gives a deterministic teaching comparison of four top-level components.",
+      "harnessRole": "Input projection layer: determine what the current Step sends to the model",
+      "connection": "Chapter 1 needs a request, and this chapter defines how to create one from complete history. Chapter 3 changes the available tools; Chapter 4 provides a fuller record structure for complete facts.",
+      "outcomes": [
+        "Distinguish original messages from the projected messages sent to the model",
+        "Explain why project_tool_result() changes only the current request view",
+        "Use the order of system, tools, messages, and dynamicContext to identify the first changed component"
+      ]
+    }
   },
   {
     "observations": [
       {
-        "title": "Context records each contribution's owner and effect",
-        "text": "The runtime Registry stores Contributions. The plugin being installed determines the owner, and each plugin has its own list of cleanup functions.",
+        "title": "Context keeps owners and effects",
+        "text": "The runtime registry keeps Contributions. The plugin currently being installed determines the owner, and each plugin has its own list of cleanup functions.",
         "lines": [25, 38]
       },
       {
-        "title": "Contributions take effect after mounting and roll back after failure",
-        "text": "If setup raises an error, Context removes registered content in reverse order. After setup succeeds, mount returns an idempotent unmount function. Explicit removal uses the same cleanup functions.",
+        "title": "A successful mount takes effect; a failed one rolls back",
+        "text": "When setup raises an error, Context removes registered content in reverse order. After setup succeeds, mount returns an idempotent unmount function. Explicit removal uses the same cleanup functions.",
         "lines": [39, 65]
       },
       {
-        "title": "Registration also adds a cleanup function",
-        "text": "Tools and Prompts can enter the Registry only during installation. Each registration immediately adds a cleanup function that removes the owner's contribution. inspect then generates a view of the current runtime.",
+        "title": "Registration also records a cleanup function",
+        "text": "Tools and Prompts enter the registry only during installation. Each registration immediately adds a cleanup function that removes the owner's contribution, and inspect generates a view of the current runtime.",
         "lines": [67, 89]
       }
     ],
     "fills": [
-      { "label": "Type declarations and Context structure" },
-      { "label": "Constructor: Registry state" },
-      { "label": "effect: register cleanup functions" },
-      { "label": "mount: install, roll back, and remove" },
-      { "label": "_rollback: remove in reverse order" },
-      { "label": "Register tools and prompts" },
-      { "label": "inspect and the owner guard" }
-    ]
+      { "label": "Plugin protocol, contribution records, and Context shape" },
+      { "label": "Mount state, the effect stack, and reversible mounting" },
+      { "label": "Register Tools and Prompts while binding cleanup actions" },
+      { "label": "Inspect current capabilities and protect the installation boundary" }
+    ],
+    "changeStory": {
+      "title": "The Python version keeps capability ownership and a reversible lifecycle",
+      "summary": "Full DSH uses a Cordis plugin tree to organize models, tools, sessions, and the Agent Loop. The Python teaching version reduces that idea to owners and effects: it directly registers Tool and Prompt contributions, then cleans them in reverse order after a failed install or intentional unload. Its services and listeners containers reserve space for extension; the sample has no Service injection or dependency graph.",
+      "harnessRole": "Runtime assembly layer: maintain the source and lifecycle of current tools and prompts",
+      "connection": "Chapter 1 consumes a tool table, and Chapter 2 places it into a request. This chapter explains how capabilities enter and leave Context. Chapter 4 records runtime facts through messages and events.",
+      "outcomes": [
+        "Distinguish a Tool, an action available to the model, from a Plugin, a unit of installed capability",
+        "Trace installation, failed rollback, and unloading through Context.mount(), effect(), and the returned unmount function",
+        "Use inspect() owner records to explain where current Tools and Prompts came from"
+      ]
+    }
   },
   {
     "observations": [
       {
-        "title": "Events are appended with increasing identifiers",
-        "text": "append uses the current length to assign a stable ID. request_step_ids reads header events to identify the model Steps that can be reconstructed.",
+        "title": "Events append with increasing identifiers",
+        "text": "append uses the current length to assign a stable ID. request_step_ids reads header events to identify model Steps that can be reconstructed.",
         "lines": [16, 26]
       },
       {
         "title": "The request header defines the reconstruction range",
-        "text": "step_id first locates the target header. Content before that event forms the history for the current Step, and the latest checkpoint determines where reconstruction resumes.",
+        "text": "step_id locates the target header first. Content before that event forms the current Step's history, and the latest checkpoint determines where reconstruction resumes.",
         "lines": [28, 54]
       },
       {
@@ -99,65 +126,94 @@
       }
     ],
     "fills": [
-      { "label": "Event types and SessionLog structure" },
-      { "label": "append: write increasing identifiers" },
-      { "label": "request_step_ids: reconstruction index" },
-      { "label": "build_request: locate the header and summary" },
-      { "label": "_message_from: convert an event to a message" },
-      { "label": "trace: a timeline from the same log" }
-    ]
+      { "label": "Event structure and the basic SessionLog shape" },
+      { "label": "Append facts and index reconstructable Steps" },
+      { "label": "Rebuild the current request from a header and checkpoint" },
+      { "label": "Restore messages from events" },
+      { "label": "Generate a Trace from the same event stream" }
+    ],
+    "changeStory": {
+      "title": "The Python version derives requests and a timeline from one log",
+      "summary": "Python Nano DSH appends Events to SessionLog, then uses a request/header, checkpoints, and prior events to rebuild model messages. trace() creates a display timeline from the same sequence. The minimum version asks its caller to append events explicitly and does not automatically attach the log to the plugin runtime or persistence.",
+      "harnessRole": "Record layer: supply common input for request reconstruction and execution views",
+      "connection": "Chapter 1 produces model and tool round-trips, Chapter 2 explains the request view, and Chapter 3 manages capability lifecycles. This chapter establishes a simple sequence of recordable facts that full DSH can extend in the final chapters.",
+      "outcomes": [
+        "Explain how increasing event identifiers preserve occurrence order",
+        "Explain how request/header and context/checkpoint establish a reconstruction range",
+        "Distinguish SessionLog, the request from build_request(), and the timeline from trace()"
+      ]
+    }
   },
   {
     "observations": [
       {
         "title": "The definition table stores code and runtime state",
-        "text": "setup creates the definition table and increasing identifiers, and registers an effect that clears them during removal. cordis_inspect returns a view of the current runtime.",
+        "text": "setup creates a definition table and increasing identifiers, then registers an effect that clears them during removal. cordis_inspect returns the current runtime view.",
         "lines": [29, 40]
       },
       {
         "title": "Definition and execution are separate actions",
-        "text": "cordis_define compiles, validates, and stores the Python plugin code submitted by the Agent. cordis_run retrieves the code by plugin_id, executes it to obtain a Plugin, and mounts it through context.mount().",
+        "text": "cordis_define compiles and stores Python plugin code submitted by the Agent. cordis_run retrieves the code by plugin_id, executes it to obtain a Plugin, and mounts it through context.mount().",
         "lines": [42, 71]
       },
       {
-        "title": "Stopping and deletion use the same unmount function",
-        "text": "cordis_stop runs the unmount function but retains the definition. cordis_undefine stops the plugin and deletes its definition. Context removes the plugin's contributions as part of the same lifecycle.",
+        "title": "Stopping and deletion share the unload function",
+        "text": "cordis_stop calls the unload function while retaining the definition. cordis_undefine stops the plugin and deletes its definition. Context removes its contributions as part of the same lifecycle.",
         "lines": [73, 94]
       }
     ],
     "fills": [
-      { "label": "Tool wrapper and runtime_tools_plugin structure" },
-      { "label": "Definition table, cleanup, and inspection tool" },
-      { "label": "Register plugin code" },
-      { "label": "Run a dynamic plugin" },
-      { "label": "Stop and delete plugins" },
-      { "label": "Register the five cordis tools" },
-      { "label": "Compile, instantiate, and read arguments" }
-    ]
+      { "label": "Tool wrapper and Runtime Tools plugin shape" },
+      { "label": "Definition table, cleanup actions, and inspection interface" },
+      { "label": "Define and mount a dynamic Python plugin" },
+      { "label": "Stop, delete, register tools, and load plugin code" }
+    ],
+    "changeStory": {
+      "title": "Inspect, mount, validate, and release a capability gap",
+      "summary": "Python Nano DSH exposes cordis_inspect, cordis_define, cordis_run, cordis_stop, and cordis_undefine as ordinary tools. The caller confirms a gap, registers and mounts a Python plugin, retrieves its new tool from Context to validate the result, then stops or deletes the definition. Dynamic code loads through built-in compile() and exec() for trusted teaching samples only.",
+      "harnessRole": "Capability evolution layer: add and release runtime capability during a task",
+      "connection": "This path uses the earlier chapters: Runtime Tools expose capability changes and Context manages mounting and unloading. A caller must feed context.tools back into an Agent before later requests can see a new tool; this minimum version also does not automatically add definition and mounting events to SessionLog.",
+      "outcomes": [
+        "Describe a capability change in the order inspect, define, mount, validate, and release",
+        "Explain the difference among code being defined, a plugin being running, and a new tool being verified",
+        "Identify why dynamic code execution requires a trusted source and explicit security boundary"
+      ]
+    }
   },
   {
     "observations": [
       {
         "title": "Goal keeps cross-Round state in one place",
-        "text": "The objective, status, number of started Rounds, and Round limit are stored in one object. The phase description for each Round is defined externally in advance.",
+        "text": "The objective, status, number of started Rounds, and Round limit live in one object. Each Round's stage description is defined in advance outside the loop.",
         "lines": [13, 26]
       },
       {
-        "title": "Every Round restates the objective and current phase",
-        "text": "run_long_task continues only while the Goal is active and below its limit. Every call to run_round receives the same objective and the description of the current phase.",
+        "title": "Every Round restates the objective and current stage",
+        "text": "run_long_task continues only while the Goal is active and below its limit. Every call to run_round receives the same objective and the current stage description.",
         "lines": [29, 33]
       },
       {
         "title": "Status determines whether execution continues",
-        "text": "accepted and blocked end the Goal. A Goal that remains active at the Round boundary is marked limit_reached.",
+        "text": "accepted and blocked end the Goal. A Goal still active at the Round boundary becomes limit_reached.",
         "lines": [34, 41]
       }
     ],
     "fills": [
-      { "label": "Type declarations and run_long_task structure" },
-      { "label": "Round phase descriptions" },
-      { "label": "Loop: advance and call run_round" },
-      { "label": "Final status: accepted, blocked, or limit reached" }
-    ]
+      { "label": "Goal data, callback type, and runner shape" },
+      { "label": "Predefine each Round's task instruction" },
+      { "label": "Advance a Round and call run_round" },
+      { "label": "Finish or continue the Goal from result text" }
+    ],
+    "changeStory": {
+      "title": "The Python version uses a Goal to continue past an ordinary Turn",
+      "summary": "Python Nano DSH keeps the objective, status, and Round count in Goal. run_long_task() passes the objective and stage instruction to an external run_round for each Round, then updates status from accepted or blocked in the returned text. A Goal still active at the limit becomes limit_reached.",
+      "harnessRole": "Long-task coordination layer: let bounded Rounds advance one objective together",
+      "connection": "Each run_round can continue to call the Chapter 1 Agent and reuse state retained by an outer layer. Compared with the TypeScript version, this teaching implementation has no structured RoundResult, progress check, or automatic SessionLog events.",
+      "outcomes": [
+        "Distinguish the four control layers: Goal, Round, Turn, and Step",
+        "Explain how run_long_task() uses status and a Round count to start another attempt",
+        "Identify accepted, blocked, and limit_reached as exits, and the limitation of text matching"
+      ]
+    }
   }
 ]

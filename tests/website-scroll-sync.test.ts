@@ -3,6 +3,8 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   chapterFills,
+  chapterCodeLineCount,
+  globalCodeLineProgress,
   graphSnapshotForEvidenceStep,
   isFinalCheckpoint,
   newLineNumbers,
@@ -57,6 +59,54 @@ describe("chapterFills", () => {
   });
 });
 
+describe("globalCodeLineProgress", () => {
+  it("measures the whole tutorial in source lines, not chapter checkpoints", () => {
+    const first = tutorial.chapters[0]!;
+    const second = tutorial.chapters[1]!;
+    const last = tutorial.chapters.at(-1)!;
+    const totalLines = tutorial.chapters
+      .reduce((total, chapter) => total + chapterCodeLineCount(chapter), 0);
+
+    expect(globalCodeLineProgress(tutorial.chapters, first, null)).toMatchObject({
+      revealedLines: 0,
+      totalLines,
+      percent: 0,
+    });
+
+    let previous = 0;
+    for (let checkpoint = 0; checkpoint < chapterFills(first).length; checkpoint += 1) {
+      const progress = globalCodeLineProgress(tutorial.chapters, first, checkpoint);
+      expect(progress.revealedLines).toBeGreaterThan(previous);
+      previous = progress.revealedLines;
+    }
+
+    const nextChapter = globalCodeLineProgress(tutorial.chapters, second, null);
+    expect(nextChapter.revealedLines).toBe(chapterCodeLineCount(first));
+
+    const finalProgress = globalCodeLineProgress(
+      tutorial.chapters,
+      last,
+      chapterFills(last).length - 1,
+    );
+    expect(finalProgress).toEqual({
+      revealedLines: totalLines,
+      totalLines,
+      percent: 100,
+    });
+  });
+
+  it("uses the selected implementation language's source totals", () => {
+    const first = pythonTutorial.chapters[0]!;
+    const second = pythonTutorial.chapters[1]!;
+    const progress = globalCodeLineProgress(pythonTutorial.chapters, second, null);
+
+    expect(progress.revealedLines).toBe(chapterCodeLineCount(first));
+    expect(progress.totalLines).toBe(
+      pythonTutorial.chapters.reduce((total, chapter) => total + chapterCodeLineCount(chapter), 0),
+    );
+  });
+});
+
 describe("graphSnapshotForEvidenceStep", () => {
   it("selects the matching chapter-five lifecycle snapshot", () => {
     const chapter = tutorial.chapters[4]!;
@@ -71,6 +121,19 @@ describe("graphSnapshotForEvidenceStep", () => {
     expect(graph.prompts.map((prompt) => prompt.id)).toContain("runtime-evolution-guide");
     expect(graph.tools.map((tool) => tool.name)).toContain("cordis_define");
     expect(graph.tools.map((tool) => tool.name)).not.toContain("word_count");
+  });
+
+  it("uses the Python runtime's own dynamic-plugin snapshots", () => {
+    const chapter = pythonTutorial.chapters[4]!;
+    const baseline = graphSnapshotForEvidenceStep(chapter, 0)!;
+    const mounted = graphSnapshotForEvidenceStep(chapter, 1)!;
+    const removed = graphSnapshotForEvidenceStep(chapter, 2)!;
+
+    expect(baseline.plugins).toEqual(["runtime-tools"]);
+    expect(baseline.services).toEqual([]);
+    expect(mounted.plugins).toContain("word-count");
+    expect(mounted.tools).toContainEqual({ name: "word_count", owner: "word-count" });
+    expect(removed.tools.map((tool) => tool.name)).not.toContain("word_count");
   });
 });
 
@@ -164,14 +227,16 @@ describe("newLineNumbers", () => {
 
   it("highlights blank lines that belong to the new block, not pre-existing ones", () => {
     const m04 = tutorial.chapters[3]!;
-    const previous = snapshotForCheckpoint(m04, 6);
-    const current = snapshotForCheckpoint(m04, 7);
+    // 第四章最后一个语义单元从 Trace 派生函数开始；它包含多处源码空行。
+    const previous = snapshotForCheckpoint(m04, 3);
+    const current = snapshotForCheckpoint(m04, 4);
     const added = newLineNumbers(previous, current);
-    // 212 已在上一 checkpoint 显示（空行补齐），不属于新块，不高亮
-    expect(current.find((line) => line.number === 212)?.text).toBe("");
-    expect(added).not.toContain(212);
-    // 新块内部及尾部的空行随块高亮
-    expect(added).toContain(213);
+    // 195 位于两个源码块之间，在新的 checkpoint 首次出现。
+    expect(current.find((line) => line.number === 195)?.text).toBe("");
+    expect(added).toContain(195);
+    // 新块内部的空行也随源码片段一起高亮。
+    expect(added).toContain(203);
+    expect(added).toContain(212);
     expect(added).toContain(230);
   });
 });

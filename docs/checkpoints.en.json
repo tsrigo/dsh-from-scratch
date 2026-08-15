@@ -12,8 +12,8 @@
     "question": "What does DSH's Agent Loop look like?",
     "sourceRange": { "start": 53, "end": 113 },
     "codeGuide": {
-      "title": "How the model and runtime hand off work within a Step",
-      "description": "The code first builds a request from the current state. After the model proposes an action, the Harness validates its arguments, runs the tool, records the result, and decides whether to stop.",
+      "title": "Put model actions behind a verifiable execution boundary",
+      "description": "Start with one small baseline: a Step fixes its current input, the model proposes a tool call, and the runtime validates and executes it before passing the result to the next Step.",
       "observations": [
         { "title": "Each request captures the current state when it is built", "text": "The user message first enters the history. Each Step then copies the current messages, Tool schemas, and dynamic instructions. The model receives a fixed input, so later concurrent changes cannot alter a request that has already been built.", "lines": [53, 76] },
         { "title": "Tool calls determine whether execution continues", "text": "The model response first enters the history. If it contains no tool calls, the entire Turn ends. If it contains calls, the Harness runs them one by one, appends all results, and starts the next Step.", "lines": [73, 95] },
@@ -22,20 +22,19 @@
       "fills": [
         { "label": "Interface declarations and Agent structure", "kind": "skeleton", "ranges": [[1,40],[115,116]] },
         { "label": "Constructor: inject the model adapter and tools", "kind": "body", "ranges": [[41,52]] },
-        { "label": "runTurn: assemble the request and call the model", "kind": "body", "ranges": [[53,77]] },
-        { "label": "Stop conditions and tool execution", "kind": "body", "ranges": [[78,97]] },
+        { "label": "runTurn: request assembly, tool round-trips, and stopping", "kind": "body", "ranges": [[53,97]] },
         { "label": "Tool execution: validation and error wrapping", "kind": "body", "ranges": [[98,114]] }
       ]
     },
     "changeStory": {
-      "title": "The model chooses an action, and the Harness validates and runs it",
-      "summary": "Nano DSH starts a Turn with one user message and divides the Turn into repeatable Steps. Each Step builds a request from the current state and receives a Tool Call proposed by the model. The Harness validates and runs the call, then adds the Tool Result to the next Step. The Turn ends when the model returns final text. If execution reaches the Step limit, the Harness returns an explicit failure. This implementation shows the loop between model requests, tool execution, and result feedback in DeepSeek Harness (DSH).",
+      "title": "Establish a verifiable execution baseline",
+      "summary": "Nano DSH puts consecutive Steps inside one Turn: the model proposes a tool call, the runtime validates and executes it, and the result joins the next request. The loop closes a tool round-trip while leaving the tool catalog, history, and record in memory for later chapters to improve.",
       "harnessRole": "Execution layer: convert model output into validated operations",
-      "connection": "The first question establishes the minimum execution loop in the Harness. The next five questions explain the loop's input, capabilities, records, runtime adaptation, and coordination across Turns. Together, the six chapters form this Nano DSH.",
+      "connection": "This chapter proves that the model, tools, and feedback can form a loop. Chapter 2 controls the history each request sees, Chapter 3 makes tools and rules composable capabilities, and Chapter 4 establishes a shared record for every fact.",
       "outcomes": [
         "Trace the execution order of requests, responses, tool results, and the next Step through Agent.runTurn()",
         "Explain that the model proposes a Tool Call, while the Harness finds the tool, validates its arguments, and runs it",
-        "Distinguish among a Step, a Turn, and maxSteps, and identify where each type of stop occurs"
+        "Distinguish a Step, a Turn, and maxSteps, and identify the runtime problems this baseline still leaves open"
       ]
     }
   },
@@ -52,29 +51,25 @@
     "question": "How is context organized, and how does DSH optimize cache reuse?",
     "sourceRange": { "start": 38, "end": 137 },
     "codeGuide": {
-      "title": "Build a reusable request from complete messages",
-      "description": "The context module projects oversized tool results, orders request content by how often it changes, and then measures the continuous shared prefix of adjacent requests.",
+      "title": "Build a controllable model view from complete facts",
+      "description": "The context module retains original messages, shortens long tool results only for the current request, and orders stable content, accumulated history, and Step-specific instructions by how often they change.",
       "observations": [
         { "title": "Projection preserves the original messages", "text": "The code checks only Tool Messages. It copies short results in full. For long results, it retains the beginning and end and records the number of omitted characters. The caller still holds the unprojected messages in memory; Chapter 4 moves them into the Session Log.", "lines": [38, 67] },
         { "title": "Request content is ordered by how often it changes", "text": "System rules and tools come first, followed by historical messages in order. Dynamic instructions for the current Step come last. This order directly determines where the first change can appear.", "lines": [70, 99] },
         { "title": "Prefix comparison stops at the first difference", "text": "The code first serializes both requests deterministically, then compares them item by item from the beginning. The page labels the shared length and first change position as teaching estimates. Data returned by the model provider indicates the actual cache hit.", "lines": [101, 137] }
       ],
       "fills": [
-        { "label": "Interfaces for projection, components, comparison, and clipping", "kind": "skeleton", "ranges": [[1,8],[15,37]] },
-        { "label": "Default projection settings", "kind": "body", "ranges": [[9,14]] },
-        { "label": "projectMessages: clip only tool results", "kind": "body", "ranges": [[38,48]] },
-        { "label": "clipToolResult: retain the beginning and end, and omit the middle", "kind": "body", "ranges": [[49,69]] },
-        { "label": "describeRequest: split request content into components", "kind": "body", "ranges": [[70,100]] },
-        { "label": "compareRequestPrefix: compare stable prefixes", "kind": "body", "ranges": [[101,139]] },
-        { "label": "Estimate tokens and Tool schemas", "kind": "body", "ranges": [[140,148]] },
-        { "label": "Private helpers: normalize, sort, and compare", "kind": "body", "ranges": [[149,174]] }
+        { "label": "Projection rules, request components, and comparison results", "kind": "skeleton", "ranges": [[1,37]] },
+        { "label": "Create a model view: retain facts and clip long results", "kind": "body", "ranges": [[38,69]] },
+        { "label": "Order request components by their rate of change", "kind": "body", "ranges": [[70,100]] },
+        { "label": "Compare stable prefixes and perform supporting calculations", "kind": "body", "ranges": [[101,174]] }
       ]
     },
     "changeStory": {
-      "title": "Complete records, shorter inputs, and stable prefixes can coexist",
-      "summary": "Nano DSH keeps the original messages in Agent memory. projectMessages() creates a shorter model view for the current request. Fixed content comes first, history is appended, and dynamic instructions come last, allowing adjacent requests to share a longer stable prefix. The complete DSH builds model views from the Session Log. Under token pressure, it prunes tool results and compresses earlier history.",
+      "title": "Complete facts and model input serve different purposes",
+      "summary": "Nano DSH retains original messages and lets projectMessages() produce the model view for the current request. Long tool results are clipped, system rules and tools come first, history is appended, and Step-specific instructions come last. Full DSH derives its model view from the Session Log and continues to manage tool results and earlier history under context pressure.",
       "harnessRole": "Input layer: determine exactly what the model receives in each Step",
-      "connection": "Every Step in Chapter 1 needs a request. This chapter projects runtime state into that request. Chapter 4 supplies the complete event source. When Chapters 3 and 5 change Tools and Prompts, they also change the request prefix described here. Context management connects execution, plugins, and session records.",
+      "connection": "Chapter 1 needs a request; this chapter defines how to project it from complete facts. Chapter 3 turns tools and rules into composable capabilities, and Chapter 4 makes the complete facts enter one event source.",
       "outcomes": [
         "Distinguish among the complete record, the model projection, and the provider's final request, and explain how each relates to messages",
         "Explain why clipToolResult() changes only the model view and preserves the original Tool Result",
@@ -95,29 +90,25 @@
     "question": "How does DSH make everything a plugin?",
     "sourceRange": { "start": 45, "end": 123 },
     "codeGuide": {
-      "title": "Give every contribution an owner and a cleanup path",
-      "description": "Nano DSH uses Context to manage plugin installation and removal in one place. During setup, a plugin provides services, tools, prompts, and event listeners. Context records their source and adds their cleanup functions to the same effect stack.",
+      "title": "Give each capability a source, dependency, and exit path",
+      "description": "Nano DSH mounts plugins through Context. When a plugin provides services, tools, prompts, or listeners, Context records the owner and adds the related cleanup action to one effect stack.",
       "observations": [
         { "title": "Registered contributions are removed after setup fails", "text": "Context creates an installation record before setup and records the current plugin as the source of each contribution. If setup throws an error, Context runs the registered cleanup functions in reverse order.", "lines": [45, 60] },
         { "title": "Removal uses the same effect stack", "text": "A successful mount returns a removal function that can run only once. Removal first removes the contributions, then clears the plugin and its dependency relationships. Repeated calls do not run cleanup operations again.", "lines": [62, 83] },
         { "title": "Registered content automatically records its source", "text": "During setup, a plugin registers services, tools, prompts, and event listeners. For each registration, Context records the source plugin and registers a cleanup function that removes the corresponding contribution.", "lines": [86, 123] }
       ],
       "fills": [
-        { "label": "Three declaration types and the Context structure", "kind": "skeleton", "ranges": [[1,21],[36,36],[194,195]] },
-        { "label": "Internal types and private fields", "kind": "body", "ranges": [[22,35],[37,44]] },
-        { "label": "mount: install, roll back, and remove", "kind": "body", "ranges": [[45,78]] },
+        { "label": "Plugin contract and runtime state held by Context", "kind": "skeleton", "ranges": [[1,44],[194,215]] },
+        { "label": "mount: install, roll back, and unload", "kind": "body", "ranges": [[45,78]] },
         { "label": "effect, provide, and use", "kind": "body", "ranges": [[79,106]] },
-        { "label": "Register tools, prompts, and listeners", "kind": "body", "ranges": [[107,136]] },
-        { "label": "Read and inspect: emit through inspect", "kind": "body", "ranges": [[137,176]] },
-        { "label": "Private helpers: mount guard and rollback", "kind": "body", "ranges": [[177,193]] },
-        { "label": "Module-level utilities: once and relationship comparison", "kind": "body", "ranges": [[196,215]] }
+        { "label": "Register contributions, read state, and clean up consistently", "kind": "body", "ranges": [[107,193]] }
       ]
     },
     "changeStory": {
-      "title": "Runtime capabilities share one installation and removal process",
-      "summary": "The full DSH assembles runtime capabilities through a Cordis plugin tree. It uses Context to register services, tools, prompts, and event listeners, and uses inject to declare service dependencies. Nano DSH retains unified registration and reversible effects. If loading fails or a plugin is actively removed, Context removes the plugin's contributions through the same cleanup stack.",
+      "title": "Runtime capabilities can be composed and fully removed",
+      "summary": "Full DSH uses a Cordis plugin tree to assemble model adapters, tools, sessions, and the Agent Loop. Nano DSH retains unified registration and reversible effects: a plugin contributes services, tools, prompts, and listeners, and Context removes those contributions through the same cleanup path when installation fails or the plugin unloads.",
       "harnessRole": "Assembly layer: determine which capabilities the Agent currently has",
-      "connection": "Chapter 1 reads the current tool catalog, and Chapter 2 adds it to the model request. This chapter explains how plugins provide these tools and rules, and how their contributions leave with the plugin. Chapter 5 gives the Agent operations for inspecting, defining, running, and removing plugins.",
+      "connection": "Chapter 1 consumes the tool catalog, and Chapter 2 places tools and rules into a request. This chapter explains how plugins supply those capabilities. Chapter 4 will add plugin changes to the shared log.",
       "outcomes": [
         "Distinguish a Tool, which is an action available to the model, from a Plugin, which is a unit of installed capability",
         "Trace the success, failure, and removal paths through Context.mount(), effect(), and the disposer cleanup function",
@@ -138,27 +129,24 @@
     "question": "How does DSH record and preserve an Agent run?",
     "sourceRange": { "start": 84, "end": 194 },
     "codeGuide": {
-      "title": "Generate requests and Traces from the Session Log",
-      "description": "Nano DSH appends numbered SessionEvent records. To reconstruct a request, the code locates the complete request header for the target Step, selects the latest context checkpoint, and projects prior events into model messages.",
+      "title": "Use one event log to support requests and replay",
+      "description": "Nano DSH appends numbered SessionEvents, then uses the target Step's request header, context checkpoints, and prior events to rebuild model input and the execution trace.",
       "observations": [
         { "title": "Events are appended and never rewritten in place", "text": "append copies an event, assigns an increasing sequence number, and places it at the end. A context checkpoint also enters the log as a new event and references the existing events that it summarizes.", "lines": [84, 108] },
         { "title": "The request header defines the reconstruction range", "text": "Nano DSH uses stepId to locate the corresponding complete request/header event. Content that occurred before this event forms the history for the current Step. The latest context checkpoint determines where the model projection resumes.", "lines": [130, 153] },
         { "title": "Events are projected into model messages", "text": "Tool calls are first grouped by Step and paired with the assistant message. User messages, model messages, and tool results are restored in their original order, then the projection settings from that point in time are applied.", "lines": [155, 194] }
       ],
       "fills": [
-        { "label": "Event type system and SessionLog structure", "kind": "skeleton", "ranges": [[1,84],[109,110]] },
-        { "label": "Private state and read-only event view", "kind": "body", "ranges": [[85,92]] },
-        { "label": "append, sequence numbers, and checkpoints", "kind": "body", "ranges": [[93,108]] },
-        { "label": "Service token and log plugin", "kind": "body", "ranges": [[111,129]] },
-        { "label": "buildRequest: locate the header and summary", "kind": "body", "ranges": [[130,154]] },
-        { "label": "Project events into model messages", "kind": "body", "ranges": [[155,187]] },
-        { "label": "Unified request assembly and Trace tools", "kind": "body", "ranges": [[188,212]] },
-        { "label": "Private helpers: titles, details, and plugin names", "kind": "body", "ranges": [[213,267]] }
+        { "label": "Complete SessionEvent types and the log shape", "kind": "skeleton", "ranges": [[1,92]] },
+        { "label": "Append facts, assign identifiers, and add context checkpoints", "kind": "body", "ranges": [[93,109]] },
+        { "label": "Connect the Session Log to the runtime plugin", "kind": "body", "ranges": [[111,129]] },
+        { "label": "Use events to define a request boundary and rebuild messages", "kind": "body", "ranges": [[130,194]] },
+        { "label": "Derive a Trace from the same event stream", "kind": "body", "ranges": [[196,267]] }
       ]
     },
     "changeStory": {
-      "title": "Requests and the timeline come from the same record",
-      "summary": "The full DSH appends interaction events as SessionEvent records and uses SessionPersistence to write them in batches to JSON Lines (JSONL) files or SQLite. Nano DSH uses the same Session Log to record messages, tool exchanges, request headers, and runtime changes. buildRequest() and replayTrace() derive model requests and execution histories from these events.",
+      "title": "Model input, replay, and display share one source of facts",
+      "summary": "Full DSH appends interaction facts as SessionEvents and persists them through SessionPersistence to JSON Lines (JSONL) or SQLite. Nano DSH uses one Session Log for messages, tool round-trips, request headers, and runtime changes; buildRequest() and replayTrace() derive model input and execution history from those events.",
       "harnessRole": "Record layer: provide a shared source for request reconstruction, execution replay, and session recovery",
       "connection": "Chapter 1 produces tool exchanges, Chapter 2 defines message projection, and Chapter 3 produces runtime changes. This chapter writes all of them to one Session Log. The plugin experiments in Chapter 5 and Goal Rounds in Chapter 6 continue to append SessionEvents.",
       "outcomes": [
@@ -182,25 +170,23 @@
     "question": "How does DSH continuously evolve at runtime?",
     "sourceRange": { "start": 13, "end": 127 },
     "codeGuide": {
-      "title": "How the Agent defines, runs, and removes plugins",
-      "description": "The Runtime Tools plugin lets the Agent inspect the current Context, submit new Cordis plugin code, run a plugin, and stop or delete a plugin definition. Dynamic plugins still contribute tools and prompts through the standard Context mount and removal process.",
+      "title": "Close a capability gap through inspection, mounting, and release",
+      "description": "Runtime Tools first lets the Agent inspect the current Context, then define and run a Cordis plugin. Dynamic plugins contribute tools and prompts through the same Context mount and unload flow as ordinary plugins.",
       "observations": [
         { "title": "The definition table stores code and runtime state", "text": "Runtime Tools stores each dynamic plugin's identifier, purpose, code, and removal function. When Runtime Tools itself is removed, it stops any plugins that are still running and clears their definitions.", "lines": [13, 28] },
         { "title": "Definition and execution are separate actions", "text": "cordis_define checks and stores the JavaScript plugin code submitted by the Agent. cordis_run retrieves the code by pluginId, obtains a Plugin, and mounts it through context.mount().", "lines": [29, 75] },
         { "title": "Stopping and deletion use the same removal function", "text": "cordis_stop runs the removal function but retains the definition. cordis_undefine stops the plugin and deletes its definition. Context withdraws the plugin's contributions as part of the same lifecycle.", "lines": [76, 102] }
       ],
       "fills": [
-        { "label": "Dynamic plugin definition", "kind": "skeleton", "ranges": [[1,12]] },
-        { "label": "Definition table, cleanup, and inspection tool", "kind": "body", "ranges": [[13,34]] },
-        { "label": "Register plugin code", "kind": "body", "ranges": [[35,56]] },
-        { "label": "Run a dynamic plugin", "kind": "body", "ranges": [[57,75]] },
-        { "label": "Stop and delete plugins", "kind": "body", "ranges": [[76,106]] },
-        { "label": "Compile, instantiate, and read arguments", "kind": "body", "ranges": [[107,145]] }
+        { "label": "Dynamic plugin definitions and the Runtime Tools entry point", "kind": "skeleton", "ranges": [[1,16],[104,105]] },
+        { "label": "Store definitions, cleanup actions, and the inspection interface", "kind": "body", "ranges": [[17,34]] },
+        { "label": "Define and mount a new Cordis plugin", "kind": "body", "ranges": [[35,75]] },
+        { "label": "Stop, remove, and load plugin code", "kind": "body", "ranges": [[76,145]] }
       ]
     },
     "changeStory": {
-      "title": "The Agent can write and validate new runtime capabilities",
-      "summary": "Nano DSH exposes cordis_inspect, cordis_define, cordis_run, cordis_stop, and cordis_undefine as ordinary Tools. The Agent submits Cordis plugin code, runs the plugin, calls the newly added tool, and then stops or removes the plugin based on the result. Changes to tools and prompts take effect in subsequent model requests.",
+      "title": "Inspect first, mount next, and verify before release",
+      "summary": "Nano DSH exposes cordis_inspect, cordis_define, cordis_run, cordis_stop, and cordis_undefine as ordinary Tools. The Agent confirms a missing capability, defines and mounts a Cordis plugin, calls its new tool to validate the result, then stops or removes the definition. Tools and prompts take effect in subsequent requests.",
       "harnessRole": "Capability evolution layer: let the Agent write, run, and validate new plugins while it works",
       "connection": "This process uses the mechanisms from the first four chapters. The Agent Loop runs Cordis tools, request projection includes new Tools and Prompts, the Plugin supplies a reversible lifecycle, and the Session Log records definition, mounting, invocation, and removal. With these mechanisms, the Agent can write new capabilities needed for its current task.",
       "outcomes": [
@@ -223,26 +209,23 @@
     "question": "How does DSH keep long-running tasks moving to completion?",
     "sourceRange": { "start": 33, "end": 114 },
     "codeGuide": {
-      "title": "How LongTaskRunner manages multiple Agent Turns",
-      "description": "LongTaskRunner stores a Goal and starts Rounds in sequence. Each Round still uses the standard Agent Loop. The outer loop uses a structured result to decide whether the Goal is complete, blocked, ready to continue, or at its limit.",
+      "title": "Let a Goal decide whether work continues outside a Turn",
+      "description": "LongTaskRunner stores a Goal and starts Rounds in sequence. Each Round reuses the standard Agent Loop; the outer layer uses a structured result to decide whether work continues, completes, blocks, or reaches its limit.",
       "observations": [
         { "title": "Goal keeps cross-Turn state in one place", "text": "The constructor fixes the objective, status, Round count, and reason. When run begins, it first writes the Goal creation event to the Session Log.", "lines": [33, 60] },
         { "title": "Every Round has a number and explicit input", "text": "LongTaskRunner continues only while the Goal is active. It first checks the Round count and phase definition, then records the start of the Round, and finally calls the externally supplied runRound function. runRound executes the current Round; in this tutorial, it starts a standard Agent Turn.", "lines": [62, 82] },
         { "title": "Continuation requires observable progress", "text": "completed, blocked, no progress, and max-rounds are explicit exits. The status remains active and another Round begins only when the current Round makes progress without completing the Goal.", "lines": [83, 114] }
       ],
       "fills": [
-        { "label": "Type declarations and LongTaskRunner structure", "kind": "skeleton", "ranges": [[1,33],[115,116]] },
-        { "label": "Private state: Rounds, session, and run function", "kind": "body", "ranges": [[34,38]] },
-        { "label": "Constructor: initialize Goal state", "kind": "body", "ranges": [[39,53]] },
-        { "label": "run: write the Goal creation event", "kind": "body", "ranges": [[54,61]] },
-        { "label": "Round loop: advance and record", "kind": "body", "ranges": [[62,82]] },
-        { "label": "Stop conditions: complete, blocked, and limit reached", "kind": "body", "ranges": [[83,103]] },
-        { "label": "Completion state and event writes", "kind": "body", "ranges": [[104,114]] }
+        { "label": "Type declarations and the LongTaskRunner shape", "kind": "skeleton", "ranges": [[1,33],[115,116]] },
+        { "label": "Initialize the Goal and record its creation", "kind": "body", "ranges": [[34,61]] },
+        { "label": "Start the next Round through the ordinary Agent Loop", "kind": "body", "ranges": [[62,82]] },
+        { "label": "Finish or continue the Goal based on the result", "kind": "body", "ranges": [[83,114]] }
       ]
     },
     "changeStory": {
-      "title": "A Turn can stop before the Goal decides whether to continue",
-      "summary": "Nano DSH stores a Goal outside the Agent Loop and starts a standard Turn multiple times, one per Round. At the end of each Round, LongTaskRunner uses progressed, completed, and blockedReason to decide whether to continue, complete the Goal, mark it blocked, or stop at the limit. The full DeepSeek Harness uses a persistent Goal and Goal Round Driver to continue work in the same Session.",
+      "title": "A Goal, not an individual Turn, decides whether work continues",
+      "summary": "Nano DSH stores a Goal outside the Agent Loop and starts ordinary Turns repeatedly, once per Round. After each Round, LongTaskRunner uses progressed, completed, and blockedReason to decide whether work continues, completes, blocks, or reaches its limit. Full DeepSeek Harness uses a persistent Goal and Goal Round Driver to continue work in the same Session.",
       "harnessRole": "Coordination layer: let finite Turns advance a long-running Goal together",
       "connection": "Each Round uses the Harness assembled in the first five chapters. Chapter 1 executes Steps, Chapter 2 builds requests, Chapter 3 provides the plugin lifecycle, Chapter 4 continues the record, and Chapter 5 lets the Agent write new capabilities. Chapter 6 coordinates multiple standard Turns through a Goal and its Rounds.",
       "outcomes": [

@@ -35,10 +35,12 @@ import {
 } from "./replay-timing.js";
 import {
   chapterFills,
+  globalCodeLineProgress,
   graphSnapshotForEvidenceStep,
   newLineNumbers,
   snapshotForCheckpoint,
   snapshotForFill,
+  type CodeLineProgress,
 } from "./scroll-sync.js";
 
 const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
@@ -97,15 +99,23 @@ interface LessonEvidenceBlock {
   target: EvidenceTarget;
 }
 
+interface LessonFillBlock {
+  /** 正文作者指定的源码出现位置。index 对应 codeGuide.fills 的下标。 */
+  kind: "fill";
+  fillIndex: number;
+}
+
 interface LockedCodeView {
   chapterId: string;
   checkpoint: number | null;
 }
 
-type LessonBlock =
+type LessonTextBlock =
   | { kind: "heading"; text: string }
   | { kind: "paragraph"; text: string }
   | LessonEvidenceBlock;
+
+type LessonBlock = LessonTextBlock | LessonFillBlock;
 
 /** 返回文档顺序中最后一个越过观察线的元素，只需读取 O(log n) 个矩形。 */
 function lastElementAbove(elements: HTMLElement[], line: number): HTMLElement | null {
@@ -248,8 +258,8 @@ export function App() {
         if (last) currentAnchor = last;
       }
       // 章节由章首决定。滚回页面顶部（无章节）时清空编辑器；
-      // 进入新章节时先归零到骨架，再由章内锚点逐段推进——
-      // 避免「先显示全部、滚动后删掉重来」的跳变。
+      // 进入新章节时也先保持为空，等待正文中的第一个源码锚点。
+      // 这样代码不会抢在问题、约束和设计理由之前出现。
       if (!currentChapterId) {
         setCheckpoint(null);
         return;
@@ -257,7 +267,7 @@ export function App() {
       if (currentChapterId !== activeChapterIdRef.current) {
         activeChapterIdRef.current = currentChapterId;
         setActiveChapterId(currentChapterId);
-        setCheckpoint(0);
+        setCheckpoint(null);
         return;
       }
       if (!currentAnchor || currentAnchor.dataset.chapter !== currentChapterId) {
@@ -317,11 +327,7 @@ export function App() {
     : activeChapter;
   const codeChapter = locked ? lockedChapter : activeChapter;
   const codeCheckpoint = locked ? lockedCodeView!.checkpoint : checkpoint;
-  const codeFills = chapterFills(codeChapter);
-  // 进度含「空」起始态：锚点总数 = 骨架 + body 段
-  const progress = codeCheckpoint === null || codeFills.length === 0
-    ? 0
-    : Math.round(((codeCheckpoint + 1) / (codeFills.length + 1)) * 100);
+  const codeProgress = globalCodeLineProgress(data.chapters, codeChapter, codeCheckpoint);
 
   const navigateTo = (chapter: Chapter) => {
     lockChapterNavigation(chapter.id);
@@ -382,7 +388,7 @@ export function App() {
             ? null
             : { chapterId: activeChapter.id, checkpoint });
         }}
-        progress={progress}
+        codeProgress={codeProgress}
       />
       <main>
         <Hero data={data} locale={locale} onStart={navigateToQuestions} />
@@ -1188,19 +1194,14 @@ function LanguagePrimer({ markdown, language, locale }: { markdown: string; lang
   const sections = parsePrimer(markdown, language);
   const label = language === "python" ? "Python" : "TypeScript";
   return (
-    <details className="typescript-primer">
-      <summary className="primer-summary">
+    <section className="typescript-primer" aria-labelledby="language-primer-title">
+      <div className="primer-summary">
         <div>
           <p className="eyebrow">{locale === "en" ? "READING GUIDE · ABOUT 3 MINUTES" : "阅读补充 · 约 3 分钟"}</p>
           <h2 id="language-primer-title">{locale === "en" ? `Four ${label} basics for reading the code` : `${label} 的四个阅读基础`}</h2>
         </div>
-        <span
-          aria-hidden="true"
-          data-expand={locale === "en" ? "Show four basics" : "展开四个基础"}
-          data-collapse={locale === "en" ? "Hide guide" : "收起补充"}
-        />
-      </summary>
-      <div className="primer-body" aria-labelledby="language-primer-title">
+      </div>
+      <div className="primer-body">
         <p className="primer-intro">{sections.intro}</p>
         <div className="primer-cards">
           {sections.cards.map((card, index) => (
@@ -1213,7 +1214,7 @@ function LanguagePrimer({ markdown, language, locale }: { markdown: string; lang
           ))}
         </div>
       </div>
-    </details>
+    </section>
   );
 }
 
@@ -1225,10 +1226,10 @@ function BuildPrelude({ chapters, locale, onStart }: { chapters: Chapter[]; loca
         <h2 id="build-prelude-title">{locale === "en" ? "Six questions for understanding DeepSeek Harness" : "六个问题，理解 DeepSeek Harness"}</h2>
         <p>{locale === "en"
           ? "The Agent Loop repeats steps in response to feedback, while context projection controls each model input. Plugins manage runtime capabilities, and the Session Log preserves the execution history. After each Round, the Goal state determines whether the task continues."
-          : "Agent Loop 根据反馈重复执行步骤，上下文投影控制每次模型输入。插件管理运行时能力，会话日志保存执行过程。Goal 在每轮结束后根据目标状态决定是否继续。"}</p>
+          : "教程先建立一次工具循环，再依次处理历史增长、固定能力、过程记录、能力缺口和长程续行。DSH 的关键在于：运行时由插件树组装，模型历史由会话事件派生，Goal 在每轮结束后决定任务是否继续。"}</p>
         <div className="prelude-actions">
           <button onClick={onStart}>{locale === "en" ? "Start with the six questions" : "从六个问题开始"}</button>
-          <span>{locale === "en" ? "Each chapter explains one mechanism alongside its main source file" : "每章说明一项机制，并配合右侧主文件逐段讲解"}</span>
+          <span>{locale === "en" ? "Each chapter explains one mechanism alongside its main source file" : "每章先说明前一版遗留的问题，再解释设计和对应实现"}</span>
         </div>
       </div>
       <div className="scaffold-tree">
@@ -1258,7 +1259,7 @@ function Header({
   onNavigate,
   locked,
   onToggleLock,
-  progress,
+  codeProgress,
 }: {
   data: TutorialData;
   activeId: string;
@@ -1269,7 +1270,7 @@ function Header({
   onNavigate: (chapter: Chapter) => void;
   locked: boolean;
   onToggleLock: () => void;
-  progress: number;
+  codeProgress: CodeLineProgress;
 }) {
   const chapterNavRef = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -1298,34 +1299,47 @@ function Header({
         <span className="wordmark-copy">DeepSeek Harness from Scratch</span>
       </button>
       <nav ref={chapterNavRef} className="chapter-nav" aria-label={locale === "en" ? "Chapter navigation" : "章节导航"}>
-        {data.chapters.map((chapter) => (
-          <button
-            key={chapter.id}
-            className={activeId === chapter.id ? "active" : ""}
-            onClick={() => onNavigate(chapter)}
-            aria-label={fixedChapterTitle(chapter, locale)}
-            aria-current={activeId === chapter.id ? "step" : undefined}
-          >
-            <span className="chapter-number">{chapterName(chapter.number, locale)}·</span>
-            <strong>{chapterNavTitle(chapter, locale)}</strong>
-          </button>
-        ))}
+        {data.chapters.map((chapter) => {
+          const core = isCoreChapter(chapter);
+          const title = fixedChapterTitle(chapter, locale);
+          return (
+            <button
+              key={chapter.id}
+              className={[activeId === chapter.id && "active", core && "core"].filter(Boolean).join(" ")}
+              onClick={() => onNavigate(chapter)}
+              aria-label={core ? `${title}，${locale === "en" ? "core mechanism" : "核心机制"}` : title}
+              aria-current={activeId === chapter.id ? "step" : undefined}
+              title={core ? locale === "en" ? "Core mechanism" : "核心机制" : title}
+            >
+              <span className="chapter-number">
+                {chapterName(chapter.number, locale)}
+                {core && <span className="chapter-core-mark">{locale === "en" ? "CORE" : "核心"}</span>}
+              </span>
+              <strong>{chapterNavTitle(chapter, locale)}</strong>
+            </button>
+          );
+        })}
       </nav>
       <div className="header-actions">
         <div className="progress-help">
           <div
             className="progress-track"
             role="progressbar"
-            aria-valuenow={progress}
+            aria-valuenow={codeProgress.revealedLines}
             aria-valuemin={0}
-            aria-valuemax={100}
+            aria-valuemax={codeProgress.totalLines}
+            aria-valuetext={locale === "en"
+              ? `${codeProgress.revealedLines} of ${codeProgress.totalLines} source lines revealed`
+              : `已展示 ${codeProgress.revealedLines} / ${codeProgress.totalLines} 行源码`}
             aria-describedby="code-progress-help"
           >
-            <div className="progress-bar" style={{ width: `${progress}%` }} />
+            <div className="progress-bar" style={{ width: `${codeProgress.percent}%` }} />
           </div>
           <span id="code-progress-help" className="header-tooltip" role="tooltip">
-            <b>{locale === "en" ? "Code reveal progress" : "代码补全进度"}</b>
-            <span>{locale === "en" ? "Progress follows your reading position. Lock it to keep the current file and stage." : "进度根据阅读位置更新；锁定后保留当前文件和进度。"}</span>
+            <b>{locale === "en" ? "All tutorial source" : "全书源码进度"}</b>
+            <span>{locale === "en"
+              ? `${codeProgress.revealedLines} of ${codeProgress.totalLines} source lines are visible. The value advances when the next code block appears.`
+              : `已展示 ${codeProgress.revealedLines} / ${codeProgress.totalLines} 行源码；下一段代码出现时会同步更新。`}</span>
           </span>
         </div>
         <button
@@ -1428,14 +1442,11 @@ function Hero({ data, locale, onStart }: { data: TutorialData; locale: UiLocale;
   );
 }
 
-type LessonFlowItem =
-  | LessonBlock
-  | { kind: "fill"; fillIndex: number };
+type LessonFlowItem = LessonBlock;
 
-/** 正文流 = 骨架卡（第一个锚点，checkpoint 0）+ 章节导语 + body 填充卡（1..n）。
- * 第一张 body 卡放在首个小节标题之前，让导语始终对应右侧骨架；其余卡片按比例交错插入。
- * 卡片是滚动联动的锚点（data-chapter + data-fill-cp）。 */
-function interleaveFillCards(blocks: LessonBlock[], chapter: Chapter): LessonFlowItem[] {
+/** 没有源码锚点的外部旧正文仍保留均匀穿插作为兼容回退。
+ * 本教程四个语言版本均通过 <!-- fill {"index": n} --> 把源码放在论述真正需要它的位置。 */
+function interleaveFillCards(blocks: LessonTextBlock[], chapter: Chapter): LessonFlowItem[] {
   const fills = chapterFills(chapter);
   const bodyCount = Math.max(fills.length - 1, 0);
   const result: LessonFlowItem[] = [{ kind: "fill", fillIndex: 0 }];
@@ -1461,6 +1472,16 @@ function interleaveFillCards(blocks: LessonBlock[], chapter: Chapter): LessonFlo
     }
   });
   return result;
+}
+
+function buildLessonFlow(blocks: LessonBlock[], chapter: Chapter): LessonFlowItem[] {
+  // 只要正文显式安排过源码位置，就完全服从正文顺序。这样每个 checkpoint
+  // 都紧跟解释它为何出现的段落，而不再由段落数量决定。
+  if (blocks.some((block) => block.kind === "fill")) return blocks;
+  return interleaveFillCards(
+    blocks.filter((block): block is LessonTextBlock => block.kind !== "fill"),
+    chapter,
+  );
 }
 
 const ChapterArticle = memo(function ChapterArticle({
@@ -1512,7 +1533,7 @@ const ChapterContent = memo(function ChapterContent({
   locale: UiLocale;
 }) {
   const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
-  const flow = useMemo(() => interleaveFillCards(lesson, chapter), [lesson, chapter]);
+  const flow = useMemo(() => buildLessonFlow(lesson, chapter), [lesson, chapter]);
   const fills = chapterFills(chapter);
   return (
     <div className="chapter-content">
@@ -1527,7 +1548,7 @@ const ChapterContent = memo(function ChapterContent({
           <h2>{chapter.title}</h2>
           <p className="chapter-question">{chapter.question}</p>
           <div className="reading-order" aria-label={locale === "en" ? "How the article controls the code view" : "正文与代码的联动顺序"}>
-            <span><b>→</b>{locale === "en" ? "Scroll through the article to reveal the structure, then each implementation section" : "滚动正文，右侧代码逐段显示：先显示结构，再显示实现"}</span>
+            <span><b>→</b>{locale === "en" ? "Scroll through the article to reveal the structure, then each implementation section" : "先阅读问题和设计，再滚动正文查看每段实现"}</span>
           </div>
         </div>
         <CodeGuideCard chapter={chapter} locale={locale} />
@@ -1571,8 +1592,8 @@ function CodeGuideCard({ chapter, locale }: { chapter: Chapter; locale: UiLocale
   );
 }
 
-/** 正文中的填充卡片：滚动锚点 + 该实现段的教学解释（取首个重叠观察点的 text）。
- * fillIndex 0 是骨架卡：进入章节后第一个锚点，激活时右侧呈现类/函数抽象。 */
+/** 正文中的源码锚点：放在课文指定的位置，并驱动右侧的渐进源码视图。
+ * fillIndex 0 是结构卡；其余卡片对应一个能独立说明的实现单元。 */
 function FillCard({
   chapter,
   fillIndex,
@@ -1592,7 +1613,7 @@ function FillCard({
     ? chapter.codeGuide.observations.find(
         (item) =>
           fill.ranges.some(
-            ([start, end]) => item.lines[0] >= start && item.lines[0] <= end,
+            ([start, end]) => item.lines[0] <= end && item.lines[1] >= start,
           ),
       )
     : undefined;
@@ -1603,7 +1624,7 @@ function FillCard({
       data-fill-cp={fillIndex}
     >
       <div className="fill-card-heading">
-        <span className="fill-card-index">{fillIndex === 0 ? locale === "en" ? "STRUCTURE" : "结构" : locale === "en" ? `CODE ${fillIndex}` : `代码 ${fillIndex}`}</span>
+        <span className="fill-card-index">{fill.kind === "skeleton" ? locale === "en" ? "SOURCE SHAPE" : "源码结构" : locale === "en" ? "IN THE SOURCE" : "对应源码"}</span>
         <h4>{fill.label}</h4>
       </div>
       {observation && <p>{observation.text}</p>}
@@ -1743,7 +1764,7 @@ function smoothScrollTo(
 
 /** 代码区：随正文 checkpoint 渐进补全（nano-dsh CodePanel 同款）。
  * 文件 tab 由章节决定（该章为止已出现的六个主文件，进入章节即全部显示）；
- * 内容由 checkpoint 驱动：null 为空编辑器（「尚未讲到这个文件」），
+ * 内容由 checkpoint 驱动：null 时等待正文引入源码，
  * 骨架为类/函数抽象，随后实现段逐段补入；checkpoint 变化时 tab 重置回主文件。 */
 function CodeDock({
   chapter,
@@ -1876,7 +1897,7 @@ function CodeDock({
               language={language}
             />
           ) : (
-            <div className="editor-empty">{locale === "en" ? "(This file has not been introduced yet)" : "（尚未讲到这个文件）"}</div>
+            <div className="editor-empty">{locale === "en" ? "(The article will introduce this source when it becomes relevant.)" : "（正文将在需要它时引入这段源码。）"}</div>
           )
         ) : (
           <CodeBlock
@@ -1930,7 +1951,9 @@ function CodeOutline({ fills, checkpoint, language, locale }: {
 }
 
 function fillStageLabel(index: number, locale: UiLocale): string {
-  return index === 0 ? locale === "en" ? "STRUCTURE" : "结构" : locale === "en" ? `CODE ${index}` : `代码 ${index}`;
+  return index === 0
+    ? locale === "en" ? "SOURCE SHAPE" : "源码结构"
+    : locale === "en" ? "IMPLEMENTATION" : "实现";
 }
 
 /** 请求对比卡（压缩版）：相邻请求的 token 估算与首次失效位置 */
@@ -2421,6 +2444,19 @@ function parseLesson(markdown: string): LessonBlock[] {
       if (block.startsWith("## ")) {
         return [{ kind: "heading", text: block.replace(/^##\s+/u, "").replace(/\n/gu, " ") }];
       }
+      const fill = /^<!--\s*fill\s+([\s\S]+?)\s*-->$/u.exec(block)?.[1];
+      if (fill) {
+        try {
+          const directive = JSON.parse(fill) as { index?: unknown };
+          if (!Number.isInteger(directive.index) || (directive.index as number) < 0) {
+            throw new Error("missing non-negative fill index");
+          }
+          return [{ kind: "fill", fillIndex: directive.index as number }];
+        } catch (error) {
+          console.warn("Ignored invalid lesson fill directive", error);
+          return [];
+        }
+      }
       const evidence = /^<!--\s*evidence\s+([\s\S]+?)\s*-->$/u.exec(block)?.[1];
       if (!evidence) return [{ kind: "paragraph", text: block.replace(/\n/gu, " ") }];
       try {
@@ -2512,9 +2548,11 @@ function parsePrimer(markdown: string, language: TutorialLanguage): {
 }
 
 function renderInlineCode(text: string) {
-  return text.split(/(`[^`]+`)/gu).map((part, index) =>
-    part.startsWith("`") ? <code key={index}>{part.slice(1, -1)}</code> : part,
-  );
+  return text.split(/(`[^`]+`|\*\*[^*]+\*\*)/gu).map((part, index) => {
+    if (part.startsWith("`")) return <code key={index}>{part.slice(1, -1)}</code>;
+    if (part.startsWith("**")) return <strong className="inline-emphasis" key={index}>{part.slice(2, -2)}</strong>;
+    return part;
+  });
 }
 
 function formatLineRange(range: [number, number]): string {
@@ -2585,6 +2623,12 @@ function fixedChapterTitle(chapter: Chapter, locale: UiLocale): string {
   return locale === "en"
     ? `${chapterName(chapter.number, locale)} · ${chapter.shortTitle}`
     : `${chapterName(chapter.number, locale)}·${chapter.shortTitle}`;
+}
+
+/** 插件运行时与会话事件是 DSH 的两条结构主线：前者决定能力怎样组成，
+ * 后者让请求、回放和恢复共享同一份事实。 */
+function isCoreChapter(chapter: Pick<Chapter, "number">): boolean {
+  return chapter.number === "03" || chapter.number === "04";
 }
 
 function chapterNumeral(number: string): string {

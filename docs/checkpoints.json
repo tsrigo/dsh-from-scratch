@@ -12,30 +12,29 @@
     "question": "DSH 的 Agent Loop 是什么样的?",
     "sourceRange": { "start": 53, "end": 113 },
     "codeGuide": {
-      "title": "一个 Step 中模型与运行时如何交接",
-      "description": "代码先根据当前状态生成请求。模型提出动作后，Harness 负责校验参数、执行工具、记录结果并判断是否停止。",
+      "title": "让模型动作进入可验证的执行边界",
+      "description": "先建立一条最小基线：Step 固定当前输入，模型提出工具调用，运行时验证并执行，再把结果交给下一步。",
       "observations": [
-        { "title": "请求包含构建时的当前状态", "text": "用户消息先进入历史；每个 Step 再复制当前消息、工具 Schema 与动态说明。模型收到确定的输入，后续并发修改不会改变已经构建的请求。", "lines": [53, 76] },
-        { "title": "工具调用决定是否继续", "text": "模型回复先写入历史。回复没有工具调用时结束整个 Turn；存在调用时逐个执行，全部结果追加后再进入下一个 Step。", "lines": [73, 95] },
-        { "title": "失败也会写入反馈", "text": "未知工具、参数校验失败和执行异常都会转换为结构化结果。模型可以在下一步读取失败原因并调整处理方式。", "lines": [98, 113] }
+        { "title": "请求先固定当前输入", "text": "每个 Step 在开始时复制消息、工具规则和本步说明。模型收到的是一份确定的输入，后续状态变化不会改写已经发出的请求。", "lines": [53, 76] },
+        { "title": "工具结果决定是否进入下一步", "text": "模型回复先进入历史。存在工具调用时，运行时逐个执行并追加结果；没有工具调用时，当前 Turn 结束。", "lines": [73, 95] },
+        { "title": "所有失败走回反馈通道", "text": "未知工具、参数校验失败和执行异常都会转换为结构化结果。下一次请求可以读取原因，并据此修正后续动作。", "lines": [98, 113] }
       ],
       "fills": [
         { "label": "接口声明与 Agent 结构", "kind": "skeleton", "ranges": [[1,40],[115,116]] },
-        { "label": "构造器：注入模型适配器与工具", "kind": "body", "ranges": [[41,52]] },
-        { "label": "runTurn：组装请求并调用模型", "kind": "body", "ranges": [[53,77]] },
-        { "label": "停止条件与工具执行", "kind": "body", "ranges": [[78,97]] },
+        { "label": "构造 Agent 的固定执行边界", "kind": "body", "ranges": [[41,52]] },
+        { "label": "runTurn：请求、工具往返与停止", "kind": "body", "ranges": [[53,97]] },
         { "label": "工具执行：校验与异常包装", "kind": "body", "ranges": [[98,114]] }
       ]
     },
     "changeStory": {
-      "title": "模型选择动作，Harness 校验并执行",
-      "summary": "Nano DSH 用一条用户消息启动 Turn，并把 Turn 分成可重复的 Step。每个 Step 根据当前状态构造请求，接收模型提出的 Tool Call（工具调用），由 Harness 校验并执行，再把 Tool Result（工具结果）加入下一步。模型返回最终文字时结束 Turn；达到 Step 数量上限时明确返回失败。这段实现集中展示 DSH 中模型请求、工具执行和结果反馈的循环关系。",
-      "harnessRole": "执行层：把模型输出转换为经过校验的操作",
-      "connection": "第一问确定 Harness 的最小执行循环。后五问分别说明循环的输入、能力、记录、运行时适配和跨轮协调。六章共同组成这份 Nano DSH。",
+      "title": "先建立可验证的执行基线",
+      "summary": "Nano DSH 用一个 Turn 包住连续的 Step：模型提出工具调用，运行时校验并执行，再把结果加入下一次请求。这个最小闭环能完成工具往返，同时保留了工具、历史和记录仍然固定在内存中的限制。",
+      "harnessRole": "执行基线：把模型动作转换为经过校验的结果",
+      "connection": "第一章先证明模型、工具和反馈能够闭环。第二章控制每次请求看到的历史，第三章让工具和规则成为可组装能力，第四章为所有事实建立共同记录。",
       "outcomes": [
-        "能沿 Agent.runTurn() 说明请求、回复、工具结果和下一步的执行顺序",
-        "能解释模型提出 Tool Call，Harness 负责工具查找、参数校验和执行",
-        "能区分 Step、Turn 与 maxSteps，并指出每一种停止发生在哪里"
+        "能沿 Agent.runTurn() 说明请求、工具调用、工具结果和下一步的执行顺序",
+        "能解释模型提出动作后，运行时为何需要负责工具查找、参数校验和异常包装",
+        "能区分 Step、Turn 与 maxSteps，并指出这条基线尚未解决的运行时问题"
       ]
     }
   },
@@ -52,33 +51,29 @@
     "question": "上下文是怎样组织的，为缓存复用做了什么优化？",
     "sourceRange": { "start": 38, "end": 137 },
     "codeGuide": {
-      "title": "从完整消息生成可复用的请求",
-      "description": "上下文模块依次投影过长的工具结果，按变化频率排列请求内容，再计算相邻请求开头连续相同的部分。",
+      "title": "从完整事实生成一次可控的模型视图",
+      "description": "上下文模块保留原始消息，为当前请求裁剪过长的工具结果，再把稳定内容、累积历史和本步说明按变化频率排列。",
       "observations": [
-        { "title": "投影保留原始消息", "text": "代码只检查 Tool Message（工具消息）。短结果完整复制，长结果保留头尾并记录省略字符数。调用者仍持有未投影的内存消息，第四章再将它们迁入 Session Log。", "lines": [38, 67] },
-        { "title": "按变化频率组织请求", "text": "系统规则和工具放在前面，历史消息按顺序追加，本步动态说明最后加入。这个顺序直接决定变化最早会出现在哪里。", "lines": [70, 99] },
-        { "title": "前缀比较在第一个差异处停止", "text": "两份请求先进行确定性序列化，再从开头逐项比较。页面把共享长度和首次变化位置标记为教学估算，模型服务返回的数据用于判断实际缓存命中。", "lines": [101, 137] }
+        { "title": "投影不改写原始结果", "text": "代码只裁剪模型视图中的长工具结果，保留头尾和省略长度。原始消息继续存在，第四章会把它们放进 Session Log。", "lines": [38, 67] },
+        { "title": "请求顺序表达变化频率", "text": "系统规则和工具放在前面，历史按顺序追加，本步说明最后加入。新增内容因此尽量靠近请求末尾。", "lines": [70, 99] },
+        { "title": "前缀比较只说明结构", "text": "两份请求进行确定性序列化后从开头比较。页面展示共享长度和首次变化位置，实际缓存命中仍以模型服务返回的数据为准。", "lines": [101, 137] }
       ],
       "fills": [
-        { "label": "投影、部件、比较和裁剪接口", "kind": "skeleton", "ranges": [[1,8],[15,37]] },
-        { "label": "默认投影设置", "kind": "body", "ranges": [[9,14]] },
-        { "label": "projectMessages：只裁剪工具结果", "kind": "body", "ranges": [[38,48]] },
-        { "label": "clipToolResult：保留头尾并省略中间内容", "kind": "body", "ranges": [[49,69]] },
-        { "label": "describeRequest：拆分请求内容", "kind": "body", "ranges": [[70,100]] },
-        { "label": "compareRequestPrefix：稳定前缀比较", "kind": "body", "ranges": [[101,139]] },
-        { "label": "估算 token 与工具 Schema", "kind": "body", "ranges": [[140,148]] },
-        { "label": "私有辅助：规范化排序比较", "kind": "body", "ranges": [[149,174]] }
+        { "label": "投影规则、请求部件与比较结果", "kind": "skeleton", "ranges": [[1,37]] },
+        { "label": "生成模型视图：保留事实，裁剪长结果", "kind": "body", "ranges": [[38,69]] },
+        { "label": "按变化频率组织请求部件", "kind": "body", "ranges": [[70,100]] },
+        { "label": "比较稳定前缀并完成辅助计算", "kind": "body", "ranges": [[101,174]] }
       ]
     },
     "changeStory": {
-      "title": "完整记录、较短输入与稳定前缀可以同时成立",
-      "summary": "Nano DSH 把原始消息保存在 Agent 内存中，由 projectMessages() 为当前请求生成较短的模型视图。固定内容前置、历史追加和动态说明后置，使相邻请求能够共享更长的稳定前缀。完整 DSH 从 Session Log 生成模型视图，并在 token 压力下剪枝工具结果和压缩较早历史。",
-      "harnessRole": "输入层：决定每个 Step 交给模型的具体内容",
-      "connection": "第一章的每个 Step 都需要一份请求，本章负责把运行状态投影成该请求。第四章提供完整事件来源；第三、五章改变 Tool 与 Prompt 时，也会改变这里的请求前缀。上下文管理连接执行、插件与会话记录。",
+      "title": "完整事实和模型输入各有用途",
+      "summary": "Nano DSH 保留原始消息，再由 projectMessages() 生成当前请求的模型视图。工具长结果先裁剪，系统规则和工具前置，历史追加，本步说明后置。完整 DSH 从 Session Log 派生模型视图，并在上下文压力下继续处理工具结果和较早历史。",
+      "harnessRole": "输入投影层：决定当前 Step 交给模型的内容",
+      "connection": "第一章需要一份请求，本章定义请求怎样从完整事实投影而来。第三章会让工具和规则变成可组装能力，第四章会让完整事实进入唯一的事件来源。",
       "outcomes": [
-        "能区分完整记录、模型投影与 Provider 最终请求，并说明三者与 messages 的关系",
-        "能解释 clipToolResult() 只修改模型视图并保留原始 Tool Result 的原因",
-        "能从 system、tools、history、dynamicContext 的顺序判断缓存从哪里失效"
+        "能区分完整记录、模型视图和模型服务最终请求的职责",
+        "能解释 clipToolResult() 只修改模型视图的原因",
+        "能从 system、tools、history、dynamicContext 的顺序判断变化从哪里开始影响前缀"
       ]
     }
   },
@@ -95,33 +90,29 @@
     "question": "如何实现“一切皆插件”？",
     "sourceRange": { "start": 45, "end": 123 },
     "codeGuide": {
-      "title": "每项贡献怎样获得归属和撤销路径",
-      "description": "Nano DSH 用 Context 统一管理插件的安装与卸载。插件在 setup 期间提供服务、工具、提示词与事件监听器，Context 记录来源并把清理函数加入同一个 effect 栈。",
+      "title": "让能力拥有来源、依赖和退出路径",
+      "description": "Nano DSH 用 Context 安装插件。插件提供服务、工具、提示词和监听器时，Context 记录来源，并将相应清理函数加入同一条 effect 栈。",
       "observations": [
-        { "title": "setup 失败后撤销已登记内容", "text": "Context 在 setup 前建立安装记录，并把当前插件记为各项贡献的来源。setup 抛错时，Context 会逆序执行已经登记的清理函数。", "lines": [45, 60] },
-        { "title": "卸载复用同一条 effect 栈", "text": "成功挂载会返回一个只生效一次的卸载函数。卸载先撤销贡献，再清除插件和依赖关系；重复调用不会重复执行清理操作。", "lines": [62, 83] },
-        { "title": "注册内容自动记录来源", "text": "插件在 setup 期间注册服务、工具、提示词与事件监听器。每次注册时，Context 都会记录来源插件，并登记一个撤销对应贡献的清理函数。", "lines": [86, 123] }
+        { "title": "安装前先建立归属", "text": "Context 在 setup 前创建安装记录，并把当前插件设为各项贡献的来源。setup 抛错时，已登记的清理函数会逆序执行。", "lines": [45, 60] },
+        { "title": "退出复用安装时的清理路径", "text": "成功挂载返回只生效一次的卸载函数。它先撤销贡献，再清除插件和依赖关系，重复调用不会重复执行清理。", "lines": [62, 83] },
+        { "title": "每次注册同时登记撤销动作", "text": "插件注册服务、工具、提示词或监听器时，Context 同时记录来源插件和对应的清理函数。", "lines": [86, 123] }
       ],
       "fills": [
-        { "label": "三类声明与 Context 结构", "kind": "skeleton", "ranges": [[1,21],[36,36],[194,195]] },
-        { "label": "内部类型与私有字段", "kind": "body", "ranges": [[22,35],[37,44]] },
+        { "label": "插件契约与 Context 持有的运行时状态", "kind": "skeleton", "ranges": [[1,44],[194,215]] },
         { "label": "mount：安装、回滚与卸载", "kind": "body", "ranges": [[45,78]] },
         { "label": "effect、provide 与 use", "kind": "body", "ranges": [[79,106]] },
-        { "label": "工具、提示词与监听器注册", "kind": "body", "ranges": [[107,136]] },
-        { "label": "读取与检查：emit 到 inspect", "kind": "body", "ranges": [[137,176]] },
-        { "label": "私有辅助：挂载守卫与回滚", "kind": "body", "ranges": [[177,193]] },
-        { "label": "模块级工具：once 与关系比较", "kind": "body", "ranges": [[196,215]] }
+        { "label": "登记贡献、读取状态与统一清理", "kind": "body", "ranges": [[107,193]] }
       ]
     },
     "changeStory": {
-      "title": "运行时能力使用统一的安装与卸载流程",
-      "summary": "完整 DSH 通过 Cordis 插件树组装运行能力，使用 Context 注册服务、工具、提示词与事件监听器，并用 inject 声明服务依赖。Nano DSH 保留统一注册和可逆 effect：加载失败或主动卸载时，Context 沿同一个清理栈撤销插件贡献。",
-      "harnessRole": "组装层：决定 Agent 此刻拥有哪些能力",
-      "connection": "第一章读取当前工具目录，第二章把它加入模型请求；本章说明这些工具和规则怎样由插件提供并随插件卸载。第五章再把检查、定义、运行和移除插件的操作提供给 Agent。",
+      "title": "运行时能力可以组装，也可以完整退出",
+      "summary": "完整 DSH 用 Cordis 插件树组装模型适配器、工具、会话和 Agent Loop。Nano DSH 保留统一注册和可逆 effect：插件贡献服务、工具、提示词和监听器，安装失败或主动卸载时，Context 沿同一条清理路径撤销这些贡献。",
+      "harnessRole": "运行时组装层：决定当前 Agent 拥有哪些能力",
+      "connection": "第一章消费工具列表，第二章把工具和规则放进请求，本章说明这些能力怎样由插件提供。第四章再把插件变化与工具往返写入共同日志。",
       "outcomes": [
         "能区分 Tool 这个模型动作与 Plugin 这个能力安装单元",
-        "能沿 Context.mount()、effect() 与 disposer（资源释放函数）说明成功、失败和卸载三条路径",
-        "能根据 inspect() 返回的来源记录和服务关系说明当前能力由哪些插件提供"
+        "能沿 Context.mount()、effect() 与 disposer（资源释放函数）说明安装、失败回滚和卸载",
+        "能根据 inspect() 返回的来源记录和服务关系说明当前能力从哪里来"
       ]
     }
   },
@@ -138,33 +129,30 @@
     "question": "DSH 怎么记录和保存 Agent 执行过程?",
     "sourceRange": { "start": 84, "end": 194 },
     "codeGuide": {
-      "title": "Session Log 怎样同时生成请求与 Trace",
-      "description": "Nano DSH 按编号追加 SessionEvent。重建请求时，代码定位目标 Step 的完整请求头、选择最近的上下文检查点，并把此前事件投影为模型消息。",
+      "title": "一条事件日志怎样支撑请求和回放",
+      "description": "Nano DSH 先按编号追加 SessionEvent，再用目标 Step 的请求头、上下文检查点和此前事件重建模型输入与执行过程。",
       "observations": [
-        { "title": "事件只追加，不就地改写", "text": "append 会复制事件、分配递增编号并放到末尾。上下文检查点也作为新事件加入日志，并引用它概括的既有事件。", "lines": [84, 108] },
-        { "title": "请求头确定重建范围", "text": "Nano DSH 根据 stepId 定位对应的完整 request/header；该事件之前发生的内容组成当前 Step 的历史。最近的上下文检查点决定模型投影从哪里继续。", "lines": [130, 153] },
-        { "title": "事件投影为模型消息", "text": "工具调用先按 Step 分组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。", "lines": [155, 194] }
+        { "title": "事实按顺序追加", "text": "append 复制事件、分配递增编号并放到末尾。上下文检查点也是新事件，它指向被概括的既有历史。", "lines": [84, 108] },
+        { "title": "请求头保存当时的边界", "text": "代码按 stepId 找到完整 request/header；该事件之前的内容构成历史，最近的上下文检查点决定从哪里继续投影。", "lines": [130, 153] },
+        { "title": "同一批事件派生模型消息", "text": "工具调用先按 Step 分组，再与 assistant message 配对；用户、模型和工具结果按原顺序还原，最后应用当时的投影设置。", "lines": [155, 194] }
       ],
       "fills": [
-        { "label": "事件类型系统与 SessionLog 结构", "kind": "skeleton", "ranges": [[1,84],[109,110]] },
-        { "label": "私有状态与只读事件视图", "kind": "body", "ranges": [[85,92]] },
-        { "label": "append、编号与检查点", "kind": "body", "ranges": [[93,108]] },
-        { "label": "服务令牌与日志插件", "kind": "body", "ranges": [[111,129]] },
-        { "label": "buildRequest：定位头部与摘要", "kind": "body", "ranges": [[130,154]] },
-        { "label": "事件投影为模型消息", "kind": "body", "ranges": [[155,187]] },
-        { "label": "统一请求组装与 Trace 工具", "kind": "body", "ranges": [[188,212]] },
-        { "label": "私有辅助：标题、详情与插件名", "kind": "body", "ranges": [[213,267]] }
+        { "label": "会话事件的完整类型与日志轮廓", "kind": "skeleton", "ranges": [[1,92]] },
+        { "label": "追加事实、编号与上下文检查点", "kind": "body", "ranges": [[93,109]] },
+        { "label": "把 Session Log 接入运行时插件", "kind": "body", "ranges": [[111,129]] },
+        { "label": "从事件确定请求边界并重建消息", "kind": "body", "ranges": [[130,194]] },
+        { "label": "从同一事件流派生 Trace", "kind": "body", "ranges": [[196,267]] }
       ]
     },
     "changeStory": {
-      "title": "请求与时间线来自同一份记录",
-      "summary": "完整 DSH 把交互事实追加为 SessionEvent，并通过 SessionPersistence 分批写入 JSONL 或 SQLite。Nano DSH 用同一条 Session Log 记录消息、工具往返、请求头和运行时变化；buildRequest() 与 replayTrace() 分别从这些事件生成模型请求和执行过程。",
-      "harnessRole": "记录层：为请求重建、过程回放和会话恢复提供共同来源",
-      "connection": "第一章产生工具往返，第二章定义消息投影，第三章产生运行时变化；本章把这些内容写入同一条 Session Log。第五章的插件实验和第六章的 Goal Round 也继续追加 SessionEvent。",
+      "title": "模型输入、回放和展示共享事实来源",
+      "summary": "完整 DSH 将交互事实追加为 SessionEvent，并通过 SessionPersistence 写入 JSONL 或 SQLite。Nano DSH 用同一条 Session Log 记录消息、工具往返、请求头和运行时变化；buildRequest() 与 replayTrace() 从这些事件分别生成模型输入和执行过程。",
+      "harnessRole": "记录层：为请求重建、回放和会话恢复提供共同来源",
+      "connection": "第一章产生工具往返，第二章定义模型视图，第三章产生能力变化；本章把三类信息写入同一条 Session Log。第五章和第六章继续在这条记录上增加能力与 Goal 状态。",
       "outcomes": [
-        "能说明 Nano DSH 为什么用完整的 request/header 重建某个 Step",
-        "能解释 context/checkpoint（上下文检查点）只改变模型投影，原始 SessionEvent 仍保留在日志中",
-        "能区分 Session Log、模型请求与 Trace 三种数据形态"
+        "能说明 Nano DSH 为什么需要为每个 Step 保存完整的 request/header",
+        "能解释 context/checkpoint（上下文检查点）怎样缩短模型视图并保留原始 SessionEvent",
+        "能区分 Session Log、模型请求和 Trace 三种由同一事实派生的数据形态"
       ]
     }
   },
@@ -182,31 +170,29 @@
     "question": "DSH 是如何持续自进化的?",
     "sourceRange": { "start": 13, "end": 127 },
     "codeGuide": {
-      "title": "Agent 怎样定义、运行和移除插件",
-      "description": "Runtime Tools 插件让 Agent 检查当前 Context、提交新的 Cordis 插件代码、运行插件，并停止或删除插件定义。动态插件仍通过 Context 的普通挂载与卸载流程贡献工具和提示词。",
+      "title": "能力缺口怎样经过检查、挂载和释放被关闭",
+      "description": "Runtime Tools 先让 Agent 检查当前 Context，再登记和运行新的 Cordis 插件；动态插件沿用普通 Context 挂载与卸载流程贡献工具和提示词。",
       "observations": [
-        { "title": "定义表保存代码和运行状态", "text": "Runtime Tools 为每个动态插件保存标识、用途、代码和卸载函数；自身卸载时会停止仍在运行的插件并清空定义。", "lines": [13, 28] },
-        { "title": "定义和运行是两个动作", "text": "cordis_define 检查并保存 Agent 提交的 JavaScript 插件代码。cordis_run 根据 pluginId 取回代码，得到 Plugin，再通过 context.mount() 挂载。", "lines": [29, 75] },
-        { "title": "停止与删除复用卸载函数", "text": "cordis_stop 执行卸载函数但保留定义，cordis_undefine 停止插件并删除定义；插件贡献随 Context 生命周期一起撤销。", "lines": [76, 102] }
+        { "title": "定义表区分代码和运行状态", "text": "Runtime Tools 为每个动态插件保存标识、用途、代码和卸载函数；自身退出时会停止仍在运行的插件并清空定义。", "lines": [13, 28] },
+        { "title": "定义阶段不改变当前能力", "text": "cordis_define 检查并保存 Agent 提交的 JavaScript 插件代码。cordis_run 取回定义，得到 Plugin，再通过 context.mount() 使其生效。", "lines": [29, 75] },
+        { "title": "释放回到第三章的生命周期", "text": "cordis_stop 执行卸载函数但保留定义，cordis_undefine 停止插件并删除定义；工具和提示词随 Context 生命周期撤销。", "lines": [76, 102] }
       ],
       "fills": [
-        { "label": "动态插件定义", "kind": "skeleton", "ranges": [[1,12]] },
-        { "label": "定义表、清理与检查工具", "kind": "body", "ranges": [[13,34]] },
-        { "label": "登记插件代码", "kind": "body", "ranges": [[35,56]] },
-        { "label": "运行动态插件", "kind": "body", "ranges": [[57,75]] },
-        { "label": "停止与删除插件", "kind": "body", "ranges": [[76,106]] },
-        { "label": "编译、实例化与参数读取", "kind": "body", "ranges": [[107,145]] }
+        { "label": "动态插件定义与 Runtime Tools 的入口", "kind": "skeleton", "ranges": [[1,16],[104,105]] },
+        { "label": "登记定义、清理动作与检查接口", "kind": "body", "ranges": [[17,34]] },
+        { "label": "定义并挂载新的 Cordis 插件", "kind": "body", "ranges": [[35,75]] },
+        { "label": "停止、删除与加载插件代码", "kind": "body", "ranges": [[76,145]] }
       ]
     },
     "changeStory": {
-      "title": "Agent 可以编写并验证新的运行时能力",
-      "summary": "Nano DSH 把 cordis_inspect、cordis_define、cordis_run、cordis_stop 与 cordis_undefine 封装成普通 Tool。Agent 提交 Cordis 插件代码，运行插件并调用新增工具，再根据结果停止或移除插件。工具和提示词的变化从后续模型请求开始生效。",
-      "harnessRole": "能力演化层：让 Agent 在执行任务期间编写、运行和验证新的插件",
-      "connection": "这项流程同时使用前四章的机制：Agent Loop 执行 Cordis 工具，请求投影加入新的 Tool 和 Prompt，Plugin 提供可撤销的生命周期，Session Log 记录定义、挂载、调用和移除。Agent 因此可以编写完成当前任务所需的新能力。",
+      "title": "面对能力缺口，先检查、再挂载、最后验证",
+      "summary": "Nano DSH 将 cordis_inspect、cordis_define、cordis_run、cordis_stop 和 cordis_undefine 作为普通 Tool。Agent 先确认缺少的能力，提交并挂载 Cordis 插件，调用新增工具验证结果，再停止或删除定义。工具和提示词从后续请求开始生效。",
+      "harnessRole": "能力演化层：在任务过程中补齐并释放运行时能力",
+      "connection": "这条路径同时使用前四章：Agent Loop 调用 Cordis 工具，请求投影读取当前 Tool 和 Prompt，插件生命周期管理挂载与释放，Session Log 记录定义、调用和变化。",
       "outcomes": [
-        "能按照 cordis_inspect、cordis_define、cordis_run、调用新工具、cordis_stop／cordis_undefine 的顺序说明一次能力实验",
-        "能说明插件成功挂载与新增工具有效之间的差别",
-        "能指出新 Tool 和 Prompt 从哪次请求开始可见，以及停止后怎样验证贡献已经移除"
+        "能按照检查、定义、挂载、验证、释放的顺序说明一次能力变更",
+        "能说明插件挂载成功和新增工具完成任务之间的差别",
+        "能指出新 Tool 和 Prompt 从哪次请求开始可见，以及释放后怎样验证贡献已退出"
       ]
     }
   },
@@ -223,28 +209,25 @@
     "question": "DSH 是如何持续完成长程任务的？",
     "sourceRange": { "start": 33, "end": 114 },
     "codeGuide": {
-      "title": "LongTaskRunner 怎样管理多个 Agent Turn",
-      "description": "LongTaskRunner 保存目标并依次启动 Round。每个 Round 仍使用普通 Agent Loop，外层根据结构化结果决定完成、受阻、继续或到达上限。",
+      "title": "Goal 怎样在 Turn 之外决定是否续行",
+      "description": "LongTaskRunner 保存目标并依次启动 Round。每个 Round 复用普通 Agent Loop，外层根据结构化结果决定继续、完成、受阻或到达上限。",
       "observations": [
-        { "title": "Goal 把跨轮状态集中保存", "text": "构造器固定 objective、status、轮数与原因；run 开始时先把 Goal 创建事件写入 Session Log。", "lines": [33, 60] },
-        { "title": "每个 Round 都有编号和明确输入", "text": "LongTaskRunner 只在 Goal 为 active 时继续。它先检查轮数和阶段定义，再记录 Round 开始，最后调用外部传入的 runRound 函数。runRound 负责执行这一轮，在本教程中会启动普通的 Agent Turn。", "lines": [62, 82] },
-        { "title": "继续必须通过进展判断", "text": "completed、blocked、无进展和 max-rounds 都是显式出口；只有取得进展且仍未完成时，状态才保持 active 并进入下一轮。", "lines": [83, 114] }
+        { "title": "Goal 集中保存跨轮状态", "text": "构造器固定 objective、status、轮数与原因；run 开始时先把 Goal 创建事件写入 Session Log。", "lines": [33, 60] },
+        { "title": "Round 为下一次 Turn 提供边界", "text": "LongTaskRunner 只在 Goal 为 active 时继续。它检查轮数和阶段定义，记录 Round 开始，再调用 runRound 启动普通 Agent Turn。", "lines": [62, 82] },
+        { "title": "续行依赖可观察的进展", "text": "completed、blocked、无进展和 max-rounds 都是显式出口；只有取得进展且仍未完成时，状态才保持 active 并进入下一轮。", "lines": [83, 114] }
       ],
       "fills": [
         { "label": "类型声明与 LongTaskRunner 结构", "kind": "skeleton", "ranges": [[1,33],[115,116]] },
-        { "label": "私有状态：轮次、会话与运行函数", "kind": "body", "ranges": [[34,38]] },
-        { "label": "构造器：初始化目标状态", "kind": "body", "ranges": [[39,53]] },
-        { "label": "run：写入目标创建事件", "kind": "body", "ranges": [[54,61]] },
-        { "label": "轮次循环：推进与记录", "kind": "body", "ranges": [[62,82]] },
-        { "label": "停止条件：完成、受阻、上限", "kind": "body", "ranges": [[83,103]] },
-        { "label": "完成状态与事件写入", "kind": "body", "ranges": [[104,114]] }
+        { "label": "初始化 Goal 并写入创建事实", "kind": "body", "ranges": [[34,61]] },
+        { "label": "启动下一轮并交给普通 Agent Loop", "kind": "body", "ranges": [[62,82]] },
+        { "label": "依据结果结束或继续 Goal", "kind": "body", "ranges": [[83,114]] }
       ]
     },
     "changeStory": {
-      "title": "Turn 可以停止，Goal 再决定是否续行",
-      "summary": "Nano DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，LongTaskRunner 依据 progressed、completed 与 blockedReason 决定继续、完成、受阻或到达上限。完整 DeepSeek Harness 则由持久 Goal 与 Goal Round Driver 在同一个 Session 中驱动续行。",
-      "harnessRole": "协调层：让有限 Turn 共同推进一个长期 Goal",
-      "connection": "每个 Round 都使用前五章组成的 Harness：第一章执行 Step，第二章构造请求，第三章提供插件生命周期，第四章延续记录，第五章允许 Agent 编写新能力。第六章再用 Goal 和 Round 协调多个普通 Turn。",
+      "title": "Goal 而非单个 Turn 决定任务是否继续",
+      "summary": "Nano DSH 在 Agent Loop 外保存 Goal，并以 Round 为单位多次启动普通 Turn。每轮结束后，LongTaskRunner 依据 progressed、completed 与 blockedReason 决定继续、完成、受阻或到达上限。完整 DeepSeek Harness 由持久 Goal 与 Goal Round Driver 在同一个 Session 中驱动续行。",
+      "harnessRole": "长程协调层：让多个有限 Turn 共同推进一个 Goal",
+      "connection": "每个 Round 都复用前五章的 Harness：第一章执行 Step，第二章构造模型输入，第三章管理能力生命周期，第四章延续共同记录，第五章允许任务中补齐能力。第六章再用 Goal 和 Round 协调多个普通 Turn。",
       "outcomes": [
         "能按照 Goal、Round、Turn、Step 的顺序解释四层控制结构",
         "能说明协调器怎样根据可观察结果决定是否续行",

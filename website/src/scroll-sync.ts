@@ -16,9 +16,65 @@ export interface SnapshotLine {
   text: string;
 }
 
+export interface CodeLineProgress {
+  /** 当前阅读位置已经展示的源码行数。 */
+  revealedLines: number;
+  /** 当前语言六章源码的总行数。 */
+  totalLines: number;
+  /** 供进度条宽度使用的百分比。 */
+  percent: number;
+}
+
 /** 章节的填充序列；无 fills 标注（如 Python 版）时返回空数组。 */
 export function chapterFills(chapter: Chapter): FillSlice[] {
   return chapter.codeGuide.fills ?? [];
+}
+
+/** 一章源文件的物理代码行数；结尾换行不单独计为一行。 */
+export function chapterCodeLineCount(chapter: Pick<Chapter, "source">): number {
+  const content = chapter.source.content.trimEnd();
+  return content ? content.split(/\r?\n/u).length : 0;
+}
+
+/** 当前 checkpoint 已经出现在代码面板中的行数。
+ * 最后一段出现时直接以该文件总行数封顶，确保读完整章后进度恰好到达该章的终点。 */
+export function revealedCodeLineCount(chapter: Chapter, checkpoint: number | null): number {
+  const fills = chapterFills(chapter);
+  const total = chapterCodeLineCount(chapter);
+  if (fills.length === 0) return total;
+  if (checkpoint === null) return 0;
+  if (checkpoint >= fills.length - 1) return total;
+  return Math.min(
+    total,
+    snapshotForCheckpoint(chapter, checkpoint)
+      .filter((line) => line.number <= total)
+      .length,
+  );
+}
+
+/** 顶栏使用全书源码行数：此前章节按已读完计入，当前章节只计入已揭示的代码。 */
+export function globalCodeLineProgress(
+  chapters: Chapter[],
+  currentChapter: Pick<Chapter, "id">,
+  checkpoint: number | null,
+): CodeLineProgress {
+  const totalLines = chapters.reduce((total, chapter) => total + chapterCodeLineCount(chapter), 0);
+  const currentIndex = chapters.findIndex((chapter) => chapter.id === currentChapter.id);
+  if (currentIndex === -1 || totalLines === 0) {
+    return { revealedLines: 0, totalLines, percent: 0 };
+  }
+  const completedLines = chapters
+    .slice(0, currentIndex)
+    .reduce((total, chapter) => total + chapterCodeLineCount(chapter), 0);
+  const revealedLines = Math.min(
+    totalLines,
+    completedLines + revealedCodeLineCount(chapters[currentIndex]!, checkpoint),
+  );
+  return {
+    revealedLines,
+    totalLines,
+    percent: Math.round((revealedLines / totalLines) * 100),
+  };
 }
 
 /** 正文证据块中的 requestStep 使用从零开始的索引；能力图必须选择同一步快照。 */
