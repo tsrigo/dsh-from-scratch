@@ -6,11 +6,11 @@
   <img src="./website/public/dsh-from-scratch-hero.png" alt="dsh-from-scratch tutorial illustration" width="100%">
 </p>
 
-An offline-capable TypeScript tutorial that explains the main runtime mechanisms of DeepSeek Harness through six incremental implementations.
+An offline-capable tutorial, available in Chinese and English, that explains the main runtime mechanisms of DeepSeek Harness through parallel TypeScript and Python implementations.
 
-DeepSeek Harness, abbreviated as DSH, provides the runtime in which a language model performs tasks. It assembles model input, exposes tools, executes validated tool calls, records the run, and continues when one model response is not enough to finish the task. This repository reduces those mechanisms to an implementation that can be read, executed, and tested. It also includes an interactive tutorial site generated from the source code.
+DeepSeek Harness, abbreviated as DSH, provides the runtime in which a language model performs tasks. It assembles model input, exposes tools, executes validated tool calls, records the run, and continues when one model response is not enough to finish the task. This repository reduces those mechanisms to two implementations that can be read, executed, and tested. It also includes an interactive tutorial site generated from the source code.
 
-Each chapter uses an independent deterministic example with only the inputs and runtime events needed for its question. The chapters progressively add context projection, plugin lifecycles, a session log, dynamic plugins, and long-task continuation. Readers can inspect the source, model requests, and runtime state changed by each mechanism.
+Each implementation uses six independent deterministic examples with only the inputs and runtime events needed for its questions. The chapters progressively add context projection, plugin lifecycles, a session log, dynamic plugins, and long-task continuation. Readers can inspect the source, model requests, and runtime state changed by each mechanism.
 
 This project focuses on teaching the runtime mechanisms with a deliberately small codebase and explicit execution boundaries. It does not provide a compatibility layer for DeepSeek Harness or cover the full product's permissions, persistence, scheduling, and multi-agent features.
 
@@ -23,7 +23,7 @@ git clone https://github.com/tsrigo/dsh-from-scratch.git
 cd dsh-from-scratch
 corepack enable
 pnpm install
-TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
+pnpm tutorial:generate
 pnpm site:dev
 ```
 
@@ -45,27 +45,21 @@ pnpm demo -- --workspace ./tmp/python-hello
 
 Model requests, tool calls, and Python program output are recorded in the `SessionLog`. To run the original offline checkout sample, use `pnpm demo:checkout`.
 
-The command above generates the English TypeScript data. To generate the Chinese data, run the generator without `TUTORIAL_LOCALE`:
-
-```sh
-pnpm exec tsx scripts/generate-tutorial-data.ts
-```
-
 Data generation and site browsing make no model requests and require no application programming interface (API) key.
 
 ## Run the tutorial site
 
 The site contains:
 
-- Four TypeScript primer cards covering type annotations, `interface`, `async` / `await`, and discriminated unions.
-- Six independent mechanism examples with source code, per-chapter diffs, model requests, Session Events, execution traces, and plugin relationships aligned with the prose.
+- Four primer cards for the selected implementation: TypeScript covers type annotations, `interface`, `async` / `await`, and discriminated unions; Python covers type annotations, `dataclass`, `async` / `await`, and dictionaries and lists.
+- Six independent mechanism examples for each implementation, with source code, per-chapter diffs, model requests, Session Events, execution traces, and plugin relationships aligned with the prose.
 - Estimates of the stable prefix, first changed part, and token count for adjacent requests. These values explain request structure only. Provider cache hits and billing must be determined from provider data.
 
-The generator reads the English chapter configuration in [`docs/checkpoints.en.json`](./docs/checkpoints.en.json), the lessons in [`docs/lessons-en/`](./docs/lessons-en/), and [`docs/typescript-primer.en.md`](./docs/typescript-primer.en.md). It extracts material from tutorial checkpoints and the current TypeScript source, then writes [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json). The Chinese build uses [`docs/checkpoints.json`](./docs/checkpoints.json) and writes [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json). Generation also checks source ranges, code-guide coverage, and exact request reconstruction where request evidence comes from Session Events.
+`pnpm tutorial:generate` runs the TypeScript and Python generators. The TypeScript generator reads [`docs/checkpoints.json`](./docs/checkpoints.json) or [`docs/checkpoints.en.json`](./docs/checkpoints.en.json), the matching lessons and primer, then writes [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json) and [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json). The Python generator reads [`python_harness/`](./python_harness/), [`docs/lessons-python/`](./docs/lessons-python/), [`docs/lessons-python-en/`](./docs/lessons-python-en/), the matching Python primer, and [`docs/python-chapters.en.json`](./docs/python-chapters.en.json) for English overlays, then writes [`website/public/generated/tutorial-python.json`](./website/public/generated/tutorial-python.json) and [`website/public/generated/tutorial-python.en.json`](./website/public/generated/tutorial-python.en.json). Generation checks source ranges, code-guide coverage, and exact request reconstruction where request evidence comes from Session Events.
 
 ## The six chapters
 
-The chapter titles and questions below match the English tutorial site.
+The chapter titles and questions below match the English tutorial site. Their summaries describe the TypeScript implementation; the site provides the corresponding Python lessons.
 
 ### Chapter 1 · Agent Loop
 
@@ -118,12 +112,12 @@ Goal, Round, Turn, and Step represent a long-term objective, one continuation at
 ## Deploy the tutorial site
 
 ```sh
-TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
+pnpm tutorial:generate
 pnpm site:build
 pnpm site:dev
 ```
 
-`pnpm site:build` creates the production site in `dist/`. For local viewing, run `pnpm site:dev` and open the address printed in the terminal.
+`pnpm site:build` creates the production site in `website/dist/`. For local viewing, run `pnpm site:dev` and open the address printed in the terminal.
 
 ## Deliberate scope limits
 

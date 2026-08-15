@@ -2,11 +2,11 @@
 
 [中文](./README.zh.md) | [English](./README.md)
 
-一个可离线运行的 TypeScript 教程，用六个逐步增加的实现解释 DeepSeek Harness 的主要运行机制。
+一个可离线运行的中英文教程，用 TypeScript 与 Python 两套实现解释 DeepSeek Harness 的主要运行机制。
 
-DeepSeek Harness（DSH）为语言模型执行任务提供运行环境。它组织模型输入，向模型提供工具，执行经过校验的工具调用，保存运行过程，并在一次模型回复不足以完成任务时继续推进。这个仓库把上述机制整理成一套可以阅读、运行和测试的最小实现，同时提供一个与源码同步的交互式教学网站。
+DeepSeek Harness（DSH）为语言模型执行任务提供运行环境。它组织模型输入，向模型提供工具，执行经过校验的工具调用，保存运行过程，并在一次模型回复不足以完成任务时继续推进。这个仓库把上述机制整理成两套可以阅读、运行和测试的最小实现，同时提供一个与源码同步的交互式教学网站。
 
-六章各自使用一个独立的确定性样本，只保留当前问题需要的输入和运行事件。章节之间逐步加入上下文投影、插件生命周期、会话日志、动态插件和长程任务续行。读者可以分别检查每项机制引起的源码、模型请求和运行状态变化。
+两套实现都使用六个独立的确定性样本，只保留当前问题需要的输入和运行事件。章节之间逐步加入上下文投影、插件生命周期、会话日志、动态插件和长程任务续行。读者可以分别检查每项机制引起的源码、模型请求和运行状态变化。
 
 本项目面向机制教学，代码规模和运行边界都有意保持有限。它不提供 DeepSeek Harness 的兼容接口，也不覆盖完整产品中的权限、持久化、任务调度和多 Agent 协作能力。
 
@@ -19,7 +19,7 @@ git clone https://github.com/tsrigo/dsh-from-scratch.git
 cd dsh-from-scratch
 corepack enable
 pnpm install
-pnpm exec tsx scripts/generate-tutorial-data.ts
+pnpm tutorial:generate
 pnpm site:dev
 ```
 
@@ -41,25 +41,21 @@ pnpm demo -- --workspace ./tmp/python-hello
 
 模型请求、工具调用和 Python 程序的实际输出都会进入 `SessionLog`。如果只想运行原来的离线购物车样本，可以使用 `pnpm demo:checkout`。
 
-`scripts/generate-tutorial-data.ts` 默认生成中文版 TypeScript 数据。如需同时生成英文数据，可以另外执行：
-
-```sh
-TUTORIAL_LOCALE=en pnpm exec tsx scripts/generate-tutorial-data.ts
-```
-
 生成过程与网站浏览都不调用模型，也不需要模型服务的应用程序编程接口（Application Programming Interface，API）密钥。
 
 ## 浏览教学网站
 
 网站包含以下内容：
 
-- 四张 TypeScript 阅读准备卡，解释教程使用的类型标注、`interface`、`async` / `await` 和可区分联合类型。
-- 六个彼此独立的最小机制样本，以及与当前段落对应的源码、逐章差异、模型请求、Session Event（会话事件）、执行过程和插件关系。
+- 四张与当前实现语言对应的阅读准备卡。TypeScript 版解释类型标注、`interface`、`async` / `await` 和可区分联合类型；Python 版解释类型标注、`dataclass`、`async` / `await` 与字典和列表。
+- 两套实现各有六个彼此独立的最小机制样本，以及与当前段落对应的源码、逐章差异、模型请求、Session Event（会话事件）、执行过程和插件关系。
 - 相邻请求的稳定前缀、首次变化位置和 token（模型处理文本的计量单位）数量估算。这些数据只用于解释请求结构，实际缓存命中与计费以模型服务返回的数据为准。
 
-生成器读取 [`docs/checkpoints.json`](./docs/checkpoints.json) 中的章节配置，从教学 checkpoint（检查点）和当前 TypeScript 源码提取内容，并把中文版结果写入 [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json)。英文版使用 [`docs/checkpoints.en.json`](./docs/checkpoints.en.json)、[`docs/lessons-en/`](./docs/lessons-en/) 和 [`docs/typescript-primer.en.md`](./docs/typescript-primer.en.md)，输出为 [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json)。生成期间还会检查源码行号、代码讲解覆盖范围，以及可以从事件重建的模型请求是否与原请求一致。
+`pnpm tutorial:generate` 会依次运行 TypeScript 和 Python 生成器。TypeScript 生成器读取 [`docs/checkpoints.json`](./docs/checkpoints.json) 或 [`docs/checkpoints.en.json`](./docs/checkpoints.en.json)、对应的正文与阅读准备内容，写入 [`website/public/generated/tutorial.json`](./website/public/generated/tutorial.json) 和 [`website/public/generated/tutorial.en.json`](./website/public/generated/tutorial.en.json)。Python 生成器读取 [`python_harness/`](./python_harness/)、[`docs/lessons-python/`](./docs/lessons-python/)、[`docs/lessons-python-en/`](./docs/lessons-python-en/)、对应的 Python 阅读准备内容，以及用于英文覆盖内容的 [`docs/python-chapters.en.json`](./docs/python-chapters.en.json)，写入 [`website/public/generated/tutorial-python.json`](./website/public/generated/tutorial-python.json) 和 [`website/public/generated/tutorial-python.en.json`](./website/public/generated/tutorial-python.en.json)。生成期间会检查源码行号、代码讲解覆盖范围，以及可以从事件重建的模型请求是否与原请求一致。
 
 ## 六章内容
+
+以下概要对应 TypeScript 实现；网站中提供了同一组六章问题的 Python 教学版本。
 
 ### 第一章·Agent Loop
 
@@ -112,12 +108,12 @@ Goal、Round、Turn 和 Step 分别处理长期目标、跨轮续行、一次连
 ## 部署教学网站
 
 ```sh
-pnpm exec tsx scripts/generate-tutorial-data.ts
+pnpm tutorial:generate
 pnpm site:build
 pnpm site:dev
 ```
 
-`pnpm site:build` 生成生产版本，输出目录是 `dist/`。本地查看时使用 `pnpm site:dev`，然后打开终端显示的地址。
+`pnpm site:build` 生成生产版本，输出目录是 `website/dist/`。本地查看时使用 `pnpm site:dev`，然后打开终端显示的地址。
 
 ## 实现边界
 

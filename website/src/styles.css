@@ -695,7 +695,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .progress-track { width: 88px; height: 4px; overflow: hidden; background: rgba(156, 207, 246, 0.16); border-radius: 999px; }
 .progress-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--cyan)); border-radius: 999px; transition: width 260ms ease; }
 .progress-help, .language-control, .locale-control { position: relative; display: flex; align-items: center; min-height: 34px; }
-.progress-help { padding-inline: 3px; cursor: help; }
+.progress-help { width: 94px; min-height: 0; height: 34px; display: grid; place-items: center; cursor: help; }
 .header-tooltip { position: absolute; z-index: 50; top: calc(100% + 10px); right: 0; display: grid; width: max-content; max-width: 230px; gap: 3px; padding: 9px 11px; color: #eaf5ff; background: #102d48; border: 1px solid rgba(156, 207, 246, 0.3); border-radius: 7px; box-shadow: 0 10px 26px rgba(3, 21, 35, 0.25); font-size: 11px; line-height: 1.45; text-align: left; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity 150ms ease, transform 150ms ease; visibility: hidden; }
 .header-tooltip::before { position: absolute; top: -5px; right: 11px; width: 8px; height: 8px; background: #102d48; border-top: 1px solid rgba(156, 207, 246, 0.3); border-left: 1px solid rgba(156, 207, 246, 0.3); content: ""; transform: rotate(45deg); }
 .header-tooltip b { color: #fff; font-size: 11px; }
@@ -2222,7 +2222,8 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 /* The language selector is deliberately part of the persistent header: it changes
    the tutorial implementation, not merely the syntax colors in one code panel. */
 .site-header { grid-template-columns: minmax(245px, 1fr) auto minmax(230px, 1fr); }
-.header-actions { display: flex; align-items: center; justify-self: end; gap: 18px; }
+.header-actions { display: grid; grid-template-columns: minmax(94px, 1fr) auto auto auto auto; align-items: center; justify-self: stretch; gap: 18px; }
+.progress-help { justify-self: center; }
 .language-switch,
 .locale-switch {
   display: inline-flex;
@@ -2251,12 +2252,14 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 @media (min-width: 961px) and (max-width: 1520px) {
   .site-header { gap: 12px; padding-inline: 20px; }
   .chapter-nav button { min-width: 96px; padding-inline: 9px; }
-  .header-actions { gap: 8px; }
+  .header-actions { grid-template-columns: minmax(62px, 1fr) auto auto auto auto; gap: 8px; }
+  .progress-help { width: 62px; }
   .progress-track { width: 56px; }
 }
 
 @media (max-width: 1360px) {
   .progress-help { display: none; }
+  .header-actions { display: flex; justify-self: end; }
 }
 
 @media (max-width: 1240px) {

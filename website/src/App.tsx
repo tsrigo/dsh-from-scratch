@@ -1237,7 +1237,7 @@ function BuildPrelude({ chapters, locale, onStart }: { chapters: Chapter[]; loca
         {chapters.map((chapter, index) => (
           <div key={chapter.id} style={{ "--file-index": index } as CSSProperties}>
             <i>{String(index + 1).padStart(2, "0")}</i>
-            <code>{chapter.source.path.replace(/^(?:src|python_harness)\//u, "")}</code>
+            <code>{sourceFileLabel(chapter.source.path)}</code>
             <span className="scaffold-chapter">
               <strong>{fixedChapterTitle(chapter, locale)}</strong>
               <small>{chapter.question}</small>
@@ -1661,7 +1661,7 @@ function MobileFillSource({
     >
       <header className="mobile-static-code-header">
         <span>{locale === "en" ? "SOURCE EXCERPT" : "对应源码"}</span>
-        <code>{chapter.source.path} · {ranges}</code>
+        <code title={chapter.source.path}>{sourceFileLabel(chapter.source.path)} · {ranges}</code>
       </header>
       <CodeBlock
         code={lines.map((line) => line.text).join("\n")}
@@ -1684,7 +1684,7 @@ function MobileFullSource({ chapter, locale }: { chapter: Chapter; locale: UiLoc
           <span>{locale === "en" ? "COMPLETE STATIC SOURCE" : "完整静态源码"}</span>
           <strong>{locale === "en" ? "Complete chapter implementation" : "本章完整实现"}</strong>
         </div>
-        <code>{chapter.source.path} · {lineCount} {locale === "en" ? "lines" : "行"}</code>
+        <code title={chapter.source.path}>{sourceFileLabel(chapter.source.path)} · {lineCount} {locale === "en" ? "lines" : "行"}</code>
       </header>
       <CodeBlock
         code={chapter.source.content}
@@ -1858,15 +1858,17 @@ function CodeDock({
               aria-selected={file === path}
               className={file === path ? "code-tab is-active" : "code-tab"}
               onClick={() => setSelected(path)}
+              aria-label={path}
+              title={path}
             >
-              {path.replace(/^src\//u, "")}
+              {sourceFileLabel(path)}
             </button>
           ))}
         </div>
       )}
       <div className="file-label">
         <div className="file-meta">
-          <span className="file-name">{file}{extra ? locale === "en" ? " · FULL FILE" : " · 完整文件" : ""}</span>
+          <span className="file-name" title={file}>{sourceFileLabel(file)}{extra ? locale === "en" ? " · FULL FILE" : " · 完整文件" : ""}</span>
           <span className="file-stage">
             {!extra && fills.length > 0
               ? safeCheckpoint === null
@@ -2702,6 +2704,10 @@ function escapeHtml(value: string): string {
     .replace(/&/gu, "&amp;")
     .replace(/</gu, "&lt;")
     .replace(/>/gu, "&gt;");
+}
+
+function sourceFileLabel(path: string): string {
+  return path.replace(/^(?:src|python_harness)\//u, "");
 }
 
 function languageForPath(path: string): string {
