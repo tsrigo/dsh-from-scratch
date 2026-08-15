@@ -2277,9 +2277,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   .site-header { gap: 10px; }
   .header-actions { min-width: 0; gap: 0; }
   .lock-button, .github-links { display: none; }
-  .language-control { min-width: 0; }
-  .language-control { display: none; }
-  .locale-control { min-width: 0; }
+  .language-control, .locale-control { min-width: 0; }
 }
 
 @media (max-width: 560px) {
@@ -3218,9 +3216,17 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   html {
     scroll-padding-bottom: calc(54px + env(safe-area-inset-bottom));
   }
-  .site-header { padding-inline: 14px; }
+  .site-header { gap: 8px; padding-inline: 14px; }
   .wordmark { width: 100%; }
-  .wordmark-copy { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .wordmark-copy { display: none; }
+  .header-actions { gap: 6px; }
+  .language-control { display: flex; }
+  .language-switch,
+  .locale-switch { padding: 2px; }
+  .language-switch button,
+  .locale-switch button { min-width: 34px; height: 34px; padding-inline: 5px; font-size: 10px; }
+  .language-switch button:last-child { font-size: 0; }
+  .language-switch button:last-child::after { font-size: 10px; content: "PY"; }
   .header-tooltip { max-width: min(230px, calc(100vw - 28px)); }
 }
 
