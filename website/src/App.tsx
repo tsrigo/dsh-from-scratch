@@ -38,6 +38,7 @@ import {
   graphSnapshotForEvidenceStep,
   newLineNumbers,
   snapshotForCheckpoint,
+  snapshotForFill,
 } from "./scroll-sync.js";
 
 const PANEL_TABS: Array<{ id: PanelTab; label: string }> = [
@@ -127,6 +128,7 @@ export function App() {
   const [language, setLanguage] = useState<TutorialLanguage>(initialLanguage);
   const [locale, setLocale] = useState<UiLocale>(initialLocale);
   const compactLayout = useCompactLayout();
+  usePreventCompactZoom(compactLayout);
   const [data, setData] = useState<TutorialData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState("chapter-1");
@@ -378,7 +380,7 @@ export function App() {
                 active={activeChapter.id === chapter.id}
                 sectionRefs={sectionRefs}
                 checkpoint={activeChapter.id === chapter.id ? checkpoint : null}
-                showMobileCode={compactLayout}
+                mobileStaticCode={compactLayout}
                 locale={locale}
               />
             ))}
@@ -403,8 +405,7 @@ export function App() {
   );
 }
 
-/** 仅在窄屏挂载章内代码面板。每章的面板保持固定高度，避免滚动跨章时
- * 因卸载上一章面板而改变页面高度；桌面端只使用右侧 dock。 */
+/** 窄屏将每个 fill 的源码片段直接挂在讲解卡片后，并在章末显示完整源码。 */
 function useCompactLayout(): boolean {
   const query = "(max-width: 960px)";
   const [compact, setCompact] = useState(() => window.matchMedia(query).matches);
@@ -416,6 +417,39 @@ function useCompactLayout(): boolean {
     return () => media.removeEventListener("change", update);
   }, []);
   return compact;
+}
+
+/** 部分移动端浏览器会忽略 viewport 的缩放限制。
+ * 窄屏下拦截多指缩放和触控板缩放，单指横向滚动代码不受影响。 */
+function usePreventCompactZoom(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+
+    const nonPassive: AddEventListenerOptions = { passive: false };
+    const preventMultiTouch = (event: TouchEvent) => {
+      if (event.touches.length > 1) event.preventDefault();
+    };
+    const preventGesture = (event: Event) => event.preventDefault();
+    const preventTrackpadZoom = (event: WheelEvent) => {
+      if (event.ctrlKey) event.preventDefault();
+    };
+
+    document.addEventListener("touchstart", preventMultiTouch, nonPassive);
+    document.addEventListener("touchmove", preventMultiTouch, nonPassive);
+    document.addEventListener("gesturestart", preventGesture, nonPassive);
+    document.addEventListener("gesturechange", preventGesture, nonPassive);
+    document.addEventListener("gestureend", preventGesture, nonPassive);
+    window.addEventListener("wheel", preventTrackpadZoom, nonPassive);
+
+    return () => {
+      document.removeEventListener("touchstart", preventMultiTouch);
+      document.removeEventListener("touchmove", preventMultiTouch);
+      document.removeEventListener("gesturestart", preventGesture);
+      document.removeEventListener("gesturechange", preventGesture);
+      document.removeEventListener("gestureend", preventGesture);
+      window.removeEventListener("wheel", preventTrackpadZoom);
+    };
+  }, [enabled]);
 }
 
 interface ReplayToolState {
@@ -1219,6 +1253,22 @@ function Header({
   onToggleLock: () => void;
   progress: number;
 }) {
+  const chapterNavRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = chapterNavRef.current;
+    if (!nav || !window.matchMedia("(max-width: 960px)").matches) return;
+    const active = nav.querySelector<HTMLElement>("[aria-current='step']");
+    if (!active) return;
+    const frame = requestAnimationFrame(() => {
+      const left = active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2;
+      nav.scrollTo({
+        left: Math.max(0, left),
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeId]);
+
   return (
     <header className="site-header">
       <button
@@ -1229,7 +1279,7 @@ function Header({
         <img className="wordmark-logo" src="/deepseek-harness-logo.png" alt="" />
         <span className="wordmark-copy">DeepSeek Harness from Scratch</span>
       </button>
-      <nav className="chapter-nav" aria-label={locale === "en" ? "Chapter navigation" : "章节导航"}>
+      <nav ref={chapterNavRef} className="chapter-nav" aria-label={locale === "en" ? "Chapter navigation" : "章节导航"}>
         {data.chapters.map((chapter) => (
           <button
             key={chapter.id}
@@ -1400,14 +1450,14 @@ const ChapterArticle = memo(function ChapterArticle({
   active,
   sectionRefs,
   checkpoint,
-  showMobileCode,
+  mobileStaticCode,
   locale,
 }: {
   chapter: Chapter;
   active: boolean;
   sectionRefs: RefObject<Map<string, HTMLElement>>;
   checkpoint: number | null;
-  showMobileCode: boolean;
+  mobileStaticCode: boolean;
   locale: UiLocale;
 }) {
   return (
@@ -1423,7 +1473,7 @@ const ChapterArticle = memo(function ChapterArticle({
       <ChapterContent
         chapter={chapter}
         checkpoint={checkpoint}
-        showMobileCode={showMobileCode}
+        mobileStaticCode={mobileStaticCode}
         locale={locale}
       />
     </section>
@@ -1435,12 +1485,12 @@ const ChapterArticle = memo(function ChapterArticle({
 const ChapterContent = memo(function ChapterContent({
   chapter,
   checkpoint,
-  showMobileCode,
+  mobileStaticCode,
   locale,
 }: {
   chapter: Chapter;
   checkpoint: number | null;
-  showMobileCode: boolean;
+  mobileStaticCode: boolean;
   locale: UiLocale;
 }) {
   const lesson = useMemo(() => parseLesson(chapter.lesson), [chapter.lesson]);
@@ -1476,7 +1526,8 @@ const ChapterContent = memo(function ChapterContent({
                   chapter={chapter}
                   fillIndex={item.fillIndex}
                   fill={fill}
-                  active={checkpoint !== null && checkpoint >= item.fillIndex}
+                  active={!mobileStaticCode && checkpoint !== null && checkpoint >= item.fillIndex}
+                  showSource={mobileStaticCode}
                   locale={locale}
                 />
               );
@@ -1485,9 +1536,7 @@ const ChapterContent = memo(function ChapterContent({
           })}
         </div>
         <ChapterSummaryCard chapter={chapter} locale={locale} />
-        <div className="chapter-code-mobile">
-          {showMobileCode && <CodeDock chapter={chapter} checkpoint={checkpoint} locale={locale} />}
-        </div>
+        {mobileStaticCode && <MobileFullSource chapter={chapter} locale={locale} />}
     </div>
   );
 });
@@ -1511,12 +1560,14 @@ function FillCard({
   fillIndex,
   fill,
   active,
+  showSource,
   locale,
 }: {
   chapter: Chapter;
   fillIndex: number;
   fill: NonNullable<Chapter["codeGuide"]["fills"]>[number];
   active: boolean;
+  showSource: boolean;
   locale: UiLocale;
 }) {
   const observation = fillIndex > 0
@@ -1527,7 +1578,7 @@ function FillCard({
           ),
       )
     : undefined;
-  return (
+  const card = (
     <div
       className={`fill-card ${fill.kind === "skeleton" ? "skeleton" : ""} ${active ? "done" : ""}`}
       data-chapter={chapter.id}
@@ -1539,6 +1590,69 @@ function FillCard({
       </div>
       {observation && <p>{observation.text}</p>}
     </div>
+  );
+  if (!showSource) return card;
+  return (
+    <div className="fill-step">
+      {card}
+      <MobileFillSource chapter={chapter} fillIndex={fillIndex} locale={locale} />
+    </div>
+  );
+}
+
+function MobileFillSource({
+  chapter,
+  fillIndex,
+  locale,
+}: {
+  chapter: Chapter;
+  fillIndex: number;
+  locale: UiLocale;
+}) {
+  const lines = useMemo(() => snapshotForFill(chapter, fillIndex), [chapter, fillIndex]);
+  const fill = chapterFills(chapter)[fillIndex];
+  if (!fill || lines.length === 0) return null;
+  const ranges = fill.ranges
+    .map(([start, end]) => start === end ? `L${start}` : `L${start}–${end}`)
+    .join(", ");
+  return (
+    <section
+      className="mobile-fill-source"
+      aria-label={locale === "en" ? `Source excerpt for ${fill.label}` : `${fill.label} 对应的源码片段`}
+    >
+      <header className="mobile-static-code-header">
+        <span>{locale === "en" ? "SOURCE EXCERPT" : "对应源码"}</span>
+        <code>{chapter.source.path} · {ranges}</code>
+      </header>
+      <CodeBlock
+        code={lines.map((line) => line.text).join("\n")}
+        sourceLineNumbers={lines.map((line) => line.number)}
+        language={languageForPath(chapter.source.path)}
+      />
+    </section>
+  );
+}
+
+function MobileFullSource({ chapter, locale }: { chapter: Chapter; locale: UiLocale }) {
+  const lineCount = chapter.source.content.trimEnd().split(/\r?\n/u).length;
+  return (
+    <section
+      className="mobile-full-source"
+      aria-label={locale === "en" ? "Complete static source code" : "完整静态源码"}
+    >
+      <header className="mobile-static-code-header">
+        <div>
+          <span>{locale === "en" ? "COMPLETE STATIC SOURCE" : "完整静态源码"}</span>
+          <strong>{locale === "en" ? "Complete chapter implementation" : "本章完整实现"}</strong>
+        </div>
+        <code>{chapter.source.path} · {lineCount} {locale === "en" ? "lines" : "行"}</code>
+      </header>
+      <CodeBlock
+        code={chapter.source.content}
+        startLine={1}
+        language={languageForPath(chapter.source.path)}
+      />
+    </section>
   );
 }
 

@@ -336,7 +336,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .fill-card-heading { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
 .fill-card-heading h4 { min-width: 0; margin: 0; color: #1c3f5c; font: 650 20px/1.45 var(--display); }
 .fill-card p { margin: 7px 0 0; color: #33566f; font-size: 14px; line-height: 1.75; }
-
 /* 证据卡：正文内嵌的请求 / 时间线 / 能力图 / 总结 */
 .evidence-content-card { margin: 24px 0; padding: 14px 16px 16px; background: #fbfdff; border: 1px solid #d3e4f2; border-radius: 10px; box-shadow: 0 1px 2px rgba(20, 60, 100, 0.05); }
 .evidence-content-heading { display: flex; align-items: center; gap: 10px; }
@@ -665,8 +664,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 .code-segment-comment { margin-top: 13px; color: #7990ae; background: rgba(113, 137, 169, 0.08); border-top: 1px solid rgba(113, 137, 169, 0.16); }
 .code-segment-comment:first-child { margin-top: 0; }
 .code-segment-comment code { font-style: italic; }
-/* 移动端：正文后的章内代码区（桌面隐藏） */
-.chapter-code-mobile { display: none; }
 /* 滚动补全：刚补入的代码段（相对上一 checkpoint 的新增行）紫色高亮 */
 .code-lines .code-line.is-new { background: rgba(168, 85, 247, 0.14); box-shadow: inset 3px 0 #c084fc; }
 .code-lines .code-line.is-new .line-no { color: #d8b4fe; }
@@ -924,11 +921,74 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
 }
 
 @media (max-width: 960px) {
-  html { scroll-behavior: auto; }
+  html,
+  body,
+  #root,
+  .app-shell {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
+  html,
+  body,
+  #root {
+    overflow-x: hidden;
+    overflow-x: clip;
+  }
+  html {
+    scroll-behavior: auto;
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
+  body {
+    overscroll-behavior-x: none;
+    touch-action: pan-y;
+  }
   .site-header { grid-template-columns: minmax(0, 1fr) auto; height: 64px; backdrop-filter: none; }
-  .chapter-nav { position: fixed; z-index: 31; left: 0; right: 0; bottom: 0; height: calc(60px + env(safe-area-inset-bottom)); justify-content: center; padding-bottom: env(safe-area-inset-bottom); background: #061522; border-top: 1px solid rgba(103, 213, 255, 0.25); }
-  .chapter-nav button { flex: 1; min-width: 0; height: 60px; max-width: 110px; padding-inline: 4px; touch-action: manipulation; }
-  .chapter-nav button .chapter-number { white-space: nowrap; }
+  .chapter-nav {
+    position: fixed;
+    z-index: 31;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: calc(60px + env(safe-area-inset-bottom));
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: #061522;
+    border-top: 1px solid rgba(103, 213, 255, 0.25);
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chapter-nav::-webkit-scrollbar { display: none; }
+  .chapter-nav button {
+    width: 96px;
+    min-width: 96px;
+    max-width: none;
+    height: 60px;
+    flex: 0 0 96px;
+    overflow: hidden;
+    padding-inline: 7px;
+    scroll-snap-align: center;
+    touch-action: pan-x;
+  }
+  .chapter-nav button .chapter-number {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .code-lines,
+  .code-tabs,
+  .panel-tabs,
+  .signal-route,
+  .replay-rounds {
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
+  }
   .repo-link { display: none; }
   .hero { min-height: auto; grid-template-columns: 1fr; padding: 74px 28px 66px; }
   .hero h1 { font-size: clamp(44px, 11vw, 66px); }
@@ -941,15 +1001,14 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
   .primer-summary { gap: 18px; }
   .learning-layout { display: block; border: 0; }
   .code-dock { display: none; }
-  .chapter-code-mobile { display: block; margin: 0 -25px 0 -23px; border-block: 1px solid var(--rule); }
-  .chapter-code-mobile .code-dock-shell { position: relative; top: auto; width: 100%; height: clamp(440px, 72svh, 680px); min-height: 0; }
-  .chapter-code-mobile .code-dock-body { min-height: 0; max-height: none; overflow: hidden; }
-  .chapter-code-mobile .code-lines { overscroll-behavior: contain; }
   .progress-track { display: none; }
   .progress-help { display: none; }
   .chapter { min-height: 0; scroll-margin-top: 64px; }
   .chapter.active::before { display: none; }
   .chapter-content { min-width: 0; padding: 46px 20px 72px; }
+  .chapter-file { min-width: 0; align-items: flex-start; flex-direction: column; }
+  .chapter-file code { display: block; max-width: 100%; overflow-wrap: anywhere; }
+  .reading-order { display: none; }
   .chapter h2 { font-size: clamp(28px, 4.8vw, 36px); text-wrap: balance; }
   .chapter-kicker span + span { display: none; }
   .lesson-copy p { font-size: 16px; }
@@ -961,6 +1020,71 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
   .mobile-switcher button.active { color: #0e5e99; box-shadow: inset 0 -3px var(--accent); }
   .chapter-body { display: none; }
   .chapter-body.mobile-active { display: block; }
+  .fill-step { min-width: 0; }
+  .fill-card { margin: 22px 0 0; }
+  .fill-card-heading, .card-heading { align-items: flex-start; flex-wrap: wrap; }
+  .mobile-fill-source,
+  .mobile-full-source {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    background: #f7faff;
+    border: 1px solid #b9cfea;
+    border-radius: 10px;
+    box-shadow: 0 3px 14px rgba(30, 62, 118, 0.08);
+  }
+  .mobile-fill-source { margin: 8px 0 30px; }
+  .mobile-full-source { margin: 26px 0 10px; }
+  .mobile-static-code-header {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 5px;
+    padding: 10px 12px;
+    color: #334f7f;
+    background: #e7f1fc;
+    border-bottom: 1px solid #c4d9f2;
+  }
+  .mobile-static-code-header > div { min-width: 0; display: grid; gap: 3px; }
+  .mobile-static-code-header span { color: #315fba; font: 700 10px var(--mono); letter-spacing: 0.06em; }
+  .mobile-static-code-header strong { color: #1c356a; font-size: 14px; font-weight: 650; }
+  .mobile-static-code-header code {
+    min-width: 0;
+    overflow: hidden;
+    color: #6077a2;
+    font: 500 10.5px/1.5 var(--mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mobile-fill-source .code-lines,
+  .mobile-full-source .code-lines {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-block: 11px 16px;
+    contain: inline-size;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mobile-fill-source .code-lines > div,
+  .mobile-full-source .code-lines > div { padding-right: 16px; }
+  .mobile-fill-source .code-lines,
+  .mobile-full-source .code-lines { font-size: 12px; line-height: 1.65; }
+  .lesson-copy .mobile-fill-source .code-lines code,
+  .mobile-full-source .code-lines code {
+    padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    font: inherit;
+  }
+  .mobile-fill-source .line-no,
+  .mobile-full-source .line-no { flex-basis: 46px; padding-right: 11px; }
   .mobile-panel { display: none; min-width: 0; margin: 0 -25px -80px -23px; }
   .mobile-panel.mobile-active { display: block; }
   .panel-shell.compact { position: relative; top: auto; width: 100%; height: auto; min-height: 0; }
@@ -976,7 +1100,7 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
   .wordmark-logo { width: 40px; height: 38px; }
   .wordmark-copy { overflow: hidden; text-overflow: ellipsis; }
   .chapter-nav { height: calc(54px + env(safe-area-inset-bottom)); }
-  .chapter-nav button { height: 54px; padding-inline: 2px; }
+  .chapter-nav button { width: 84px; min-width: 84px; height: 54px; flex-basis: 84px; padding-inline: 6px; }
   .chapter-nav button .chapter-number { font-size: clamp(9px, 2.8vw, 11px); }
   .hero { padding: 48px 20px 44px; }
   .hero .eyebrow { margin-bottom: 20px; }
@@ -1055,7 +1179,6 @@ footer { display: flex; justify-content: flex-end; gap: 32px; padding: 30px 5vw;
   .mobile-switcher button { min-width: 0; height: 44px; padding: 0 4px; font-size: 12px; }
   .chapter-content.showing-panel .mobile-switcher { margin-bottom: 0; }
   .mobile-panel { margin: 0 -20px -72px; }
-  .chapter-code-mobile { margin-inline: -20px; }
   .panel-shell.compact .panel-topline { display: none; }
   .focus-code .code-lines > div { min-width: 100%; white-space: pre-wrap; }
   .focus-code .code-lines code { min-width: 0; overflow-wrap: anywhere; }
@@ -2129,7 +2252,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 .language-switch button.active,
 .locale-switch button.active { color: #17275b; background: #d7e7f7; box-shadow: 0 2px 8px rgba(4, 13, 42, 0.24); }
 
-@media (max-width: 1520px) {
+@media (min-width: 961px) and (max-width: 1520px) {
   .site-header { gap: 12px; padding-inline: 20px; }
   .chapter-nav button { min-width: 96px; padding-inline: 9px; }
   .header-actions { gap: 8px; }
@@ -3137,6 +3260,10 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   }
   .chapter, .build-prelude { scroll-margin-top: 56px; }
   .chapter-content { padding-top: 40px; }
-  .chapter-code-mobile .code-dock-shell { height: 360px; }
   footer { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+}
+
+/* Mobile code lives beside each explanation card, so the desktop dock instruction is hidden. */
+@media (max-width: 960px) {
+  .reading-order { display: none; }
 }

@@ -65,6 +65,21 @@ export function snapshotForCheckpoint(chapter: Chapter, checkpoint: number): Sna
     .map((number) => ({ number, text: contentLines[number - 1] ?? "" }));
 }
 
+/** 单个 fill 对应的源码片段。移动端将它直接放在讲解卡片下方，
+ * 因此只返回当前 fill 声明的区间，不累计前面的 checkpoint。 */
+export function snapshotForFill(chapter: Chapter, fillIndex: number): SnapshotLine[] {
+  const fill = chapterFills(chapter)[fillIndex];
+  if (!fill) return [];
+  const contentLines = chapter.source.content.trimEnd().split(/\r?\n/u);
+  const wanted = new Set<number>();
+  for (const [start, end] of fill.ranges) {
+    for (let line = start; line <= end; line += 1) wanted.add(line);
+  }
+  return [...wanted]
+    .sort((left, right) => left - right)
+    .map((number) => ({ number, text: contentLines[number - 1] ?? "" }));
+}
+
 /** 相对上一快照新增的行号集合（含空行）：新增代码块中的空行与代码行
  * 一起高亮，读者才能看到完整的新增块边界。 */
 export function newLineNumbers(previous: SnapshotLine[], current: SnapshotLine[]): Set<number> {

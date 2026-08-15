@@ -7,6 +7,7 @@ import {
   isFinalCheckpoint,
   newLineNumbers,
   snapshotForCheckpoint,
+  snapshotForFill,
 } from "../website/src/scroll-sync.js";
 import type { TutorialData } from "../website/src/types.js";
 
@@ -172,5 +173,39 @@ describe("newLineNumbers", () => {
     // 新块内部及尾部的空行随块高亮
     expect(added).toContain(213);
     expect(added).toContain(230);
+  });
+});
+
+describe("snapshotForFill", () => {
+  it("returns only the source ranges assigned to one code card", () => {
+    const chapter = tutorial.chapters[0]!;
+    const fills = chapterFills(chapter);
+    for (let fillIndex = 0; fillIndex < fills.length; fillIndex += 1) {
+      const expected = new Set<number>();
+      for (const [start, end] of fills[fillIndex]!.ranges) {
+        for (let line = start; line <= end; line += 1) expected.add(line);
+      }
+      const snapshot = snapshotForFill(chapter, fillIndex);
+      expect(snapshot.map((line) => line.number)).toEqual([...expected].sort((a, b) => a - b));
+    }
+  });
+
+  it("does not include lines from an earlier checkpoint", () => {
+    const chapter = tutorial.chapters[0]!;
+    const skeleton = new Set(snapshotForFill(chapter, 0).map((line) => line.number));
+    const codeOne = snapshotForFill(chapter, 1);
+    expect(codeOne.length).toBeGreaterThan(0);
+    expect(codeOne.every((line) => !skeleton.has(line.number))).toBe(true);
+  });
+
+  it("keeps every snippet line mapped to the original source", () => {
+    for (const chapter of tutorial.chapters) {
+      const sourceLines = chapter.source.content.split(/\r?\n/u);
+      for (let index = 0; index < chapterFills(chapter).length; index += 1) {
+        for (const line of snapshotForFill(chapter, index)) {
+          expect(line.text).toBe(sourceLines[line.number - 1]);
+        }
+      }
+    }
   });
 });
