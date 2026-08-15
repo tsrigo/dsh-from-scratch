@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2023",
-    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
@@ -12,8 +16,17 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "jsx": "react-jsx",
-    "types": ["node", "vitest/globals"],
+    "types": [
+      "node",
+      "vitest/globals",
+      "vite/client"
+    ],
     "noEmit": true
   },
-  "include": ["src", "tests", "scripts", "website"]
+  "include": [
+    "src",
+    "tests",
+    "scripts",
+    "website"
+  ]
 }

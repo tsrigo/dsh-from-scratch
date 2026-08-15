@@ -138,6 +138,8 @@ export function App() {
   const activeChapterIdRef = useRef(activeChapterId);
   const pendingChapterNavigationRef = useRef<string | null>(null);
   const navigationReleaseTimerRef = useRef<number | null>(null);
+  const appliedInitialHashRef = useRef(false);
+  const restoreScrollRef = useRef<number | null>(null);
   useEffect(() => { activeChapterIdRef.current = activeChapterId; }, [activeChapterId]);
   useEffect(() => () => {
     if (navigationReleaseTimerRef.current !== null) {
@@ -168,17 +170,27 @@ export function App() {
       : locale === "en"
         ? "/generated/tutorial.en.json"
         : "/generated/tutorial.json";
-    fetch(source)
+    // 开发模式下每次重新生成教程数据都可能改变 JSON 内容，
+    // 追加时间戳参数避免浏览器命中旧的 HTTP 缓存。
+    const cacheBust = import.meta.env.DEV ? `?v=${Date.now()}` : "";
+    fetch(`${source}${cacheBust}`)
       .then((response) => {
         if (!response.ok) throw new Error(`tutorial data: ${response.status}`);
         return response.json() as Promise<TutorialData>;
       })
       .then((nextData) => {
         if (!current) return;
-        const firstChapter = nextData.chapters[0];
         setData(nextData);
-        setActiveChapterId(firstChapter?.id ?? "chapter-1");
         setCheckpoint(null);
+        // 语言/文本切换会经历 data → null → data 的重载，页面高度塌缩后
+        // 浏览器会把滚动位置压到顶部；在这里恢复到切换前的位置。
+        if (restoreScrollRef.current !== null) {
+          const target = restoreScrollRef.current;
+          restoreScrollRef.current = null;
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: target, behavior: "instant" });
+          });
+        }
       })
       .catch((reason: unknown) => {
         if (current) setError(reason instanceof Error ? reason.message : String(reason));
@@ -268,6 +280,8 @@ export function App() {
   }, [data, lockedCodeView]);
 
   // URL hash 章节导航：刷新/前进后退保持章节位置；切换章节 = 换文件 + 滚到章首。
+  // hash 只在首次数据加载和真实的 hashchange 时生效。语言/文本切换会重新加载数据，
+  // 此时沿用当前章节；URL 里的旧 hash 是上次点击导航留下的，回跳它会打断阅读位置。
   useEffect(() => {
     if (!data) return;
     const fromHash = () => {
@@ -281,7 +295,10 @@ export function App() {
         sectionRefs.current.get(chapter.id)?.scrollIntoView({ behavior: "instant", block: "start" });
       });
     };
-    fromHash();
+    if (!appliedInitialHashRef.current) {
+      appliedInitialHashRef.current = true;
+      fromHash();
+    }
     window.addEventListener("hashchange", fromHash);
     return () => window.removeEventListener("hashchange", fromHash);
   }, [data]);
@@ -327,8 +344,8 @@ export function App() {
     else url.searchParams.delete("lang");
     window.history.replaceState(null, "", url);
     window.localStorage.setItem("tutorial-language", nextLanguage);
+    restoreScrollRef.current = window.scrollY;
     setLanguage(nextLanguage);
-    window.scrollTo({ top: 0, behavior: "auto" });
   };
 
   const switchLocale = (nextLocale: UiLocale) => {
@@ -338,6 +355,7 @@ export function App() {
     else url.searchParams.delete("locale");
     window.history.replaceState(null, "", url);
     window.localStorage.setItem("tutorial-locale", nextLocale);
+    restoreScrollRef.current = window.scrollY;
     setLocale(nextLocale);
   };
 
@@ -1656,21 +1674,22 @@ function MobileFullSource({ chapter, locale }: { chapter: Chapter; locale: UiLoc
   );
 }
 
-/** 证据卡：lesson 里的 evidence 块，按 target.tab 渲染压缩版内容。 */
+/** 证据块：编号子标题由课文的 ## 标题承担（如「1.1 循环：请求、执行、再请求」），
+ * 这里只渲染小标签、说明与数据卡片。source 卡没有独立内容（引导读者看右侧源码）。 */
 function EvidenceContentCard({ chapter, block, locale }: { chapter: Chapter; block: LessonEvidenceBlock; locale: UiLocale }) {
   const target = block.target;
   return (
-    <section className={`evidence-content-card evidence-${target.tab}`} data-evidence-cue={block.id}>
-      <div className="evidence-content-heading">
-        <span>{Number(chapter.number)}.{block.ordinal}</span>
-        <h4>{block.label}</h4>
-      </div>
-      <p className="evidence-content-description">{block.description}</p>
-      {target.tab === "request" && <RequestCard chapter={chapter} target={target} locale={locale} />}
-      {target.tab === "events" && <TraceCard chapter={chapter} target={target} locale={locale} />}
-      {target.tab === "graph" && <GraphCard chapter={chapter} target={target} locale={locale} />}
-      {target.tab === "diff" && <SummaryCard chapter={chapter} locale={locale} />}
-    </section>
+    <div className="evidence-block" data-evidence-cue={block.id}>
+      <p className="evidence-caption">{block.label}</p>
+      <p className="evidence-description">{block.description}</p>
+      {target.tab !== "source" && (
+        <section className={`evidence-content-card evidence-${target.tab}`}>
+          {target.tab === "request" && <RequestCard chapter={chapter} target={target} locale={locale} />}
+          {target.tab === "events" && <TraceCard chapter={chapter} target={target} locale={locale} />}
+          {target.tab === "graph" && <GraphCard chapter={chapter} target={target} locale={locale} />}
+        </section>
+      )}
+    </div>
   );
 }
 
@@ -1914,20 +1933,6 @@ function fillStageLabel(index: number, locale: UiLocale): string {
   return index === 0 ? locale === "en" ? "STRUCTURE" : "结构" : locale === "en" ? `CODE ${index}` : `代码 ${index}`;
 }
 
-/** 总结卡（压缩版，供 lesson evidence 块使用）：本章答案 */
-function SummaryCard({ chapter, locale }: { chapter: Chapter; locale: UiLocale }) {
-  const { changeStory } = chapter;
-  return (
-    <div className="evidence-card-body summary-card">
-      <p className="summary-question">{chapter.question}</p>
-      <h4>{changeStory.title}</h4>
-      <p>{changeStory.summary}</p>
-      <p className="summary-role"><b>{locale === "en" ? "Harness role" : "Harness 的角色"}</b>{changeStory.harnessRole}</p>
-      <p className="summary-connection">{changeStory.connection}</p>
-    </div>
-  );
-}
-
 /** 请求对比卡（压缩版）：相邻请求的 token 估算与首次失效位置 */
 function RequestCard({ chapter, target, locale }: { chapter: Chapter; target: EvidenceTarget; locale: UiLocale }) {
   const step = target.step ?? Math.min(chapter.requests.length - 1, 1);
@@ -1971,8 +1976,9 @@ function RequestCard({ chapter, target, locale }: { chapter: Chapter; target: Ev
           {evidence.parts.map((part) => (
             <details key={part.id} className={part.stability}>
               <summary>
-                <span>{requestPartLabel(part, locale)}</span>
+                <span className="request-part-label">{requestPartLabel(part, locale)}</span>
                 <small>{stabilityLabel(part.stability, locale)} · {locale === "en" ? `about ${part.approximateTokens} tokens` : `约 ${part.approximateTokens} token`}</small>
+                <span className="request-part-toggle">{locale === "en" ? "Expand ▸" : "展开 ▸"}</span>
               </summary>
               <pre><SyntaxCode code={formatJson(part.value)} language="json" /></pre>
             </details>
