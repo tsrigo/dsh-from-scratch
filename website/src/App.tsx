@@ -1414,17 +1414,19 @@ function Hero({ data, locale, onStart }: { data: TutorialData; locale: UiLocale;
   return (
     <section className="hero">
       <div className="hero-copy">
-        <p className="eyebrow">{locale === "en" ? `${language} FROM SCRATCH · RUNNABLE TUTORIAL` : `${language} 从零实现 · 可运行教程`}</p>
-        <h1>
-          <span className="hero-line">{locale === "en" ? "Understand how" : "理解 DeepSeek Harness"}</span>
-          <span className="hero-line">{locale === "en" ? "DeepSeek Harness handles" : "如何逐步处理"}</span>
-          <span className="hero-line hero-line-accent">{locale === "en" ? "complex tasks" : "复杂任务"}</span>
-        </h1>
+        <div className="hero-copy-main">
+          <p className="eyebrow">{locale === "en" ? `${language} FROM SCRATCH · RUNNABLE TUTORIAL` : `${language} 从零实现 · 可运行教程`}</p>
+          <h1>
+            <span className="hero-line">{locale === "en" ? "Understand how" : "理解 DeepSeek Harness"}</span>
+            <span className="hero-line">{locale === "en" ? "DeepSeek Harness handles" : "如何逐步处理"}</span>
+            <span className="hero-line hero-line-accent">{locale === "en" ? "complex tasks" : "复杂任务"}</span>
+          </h1>
           <p className="hero-intro">
             {locale === "en" ? "DeepSeek Harness (DSH) provides the runtime in which a model completes tasks. It organizes model input, executes tools, and preserves the execution history." : "DeepSeek Harness（DSH）为模型执行任务提供运行环境，负责组织模型输入、执行工具并保存执行过程。"}
             <br />
             {locale === "en" ? "Each of the six chapters uses a minimal runnable example to explain one foundational mechanism." : "六章分别使用一个可运行的最小样本，说明六项基础机制。"}
           </p>
+        </div>
         <div className="hero-actions">
           <button className="primary-action" onClick={onStart}>{locale === "en" ? "Start with the six questions" : "从六个问题开始"} <span>↓</span></button>
         </div>
