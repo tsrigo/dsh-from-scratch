@@ -191,8 +191,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible {
 }
 .primary-action:hover { background: #a2e8ff; }
 .primary-action span { font-size: 19px; }
-.offline-badge { display: flex; align-items: center; gap: 9px; color: #9db9cf; font-size: 13px; }
-.offline-badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
 
 .hero-facts { display: flex; width: min(100%, 650px); margin-top: 58px; border-top: 1px solid rgba(173, 216, 249, 0.17); }
 .hero-facts div { min-width: 175px; padding: 21px 26px 0 0; }
@@ -1298,8 +1296,6 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline-color: #7
   box-shadow: 0 10px 28px rgba(41, 62, 120, 0.18);
 }
 .primary-action:hover { background: #17275b; }
-.offline-badge { color: #55709b; }
-.offline-badge i { background: #7898ca; box-shadow: 0 0 12px rgba(120, 152, 202, 0.45); }
 .hero-facts { border-top-color: rgba(41, 62, 120, 0.16); }
 .hero-facts b { color: #17275b; }
 .hero-facts span { color: #64779b; }
@@ -1652,8 +1648,6 @@ body {
 .hero-intro { color: #405580; }
 .primary-action { color: #fffefc; background: #17377f; border-color: #17377f; box-shadow: 0 10px 28px rgba(24, 55, 126, 0.2); }
 .primary-action:hover { background: #0a1b57; }
-.offline-badge { color: #536b98; }
-.offline-badge i { background: #5d8bd4; box-shadow: 0 0 12px rgba(78, 120, 201, 0.5); }
 .hero-facts { border-top-color: rgba(26, 57, 129, 0.18); }
 .hero-facts b { color: #0a1b57; }
 .hero-facts span { color: #536b98; }
@@ -3137,8 +3131,8 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 
 @media (max-width: 560px) {
   .hero {
-    min-height: calc(100svh - 56px);
-    padding: 44px 20px 56px;
+    min-height: 0;
+    padding: 44px 20px 34px;
   }
   .hero h1 {
     font-size: clamp(32px, 9.6vw, 41px);
@@ -3211,7 +3205,6 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   .hero h1 { font-size: 32px; }
   .hero-intro br { display: none; }
   .primary-action { width: 100%; justify-content: space-between; }
-  .offline-badge { font-size: 12px; }
   .request-segments { grid-template-columns: 1fr; }
   .request-segments > span { grid-column: 1; }
   .scaffold-chapter strong,

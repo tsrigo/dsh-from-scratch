@@ -1427,7 +1427,6 @@ function Hero({ data, locale, onStart }: { data: TutorialData; locale: UiLocale;
           </p>
         <div className="hero-actions">
           <button className="primary-action" onClick={onStart}>{locale === "en" ? "Start with the six questions" : "从六个问题开始"} <span>↓</span></button>
-          <span className="offline-badge"><i /> {locale === "en" ? "Tutorial data is included for offline reading" : "教程数据随网页提供，可离线查看"}</span>
         </div>
       </div>
       <div
