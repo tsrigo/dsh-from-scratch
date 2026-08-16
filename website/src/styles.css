@@ -3176,8 +3176,10 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 
 @media (max-width: 560px) {
   .hero {
-    min-height: calc(100svh - 56px);
-    padding: 0 0 34px;
+    min-height: 0;
+    grid-template-rows: auto auto;
+    align-content: start;
+    padding: 0 0 12px;
   }
   .hero-copy-main { padding: 44px 20px 24px; }
   .hero h1 {
