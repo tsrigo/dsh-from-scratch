@@ -1416,10 +1416,10 @@ function Hero({ data, locale, onStart }: { data: TutorialData; locale: UiLocale;
       <div className="hero-copy">
         <div className="hero-copy-main">
           <p className="eyebrow">{locale === "en" ? `${language} FROM SCRATCH · RUNNABLE TUTORIAL` : `${language} 从零实现 · 可运行教程`}</p>
-          <h1>
-            <span className="hero-line">{locale === "en" ? "Understand how" : "理解 DeepSeek Harness"}</span>
-            <span className="hero-line">{locale === "en" ? "DeepSeek Harness handles" : "如何逐步处理"}</span>
-            <span className="hero-line hero-line-accent">{locale === "en" ? "complex tasks" : "复杂任务"}</span>
+          <h1 aria-label={locale === "en" ? undefined : "逐步理解 DeepSeek Harness 如何处理复杂任务"}>
+            <span className="hero-line">{locale === "en" ? "Understand how" : "逐步理解"}</span>
+            <span className="hero-line">{locale === "en" ? "DeepSeek Harness handles" : "DeepSeek Harness"}</span>
+            <span className="hero-line hero-line-accent">{locale === "en" ? "complex tasks" : "如何处理复杂任务"}</span>
           </h1>
           <p className="hero-intro">
             {locale === "en" ? "DeepSeek Harness (DSH) provides the runtime in which a model completes tasks. It organizes model input, executes tools, and preserves the execution history." : "DeepSeek Harness（DSH）为模型执行任务提供运行环境，负责组织模型输入、执行工具并保存执行过程。"}
