@@ -3067,7 +3067,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
 .hero-art-fill {
   min-width: 0;
   flex: 1 1 auto;
-  background-image: url("./assets/hero-left-fill.png");
+  background-image: url("./assets/hero-left-fill.webp");
   background-repeat: repeat-x;
   background-position: right center;
   background-size: auto 100%;
@@ -3077,7 +3077,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
   height: 100%;
   aspect-ratio: 1672 / 941;
   flex: 0 0 auto;
-  background-image: url("./assets/hero-candidate-1-watercolor-academy.png");
+  background-image: url("./assets/hero-candidate-1-watercolor-academy.webp");
   background-repeat: no-repeat;
   background-position: center;
   background-size: 100% 100%;
@@ -3152,7 +3152,7 @@ footer { color: #a8c5ec; border-top-color: rgba(176, 204, 242, 0.32); }
     inset: 0;
     background-image:
       radial-gradient(circle at 100% 0%, rgba(103, 158, 224, 0.3) 0%, rgba(157, 195, 237, 0.16) 28%, rgba(255, 255, 255, 0) 58%),
-      url("./assets/hero-left-fill.png");
+      url("./assets/hero-left-fill.webp");
     background-repeat: no-repeat, repeat-x;
     background-position: right top, right top;
     background-size: 100% 100%, auto 100%;
